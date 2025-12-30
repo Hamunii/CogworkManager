@@ -24,5 +24,8 @@ public class ModListTests
 
         modList.Add(peaklibCore);
         Console.WriteLine(modList);
+
+        modList.Add(peaklibItems);
+        Console.WriteLine(modList);
     }
 }

@@ -12,7 +12,7 @@ public class ModList
 
     public void Add(PackageVersion package)
     {
-        Added.AddOrResolveHigherVersion(package);
+        _ = Added.AddOrUpdateToHigherVersion(package);
         RebuildDependencies();
     }
 
@@ -24,14 +24,21 @@ public class ModList
 
     public void RebuildDependencies()
     {
-        Dictionary<Package, PackageVersion> allDependencies = [];
+        Dictionary<Package, PackageVersion> map = [];
 
+        // Pass 1: collect highest available package versions to map.
         foreach (var added in Added)
         {
-            foreach (var dependency in added.Value.AllDependencies)
-            {
-                allDependencies.AddOrResolveHigherVersion(dependency);
-            }
+            added.Value.CollectAllDependencies(map);
+        }
+
+        Dictionary<Package, PackageVersion> allDependencies = [];
+
+        // Pass 2: use the map to collect only dependencies of packages with highest versions.
+        foreach (var added in Added)
+        {
+            var higher = map.GetHigherVersion(added.Value);
+            higher.CollectAllDependencies(map, allDependencies);
         }
 
         foreach (var added in Added)
@@ -53,7 +60,7 @@ public class ModList
         }
 
         sb.AppendLine("Dependencies:");
-        foreach (var dependency in Dependencies.Values.Reverse())
+        foreach (var dependency in Dependencies.Values)
         {
             sb.Append("  ");
             sb.AppendLine(dependency.ToString());
@@ -65,7 +72,15 @@ public class ModList
 
 public static class ModListExtensions
 {
-    public static void AddOrResolveHigherVersion(
+    /// <summary>
+    /// Adds <paramref name="package"/> to the provided <paramref name="dictionary"/>.
+    /// If the <paramref name="package"/> already exists in the <paramref name="dictionary"/>,
+    /// then it's only updated if the value is higher than the existing value.
+    /// </summary>
+    /// <returns>
+    /// <see langword="true"/> if value was added or updated; otherwise <see langword="false"/>.
+    /// </returns>
+    public static bool AddOrUpdateToHigherVersion(
         this Dictionary<Package, PackageVersion> dictionary,
         PackageVersion package
     )
@@ -79,16 +94,33 @@ public static class ModListExtensions
         if (!exists)
         {
             value = package;
-            return;
+            return true;
         }
 
-        if (value!.Data.Version > package.Data.Version)
-        {
-            return;
-        }
-        else
+        if (package.Data.Version > value!.Data.Version)
         {
             value = package;
+            return true;
         }
+
+        return false;
+    }
+
+    public static PackageVersion GetHigherVersion(
+        this Dictionary<Package, PackageVersion> dictionary,
+        PackageVersion package
+    )
+    {
+        if (!dictionary.TryGetValue(package.Package, out var value))
+        {
+            return package;
+        }
+
+        if (package.Data.Version > value.Data.Version)
+        {
+            return package;
+        }
+
+        return value;
     }
 }
