@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(CogworkTargetFramework)</TargetFramework>
+    <AssemblyName>Cogwork.Core</AssemblyName>
+    <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
+    <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cogwork.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Cogwork.Core/Cogwork.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Cogwork.Tests/Cogwork.Tests.csproj" />
+  </Folder>
+</Solution>

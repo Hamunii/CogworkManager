@@ -1,0 +1,11 @@
+<Project>
+  <!-- Main references -->
+  <ItemGroup>
+    <PackageReference
+      Include="PolySharp"
+      Version="1.15.0"
+      PrivateAssets="all"
+      Condition="$(ReferencePolySharp) == 'true'"
+    />
+  </ItemGroup>
+</Project>
