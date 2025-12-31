@@ -8,7 +8,7 @@ public class ModList
     public Dictionary<Package, PackageVersion> Added { get; } = [];
     public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
 
-    public void Add(Package package) => Add(package.Versions.First());
+    public void Add(Package package) => Add(package.Latest);
 
     public void Add(PackageVersion package)
     {
@@ -97,7 +97,7 @@ public static class ModListExtensions
             return true;
         }
 
-        if (package.Data.Version > value!.Data.Version)
+        if (package.Version > value!.Version)
         {
             value = package;
             return true;
@@ -116,7 +116,7 @@ public static class ModListExtensions
             return package;
         }
 
-        if (package.Data.Version > value.Data.Version)
+        if (package.Version > value.Version)
         {
             return package;
         }

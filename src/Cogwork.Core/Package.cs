@@ -11,13 +11,29 @@ public record Package
     public Author Author { get; }
     public string Name { get; }
     public PackageVersion[] Versions { get; }
+    public PackageVersion Latest => Versions[0];
 
-    public Package(Author author, string name, PackageVersionData[] versions)
+    public Package(Author author, string name, Func<Package, PackageVersion[]> versions)
     {
         Author = author;
         Name = name;
-        Versions = [.. versions.Select(x => new PackageVersion(this, x))];
-        _ = nameToPackage.TryAdd(ToStringSimple(), this);
+        Versions = versions(this);
+
+        _ = nameToPackage
+            .GetAlternateLookup<ReadOnlySpan<char>>()
+            .TryAdd($"{Author.Name}-{Name}", this);
+    }
+
+    public Package(ReadOnlySpan<char> fullName, Func<Package, PackageVersion[]> versions)
+    {
+        var enumerator = fullName.Split('-');
+        enumerator.MoveNext();
+        Author = fullName[enumerator.Current].ToString();
+        enumerator.MoveNext();
+        Name = fullName[enumerator.Current].ToString();
+        Versions = versions(this);
+
+        _ = nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>().TryAdd(fullName, this);
     }
 
     public bool TryGetVersion(
@@ -25,7 +41,7 @@ public record Package
         [NotNullWhen(true)] out PackageVersion? packageVersion
     )
     {
-        packageVersion = Versions.FirstOrDefault(x => x.Data.Version == version);
+        packageVersion = Versions.FirstOrDefault(x => x.Version == version);
         if (packageVersion is null)
         {
             Console.Error.WriteLine($"Version '{version}' not found for '{ToStringSimple()}'");
@@ -47,7 +63,7 @@ public record Package
 
         foreach (var version in Versions)
         {
-            sb.AppendLine(CultureInfo.InvariantCulture, $"  {version.Data.Version}: {{");
+            sb.AppendLine(CultureInfo.InvariantCulture, $"  {version.Version}: {{");
             sb.AppendLine("    dependencies: [");
             foreach (var dependency in version.MarkedDependencies)
             {
@@ -66,22 +82,30 @@ public record PackageVersion
 {
     public PackageVersion[] MarkedDependencies =>
         field ??= [
-            .. Data
-                .DependencyStrings.Select(fullNameWithVersion =>
+            .. _dependencyStrings
+                .Select(fullNameWithVersionString =>
                 {
+                    var fullNameWithVersion = fullNameWithVersionString.AsSpan();
                     var split = fullNameWithVersion.Split('-');
-                    var fullName = string.Join('-', split.Take(2));
+                    split.MoveNext();
+                    split.MoveNext();
+                    var fullName = fullNameWithVersion[0..split.Current.End];
+                    split.MoveNext();
                     Version version;
                     try
                     {
-                        version = new(split[^1]);
+                        version = new(fullNameWithVersion[split.Current].ToString());
                     }
                     catch (Exception ex)
                     {
-                        throw new ArgumentException(fullNameWithVersion, ex);
+                        throw new ArgumentException(fullNameWithVersionString, ex);
                     }
 
-                    if (!Package.nameToPackage.TryGetValue(fullName, out var packageFromName))
+                    if (
+                        !Package
+                            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
+                            .TryGetValue(fullName, out var packageFromName)
+                    )
                     {
                         Console.Error.WriteLine($"Package for '{fullName}' was not found.");
                         return null;
@@ -105,6 +129,18 @@ public record PackageVersion
             CollectDependencies(actualDependencies);
             return field = [.. actualDependencies];
         }
+    }
+
+    public Version Version { get; }
+    public Package Package { get; }
+
+    readonly string[] _dependencyStrings;
+
+    public PackageVersion(Package package, Version version, string[] dependencyStrings)
+    {
+        Package = package;
+        Version = version;
+        _dependencyStrings = dependencyStrings;
     }
 
     void CollectDependencies(HashSet<PackageVersion> actualDependencies)
@@ -161,22 +197,11 @@ public record PackageVersion
         }
     }
 
-    public PackageVersionData Data { get; }
-    public Package Package { get; }
-
-    public PackageVersion(Package package, PackageVersionData versionData)
-    {
-        Package = package;
-        Data = versionData;
-    }
-
     public override string ToString()
     {
-        return $"{Package.Author.Name}-{Package.Name}-{Data.Version}";
+        return $"{Package.Author.Name}-{Package.Name}-{Version}";
     }
 }
-
-public readonly record struct PackageVersionData(Version Version, string[] DependencyStrings) { }
 
 public readonly record struct Author(string Name)
 {
