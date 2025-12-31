@@ -29,7 +29,7 @@ public class ModList
         // Pass 1: collect highest available package versions to map.
         foreach (var added in Added)
         {
-            added.Value.CollectAllDependencies(map);
+            added.Value.CollectAllDependenciesToMap(map);
         }
 
         Dictionary<Package, PackageVersion> allDependencies = [];
@@ -38,7 +38,7 @@ public class ModList
         foreach (var added in Added)
         {
             var higher = map.GetHigherVersion(added.Value);
-            higher.CollectAllDependencies(map, allDependencies);
+            higher.CollectAllDependenciesToDestination(map, allDependencies);
         }
 
         foreach (var added in Added)

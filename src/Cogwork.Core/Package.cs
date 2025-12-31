@@ -118,35 +118,35 @@ public record PackageVersion
         }
     }
 
-    public void CollectAllDependencies(Dictionary<Package, PackageVersion> map)
+    public void CollectAllDependenciesToMap(Dictionary<Package, PackageVersion> map)
     {
         if (map.AddOrUpdateToHigherVersion(this))
         {
-            CollectDependencies(map);
+            CollectDependenciesToMapRecursive(map);
         }
     }
 
-    void CollectDependencies(Dictionary<Package, PackageVersion> map)
+    void CollectDependenciesToMapRecursive(Dictionary<Package, PackageVersion> map)
     {
         foreach (var dependency in MarkedDependencies)
         {
             if (map.AddOrUpdateToHigherVersion(dependency))
             {
-                dependency.CollectDependencies(map);
+                dependency.CollectDependenciesToMapRecursive(map);
             }
         }
     }
 
-    public void CollectAllDependencies(
+    public void CollectAllDependenciesToDestination(
         Dictionary<Package, PackageVersion> map,
         Dictionary<Package, PackageVersion> destination
     )
     {
         var higher = map.GetHigherVersion(this);
-        higher.CollectDependencies(map, destination);
+        higher.CollectDependenciesToDestinationRecursive(map, destination);
     }
 
-    void CollectDependencies(
+    void CollectDependenciesToDestinationRecursive(
         Dictionary<Package, PackageVersion> map,
         Dictionary<Package, PackageVersion> destination
     )
@@ -156,7 +156,7 @@ public record PackageVersion
             var higher = map.GetHigherVersion(dependency);
             if (destination.TryAdd(higher.Package, higher))
             {
-                higher.CollectDependencies(map, destination);
+                higher.CollectDependenciesToDestinationRecursive(map, destination);
             }
         }
     }
