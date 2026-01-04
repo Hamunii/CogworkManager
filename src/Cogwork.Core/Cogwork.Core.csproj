@@ -9,4 +9,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Cogwork.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Xdg.Directories" Version="0.1.2" />
+  </ItemGroup>
 </Project>

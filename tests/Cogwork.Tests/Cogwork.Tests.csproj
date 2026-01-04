@@ -22,5 +22,6 @@
   <!-- Local project references -->
   <ItemGroup>
     <ProjectReference Include="$(SolutionRoot)src/Cogwork.Core/Cogwork.Core.csproj" />
+    <Using Include="Cogwork.Core" />
   </ItemGroup>
 </Project>

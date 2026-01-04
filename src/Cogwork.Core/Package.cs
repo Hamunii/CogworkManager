@@ -12,20 +12,26 @@ public record Package
     public string Name { get; }
     public PackageVersion[] Versions { get; }
     public PackageVersion Latest => Versions[0];
+    public PackageRepo PackageRepo { get; }
 
-    public Package(Author author, string name, Func<Package, PackageVersion[]> versions)
+    // public Package(Author author, string name, Func<Package, PackageVersion[]> versions)
+    // {
+    //     Author = author;
+    //     Name = name;
+    //     Versions = versions(this);
+
+    //     _ = nameToPackage
+    //         .GetAlternateLookup<ReadOnlySpan<char>>()
+    //         .TryAdd($"{Author.Name}-{Name}", this);
+    // }
+
+    public Package(
+        PackageRepo repository,
+        ReadOnlySpan<char> fullName,
+        Func<Package, PackageVersion[]> versions
+    )
     {
-        Author = author;
-        Name = name;
-        Versions = versions(this);
-
-        _ = nameToPackage
-            .GetAlternateLookup<ReadOnlySpan<char>>()
-            .TryAdd($"{Author.Name}-{Name}", this);
-    }
-
-    public Package(ReadOnlySpan<char> fullName, Func<Package, PackageVersion[]> versions)
-    {
+        PackageRepo = repository;
         var enumerator = fullName.Split('-');
         enumerator.MoveNext();
         Author = fullName[enumerator.Current].ToString();
@@ -34,6 +40,36 @@ public record Package
         Versions = versions(this);
 
         _ = nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>().TryAdd(fullName, this);
+    }
+
+    public static Package GetPackage(ReadOnlySpan<char> fullNameWithVersion, out Version version)
+    {
+        var split = fullNameWithVersion.Split('-');
+        split.MoveNext();
+        split.MoveNext();
+        var name = fullNameWithVersion[0..split.Current.End];
+        split.MoveNext();
+        try
+        {
+            version = new(fullNameWithVersion[split.Current].ToString());
+        }
+        catch (Exception ex)
+        {
+            throw new ArgumentException(fullNameWithVersion.ToString(), ex);
+        }
+
+        var package = nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()[name];
+        return package;
+    }
+
+    public static PackageVersion GetPackageVersion(ReadOnlySpan<char> fullNameWithVersion)
+    {
+        var package = GetPackage(fullNameWithVersion, out var version);
+        if (!package.TryGetVersion(version, out var packageVersion))
+        {
+            throw new ArgumentException($"Version for '{fullNameWithVersion}' doesn't exist.");
+        }
+        return packageVersion;
     }
 
     public bool TryGetVersion(
@@ -199,7 +235,12 @@ public record PackageVersion
 
     public override string ToString()
     {
-        return $"{Package.Author.Name}-{Package.Name}-{Version}";
+        var at = Package.PackageRepo.Repo
+            is { RepoKind: not PackageRepo.Repository.Kind.Thunderstore } repo
+            ? repo.Url.Host
+            : "ts";
+
+        return $"{Package.Author.Name}-{Package.Name}-{Version}-{at}";
     }
 }
 
