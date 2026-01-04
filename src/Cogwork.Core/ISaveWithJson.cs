@@ -8,14 +8,15 @@ public interface ISaveWithJson<T>;
 
 public static class ISaveWithJsonExtensions
 {
-    static readonly JsonSerializerOptions options = new() { WriteIndented = true };
+    internal static JsonSerializerOptions Options { get; } =
+        new() { WriteIndented = true, AllowTrailingCommas = true };
 
     extension<T>(T self)
         where T : ISaveWithJson
     {
         public void Save(string fileLocation)
         {
-            var serialized = JsonSerializer.Serialize(self, options);
+            var serialized = JsonSerializer.Serialize(self, Options);
             _ = Directory.CreateDirectory(Path.GetDirectoryName(fileLocation)!);
             File.WriteAllText(fileLocation, serialized);
         }
@@ -26,7 +27,7 @@ public static class ISaveWithJsonExtensions
     {
         public void Save(T2 data, string fileLocation)
         {
-            var serialized = JsonSerializer.Serialize(data, options);
+            var serialized = JsonSerializer.Serialize(data, Options);
             _ = Directory.CreateDirectory(Path.GetDirectoryName(fileLocation)!);
             File.WriteAllText(fileLocation, serialized);
         }

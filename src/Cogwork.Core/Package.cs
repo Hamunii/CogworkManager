@@ -16,9 +16,9 @@ public record Package
 
     [JsonInclude]
     [JsonPropertyName("versions")]
-    public PackageVersion[] Versions { get; }
+    public PackageVersion[] Versions { get; internal set; }
     public PackageVersion Latest => Versions[0];
-    public PackageRepo.Repository Repository { get; } = null!;
+    public PackageRepo.Repository Repository { get; internal set; } = null!;
 
     [JsonConstructor]
     public Package(string fullName, PackageVersion[] versions)
@@ -54,6 +54,39 @@ public record Package
         Versions = versions(this);
 
         _ = repo.nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>().TryAdd(fullName, this);
+    }
+
+    public static bool TryGetPackage(
+        ReadOnlySpan<char> fullName,
+        [NotNullWhen(true)] out Package? package
+    )
+    {
+        var split = fullName.Split('-');
+        split.MoveNext();
+        split.MoveNext();
+        var name = fullName[0..split.Current.End];
+
+        PackageRepo.Repository repo;
+        if (!split.MoveNext())
+        {
+            repo = PackageRepo.Repository.Thunderstore;
+        }
+        else
+        {
+            var repository = fullName[split.Current];
+            if (repository == "ts")
+            {
+                repo = PackageRepo.Repository.Thunderstore;
+            }
+            else
+            {
+                throw new NotImplementedException("Only 'ts' as Thunderstore is supported.");
+            }
+        }
+
+        return repo
+            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
+            .TryGetValue(name, out package);
     }
 
     public static Package GetPackage(ReadOnlySpan<char> fullNameWithVersion, out Version version)
@@ -218,15 +251,14 @@ public record PackageVersion
     [JsonInclude]
     [JsonPropertyName("version_number")]
     public Version Version { get; }
-    public Package Package { get; internal set; }
+    public Package Package { get; internal set; } = null!;
 
     [JsonInclude]
     [JsonPropertyName("dependencies")]
     string[] DependencyStrings { get; }
 
-    public PackageVersion(Package package, Version version, string[] dependencyStrings)
+    public PackageVersion(Version version, string[] dependencyStrings)
     {
-        Package = package;
         Version = version;
         DependencyStrings = dependencyStrings;
     }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -55,7 +56,7 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
     public class Platforms
     {
         [JsonPropertyName("steam")]
-        public required SteamId? Steam { get; init; }
+        public SteamId? Steam { get; init; }
     }
 
     public class Game
@@ -121,7 +122,7 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         }
     }
 
-    public List<Package> Packages { get; init; } = [];
+    public List<Package> Packages { get; private set; } = [];
     readonly Game _game;
     public Repository Repo { get; }
     bool isImported;
@@ -179,35 +180,58 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
     {
         if (File.Exists(CacheRepoIndexLocation))
         {
-            using var stream = File.OpenRead(CacheRepoIndexLocation);
-            try
+            var data = File.ReadAllText(CacheRepoIndexLocation);
+            if (Import(data))
             {
-                var packages = JsonSerializer.Deserialize<List<Package>>(stream);
-                if (packages is { })
-                {
-                    foreach (var package in packages)
-                    {
-                        _ = Repo
-                            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
-                            .TryAdd(package.FullName, package);
-                    }
-                    foreach (var package in packages)
-                    {
-                        Console.WriteLine(package);
-                    }
-                    isImported = true;
-                    return;
-                }
-            }
-            catch (JsonException ex)
-            {
-                Console.Error.Write("Error reading cache file: ");
-                Console.Error.WriteLine(ex);
+                isImported = true;
+                return;
             }
         }
 
         throw new NotImplementedException(
             $"Repository file '{CacheRepoIndexLocation}' must exist for now."
         );
+    }
+
+    internal bool Import(string data)
+    {
+        try
+        {
+            var packages = JsonSerializer.Deserialize<List<Package>>(
+                data,
+                ISaveWithJsonExtensions.Options
+            );
+            if (packages is { })
+            {
+                for (int i = 0; i < packages.Count; i++)
+                {
+                    Package package = packages[i];
+                    package.Repository = Repo;
+
+                    if (
+                        !Repo
+                            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
+                            .TryAdd(package.FullName, package)
+                    )
+                    {
+                        // If we are here, we just created a whole lot of
+                        // duplicate package instances. We connect the instances:
+                        if (Package.TryGetPackage(package.FullName, out var oldPackage))
+                        {
+                            oldPackage.Versions = package.Versions;
+                            packages[i] = oldPackage;
+                        }
+                    }
+                }
+                Packages = packages;
+                return true;
+            }
+        }
+        catch (JsonException ex)
+        {
+            Console.Error.Write("Error reading cache file: ");
+            Console.Error.WriteLine(ex);
+        }
+        return false;
     }
 }

@@ -5,12 +5,11 @@ public class ModListTests
     [Fact]
     public void PrintModList()
     {
+        
         foreach (var package in MockData.GetAllPackages())
         {
             Console.WriteLine(package);
         }
-
-        PackageRepo.Silksong.GetAllPackages();
 
         var allPackages = MockData.GetAllPackages();
 
