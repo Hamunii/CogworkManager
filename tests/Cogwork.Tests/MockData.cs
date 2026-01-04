@@ -5,12 +5,12 @@ static class MockData
     static readonly Package[] packages =
     [
         new(
-            PackageRepo.Silksong,
+            PackageRepo.Repository.Thunderstore,
             "MonoDetour-MonoDetour",
             x => [new(x, new(0, 7, 9), ["AuthorName-ItemMod-1.0.0"]), new(x, new(0, 7, 8), [])]
         ),
         new(
-            PackageRepo.Silksong,
+            PackageRepo.Repository.Thunderstore,
             "MonoDetour-MonoDetour_BepInEx_5",
             x =>
                 [
@@ -18,9 +18,13 @@ static class MockData
                     new(x, new(0, 7, 8), ["MonoDetour-MonoDetour-0.7.8"]),
                 ]
         ),
-        new(PackageRepo.Silksong, "Hamunii-AutoHookGenPatcher", x => [new(x, new(1, 0, 0), [])]),
         new(
-            PackageRepo.Silksong,
+            PackageRepo.Repository.Thunderstore,
+            "Hamunii-AutoHookGenPatcher",
+            x => [new(x, new(1, 0, 0), [])]
+        ),
+        new(
+            PackageRepo.Repository.Thunderstore,
             "PEAKLib-PEAKLib.Core",
             x =>
                 [
@@ -29,7 +33,7 @@ static class MockData
                 ]
         ),
         new(
-            PackageRepo.Silksong,
+            PackageRepo.Repository.Thunderstore,
             "PEAKLib-PEAKLib.Items",
             x =>
                 [

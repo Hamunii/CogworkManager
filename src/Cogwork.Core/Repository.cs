@@ -14,8 +14,18 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
             CogV1,
         }
 
+        public static Repository Thunderstore { get; } =
+            new(new("https://thunderstore.io"), Kind.Thunderstore);
+
+        internal ConcurrentDictionary<string, Package> nameToPackage = [];
+
         public Uri Url { get; } = url;
         public Kind RepoKind { get; } = repoKind;
+
+        public override string ToString()
+        {
+            return Url.ToString();
+        }
     }
 
     public class RepositoryCache
@@ -55,10 +65,7 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         public required Platforms Platforms { get; init; }
     }
 
-    public static Repository Thunderstore { get; } =
-        new(new("https://thunderstore.io"), Repository.Kind.Thunderstore);
-
-    public static PackageRepo Silksong { get; } = new(Game.Silksong, Thunderstore);
+    public static PackageRepo Silksong { get; } = new(Game.Silksong, Repository.Thunderstore);
 
     public string FileLocation =>
         field ??= Path.Combine(
@@ -94,7 +101,6 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
     }
 
     static readonly Package[] packages = [];
-
     readonly Game _game;
     public Repository Repo { get; }
 

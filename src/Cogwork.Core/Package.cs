@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
@@ -7,31 +6,19 @@ namespace Cogwork.Core;
 
 public record Package
 {
-    internal static ConcurrentDictionary<string, Package> nameToPackage = [];
     public Author Author { get; }
     public string Name { get; }
     public PackageVersion[] Versions { get; }
     public PackageVersion Latest => Versions[0];
-    public PackageRepo PackageRepo { get; }
-
-    // public Package(Author author, string name, Func<Package, PackageVersion[]> versions)
-    // {
-    //     Author = author;
-    //     Name = name;
-    //     Versions = versions(this);
-
-    //     _ = nameToPackage
-    //         .GetAlternateLookup<ReadOnlySpan<char>>()
-    //         .TryAdd($"{Author.Name}-{Name}", this);
-    // }
+    public PackageRepo.Repository Repository { get; }
 
     public Package(
-        PackageRepo repository,
+        PackageRepo.Repository repo,
         ReadOnlySpan<char> fullName,
         Func<Package, PackageVersion[]> versions
     )
     {
-        PackageRepo = repository;
+        Repository = repo;
         var enumerator = fullName.Split('-');
         enumerator.MoveNext();
         Author = fullName[enumerator.Current].ToString();
@@ -39,7 +26,7 @@ public record Package
         Name = fullName[enumerator.Current].ToString();
         Versions = versions(this);
 
-        _ = nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>().TryAdd(fullName, this);
+        _ = repo.nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>().TryAdd(fullName, this);
     }
 
     public static Package GetPackage(ReadOnlySpan<char> fullNameWithVersion, out Version version)
@@ -58,7 +45,19 @@ public record Package
             throw new ArgumentException(fullNameWithVersion.ToString(), ex);
         }
 
-        var package = nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()[name];
+        PackageRepo.Repository repo;
+        split.MoveNext();
+        var repository = fullNameWithVersion[split.Current];
+        if (repository == "ts")
+        {
+            repo = PackageRepo.Repository.Thunderstore;
+        }
+        else
+        {
+            throw new NotImplementedException("Only 'ts' as Thunderstore is supported.");
+        }
+
+        var package = repo.nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()[name];
         return package;
     }
 
@@ -137,13 +136,35 @@ public record PackageVersion
                         throw new ArgumentException(fullNameWithVersionString, ex);
                     }
 
+                    PackageRepo.Repository repo;
+                    if (!split.MoveNext())
+                    {
+                        repo = PackageRepo.Repository.Thunderstore;
+                    }
+                    else
+                    {
+                        var repository = fullNameWithVersion[split.Current];
+                        if (repository == "ts")
+                        {
+                            repo = PackageRepo.Repository.Thunderstore;
+                        }
+                        else
+                        {
+                            throw new NotImplementedException(
+                                "Only 'ts' as Thunderstore is supported."
+                            );
+                        }
+                    }
+
                     if (
-                        !Package
+                        !repo
                             .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
                             .TryGetValue(fullName, out var packageFromName)
                     )
                     {
-                        Console.Error.WriteLine($"Package for '{fullName}' was not found.");
+                        Console.Error.WriteLine(
+                            $"Package for '{fullName}' in '{repo}' was not found."
+                        );
                         return null;
                     }
 
@@ -235,7 +256,7 @@ public record PackageVersion
 
     public override string ToString()
     {
-        var at = Package.PackageRepo.Repo
+        var at = Package.Repository
             is { RepoKind: not PackageRepo.Repository.Kind.Thunderstore } repo
             ? repo.Url.Host
             : "ts";
