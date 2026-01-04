@@ -6,7 +6,7 @@ namespace Cogwork.Core;
 
 public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
 {
-    public class Repository(Uri url, Repository.Kind repoKind)
+    public class Repository
     {
         public enum Kind
         {
@@ -18,13 +18,26 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
             new(new("https://thunderstore.io"), Kind.Thunderstore);
 
         internal ConcurrentDictionary<string, Package> nameToPackage = [];
+        internal ConcurrentDictionary<string, Repository> urlToRepository = [];
 
-        public Uri Url { get; } = url;
-        public Kind RepoKind { get; } = repoKind;
+        public Repository(Uri url, Kind repoKind)
+        {
+            Url = url;
+            RepoKind = repoKind;
+            urlToRepository.TryAdd(Url.ToString(), this);
+        }
+
+        public Repository GetActualRepository() => urlToRepository[Url.ToString()];
+
+        [JsonInclude]
+        public Uri Url { get; private set; }
+
+        [JsonInclude]
+        public Kind RepoKind { get; private set; }
 
         public override string ToString()
         {
-            return Url.ToString();
+            return Url.Authority + Url.PathAndQuery;
         }
     }
 
@@ -67,10 +80,18 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
 
     public static PackageRepo Silksong { get; } = new(Game.Silksong, Repository.Thunderstore);
 
-    public string FileLocation =>
+    [JsonIgnore]
+    public string CacheFileLocation =>
         field ??= Path.Combine(
             CogworkPaths.GetCacheSubDirectory(_game.Slug).FullName,
             "cache.json"
+        );
+
+    [JsonIgnore]
+    public string CacheRepoIndexLocation =>
+        field ??= Path.Combine(
+            CogworkPaths.GetCacheSubDirectory(_game.Slug).FullName,
+            $"repo-index.json"
         );
 
     internal RepositoryCache RepoCache
@@ -80,9 +101,9 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
             if (field is { })
                 return field;
 
-            if (File.Exists(FileLocation))
+            if (File.Exists(CacheFileLocation))
             {
-                using var stream = File.OpenRead(FileLocation);
+                using var stream = File.OpenRead(CacheFileLocation);
                 try
                 {
                     var cache = JsonSerializer.Deserialize<RepositoryCache>(stream);
@@ -100,9 +121,10 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         }
     }
 
-    static readonly Package[] packages = [];
+    public List<Package> Packages { get; init; } = [];
     readonly Game _game;
     public Repository Repo { get; }
+    bool isImported;
 
     public PackageRepo(Game game, Repository repository)
     {
@@ -126,21 +148,66 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
             fetchAgain = true;
 
         if (!fetchAgain)
+        {
+            if (!isImported)
+            {
+                Import();
+            }
             return;
+        }
 
         RepoCache.LastRepositoryFetch = dateNow;
         Console.WriteLine("New fetch: " + RepoCache.LastRepositoryFetch);
-        this.Save(RepoCache);
+        this.Save(RepoCache, CacheFileLocation);
+        // TODO: Implement for real
+        Import();
     }
 
-    public Package[] GetAllPackages()
+    public List<Package> GetAllPackages()
     {
         FetchIfShould();
-        return packages;
+        return Packages;
     }
 
-    public ModList GetModList(string name)
+    public ModList GetModList(string name, ModList.ModListConfig? config = null)
     {
-        return new ModList(_game, name);
+        config ??= new() { Repositories = [Repository.Thunderstore] };
+        return new ModList(_game, name, config);
+    }
+
+    internal void Import()
+    {
+        if (File.Exists(CacheRepoIndexLocation))
+        {
+            using var stream = File.OpenRead(CacheRepoIndexLocation);
+            try
+            {
+                var packages = JsonSerializer.Deserialize<List<Package>>(stream);
+                if (packages is { })
+                {
+                    foreach (var package in packages)
+                    {
+                        _ = Repo
+                            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
+                            .TryAdd(package.FullName, package);
+                    }
+                    foreach (var package in packages)
+                    {
+                        Console.WriteLine(package);
+                    }
+                    isImported = true;
+                    return;
+                }
+            }
+            catch (JsonException ex)
+            {
+                Console.Error.Write("Error reading cache file: ");
+                Console.Error.WriteLine(ex);
+            }
+        }
+
+        throw new NotImplementedException(
+            $"Repository file '{CacheRepoIndexLocation}' must exist for now."
+        );
     }
 }

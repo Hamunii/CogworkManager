@@ -1,12 +1,20 @@
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Cogwork.Core;
 
 public class ModList : ISaveWithJson
 {
+    public class ModListConfig
+    {
+        [JsonInclude]
+        public required List<PackageRepo.Repository> Repositories { get; init; }
+    }
+
+    [JsonInclude]
+    public ModListConfig Config { get; init; }
+
     [JsonIgnore]
     public string FileLocation =>
         field ??= Path.Combine(
@@ -50,10 +58,11 @@ public class ModList : ISaveWithJson
     readonly PackageRepo.Game _game;
     readonly string _name;
 
-    public ModList(PackageRepo.Game game, string name)
+    public ModList(PackageRepo.Game game, string name, ModListConfig config)
     {
         _game = game;
         _name = name;
+        Config = config;
     }
 
     public void Add(Package package) => Add(package.Latest);
@@ -62,14 +71,14 @@ public class ModList : ISaveWithJson
     {
         _ = Added.AddOrUpdateToHigherVersion(package);
         RebuildDependencies();
-        this.Save();
+        this.Save(FileLocation);
     }
 
     public void Remove(Package package)
     {
         Added.Remove(package);
         RebuildDependencies();
-        this.Save();
+        this.Save(FileLocation);
     }
 
     public void RebuildDependencies()

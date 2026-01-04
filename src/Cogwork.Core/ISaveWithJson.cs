@@ -2,15 +2,9 @@ using System.Text.Json;
 
 namespace Cogwork.Core;
 
-public interface ISaveWithJson
-{
-    public string FileLocation { get; }
-}
+public interface ISaveWithJson;
 
-public interface ISaveWithJson<T>
-{
-    public string FileLocation { get; }
-}
+public interface ISaveWithJson<T>;
 
 public static class ISaveWithJsonExtensions
 {
@@ -19,22 +13,22 @@ public static class ISaveWithJsonExtensions
     extension<T>(T self)
         where T : ISaveWithJson
     {
-        public void Save()
+        public void Save(string fileLocation)
         {
             var serialized = JsonSerializer.Serialize(self, options);
-            _ = Directory.CreateDirectory(Path.GetDirectoryName(self.FileLocation)!);
-            File.WriteAllText(self.FileLocation, serialized);
+            _ = Directory.CreateDirectory(Path.GetDirectoryName(fileLocation)!);
+            File.WriteAllText(fileLocation, serialized);
         }
     }
 
     extension<T1, T2>(T1 self)
         where T1 : ISaveWithJson<T2>
     {
-        public void Save(T2 data)
+        public void Save(T2 data, string fileLocation)
         {
             var serialized = JsonSerializer.Serialize(data, options);
-            _ = Directory.CreateDirectory(Path.GetDirectoryName(self.FileLocation)!);
-            File.WriteAllText(self.FileLocation, serialized);
+            _ = Directory.CreateDirectory(Path.GetDirectoryName(fileLocation)!);
+            File.WriteAllText(fileLocation, serialized);
         }
     }
 }

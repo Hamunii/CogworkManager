@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace Cogwork.Core;
 
@@ -8,9 +9,34 @@ public record Package
 {
     public Author Author { get; }
     public string Name { get; }
+
+    [JsonInclude]
+    [JsonPropertyName("full_name")]
+    public string FullName { get; }
+
+    [JsonInclude]
+    [JsonPropertyName("versions")]
     public PackageVersion[] Versions { get; }
     public PackageVersion Latest => Versions[0];
-    public PackageRepo.Repository Repository { get; }
+    public PackageRepo.Repository Repository { get; } = null!;
+
+    [JsonConstructor]
+    public Package(string fullName, PackageVersion[] versions)
+    {
+        FullName = fullName;
+        Versions = versions;
+        foreach (var version in versions)
+        {
+            version.Package = this;
+        }
+
+        var fullNameSpan = fullName.AsSpan();
+        var enumerator = fullNameSpan.Split('-');
+        enumerator.MoveNext();
+        Author = fullNameSpan[enumerator.Current].ToString();
+        enumerator.MoveNext();
+        Name = fullNameSpan[enumerator.Current].ToString();
+    }
 
     public Package(
         PackageRepo.Repository repo,
@@ -19,6 +45,7 @@ public record Package
     )
     {
         Repository = repo;
+        FullName = fullName.ToString();
         var enumerator = fullName.Split('-');
         enumerator.MoveNext();
         Author = fullName[enumerator.Current].ToString();
@@ -117,7 +144,7 @@ public record PackageVersion
 {
     public PackageVersion[] MarkedDependencies =>
         field ??= [
-            .. _dependencyStrings
+            .. DependencyStrings
                 .Select(fullNameWithVersionString =>
                 {
                     var fullNameWithVersion = fullNameWithVersionString.AsSpan();
@@ -188,16 +215,20 @@ public record PackageVersion
         }
     }
 
+    [JsonInclude]
+    [JsonPropertyName("version_number")]
     public Version Version { get; }
-    public Package Package { get; }
+    public Package Package { get; internal set; }
 
-    readonly string[] _dependencyStrings;
+    [JsonInclude]
+    [JsonPropertyName("dependencies")]
+    string[] DependencyStrings { get; }
 
     public PackageVersion(Package package, Version version, string[] dependencyStrings)
     {
         Package = package;
         Version = version;
-        _dependencyStrings = dependencyStrings;
+        DependencyStrings = dependencyStrings;
     }
 
     void CollectDependencies(HashSet<PackageVersion> actualDependencies)
