@@ -1,47 +1,155 @@
+global using static Cogwork.Core.CogworkCoreLogger;
+global using static Cogwork.Core.GamePackageRepo;
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Serilog;
+using Serilog.Core;
 
 namespace Cogwork.Core;
 
-public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
+internal static class CogworkCoreLogger
 {
-    public class Repository
+    static string LogFileLocation =>
+        Path.Combine(CogworkPaths.GetCacheSubDirectory("logs").FullName, "log.txt");
+
+    public static Logger Cog { get; } =
+        new LoggerConfiguration()
+            .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
+            .WriteTo.File(
+                LogFileLocation,
+                formatProvider: CultureInfo.InvariantCulture,
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 2,
+                buffered: false
+            )
+            .CreateLogger();
+}
+
+public interface IGamePackageRepoHandler
+{
+    public string RepoIndexLocation { get; }
+    public string RepoIndexCacheLocation { get; }
+    public Uri Url { get; }
+    public Game Game { get; }
+    public string Type { get; }
+}
+
+public class RepoThunderstoreHandler(Game game) : IGamePackageRepoHandler
+{
+    [JsonIgnore]
+    public string RepoIndexLocation =>
+        field ??= Path.Combine(
+            CogworkPaths.GetCacheSubDirectory(game.Slug).FullName,
+            $"thunderstore-index.json"
+        );
+    public Uri Url { get; } = new($"https://thunderstore.io/c/{game.Slug}/");
+    public Game Game => game;
+    public string Type => "Thunderstore";
+
+    public string RepoIndexCacheLocation =>
+        field ??= Path.Combine(
+            CogworkPaths.GetCacheSubDirectory(game.Slug).FullName,
+            $"thunderstore-index-cache.json"
+        );
+
+    public async Task<bool> FetchIndexFileToCache()
     {
-        public enum Kind
+        var url = $"https://thunderstore.io/c/{game.Slug}/api/v1/package-listing-index/";
+
+        Cog.Information("Fetching: " + url);
+
+        using HttpClient client = new();
+        var response = await client.GetAsync(url);
+        if (!response.IsSuccessStatusCode)
         {
-            Thunderstore,
-            CogV1,
+            Cog.Error("Error fetching url for package index: " + response.StatusCode);
+            return false;
         }
 
-        public static Repository Thunderstore { get; } =
-            new(new("https://thunderstore.io"), Kind.Thunderstore);
-
-        internal ConcurrentDictionary<string, Package> nameToPackage = [];
-        internal ConcurrentDictionary<string, Repository> urlToRepository = [];
-
-        public Repository(Uri url, Kind repoKind)
+        string packageIndexUrl;
         {
-            Url = url;
-            RepoKind = repoKind;
-            urlToRepository.TryAdd(Url.ToString(), this);
+            using GZipStream zipStream = new(
+                response.Content.ReadAsStream(),
+                CompressionMode.Decompress
+            );
+            var strings = JsonSerializer.Deserialize<string[]>(zipStream);
+            if (strings is not { Length: 1 })
+            {
+                if (strings is null)
+                {
+                    Cog.Error($"Expected string[] but received null from '{url}'.");
+                    return false;
+                }
+
+                Cog.Error($"Expected 1 string but received {strings.Length} from '{url}'.");
+                return false;
+            }
+            packageIndexUrl = strings[0];
+            Cog.Debug("Got package index url: " + packageIndexUrl);
         }
 
-        public Repository GetActualRepository() => urlToRepository[Url.ToString()];
-
-        [JsonInclude]
-        public Uri Url { get; private set; }
-
-        [JsonInclude]
-        public Kind RepoKind { get; private set; }
-
-        public override string ToString()
+        response = await client.GetAsync(packageIndexUrl);
+        if (!response.IsSuccessStatusCode)
         {
-            return Url.Authority + Url.PathAndQuery;
+            Cog.Error("Error fetching package index url: " + response.StatusCode);
+            return false;
+        }
+
+        {
+            using GZipStream zipStream = new(
+                response.Content.ReadAsStream(),
+                CompressionMode.Decompress
+            );
+            using var fileStream = File.OpenWrite(RepoIndexLocation);
+            zipStream.CopyTo(fileStream);
+        }
+
+        Cog.Debug("Fetched successfully.");
+
+        return true;
+    }
+}
+
+public class GamePackageRepoList
+{
+    /// <summary>
+    /// The package repo which is resolved when a package source is not defined.
+    /// This should be Thunderstore, if Thunderstore is present.
+    /// </summary>
+    [JsonIgnore]
+    public GamePackageRepo Default => Repos[0];
+
+    [JsonIgnore]
+    public ReadOnlyCollection<GamePackageRepo> Repos => field ??= new(PackageRepos);
+
+    [JsonIgnore]
+    public IEnumerable<Package> AllPackages => PackageRepos.SelectMany(x => x.Packages);
+
+    [JsonIgnore]
+    List<GamePackageRepo> PackageRepos { get; } = [];
+
+    public GamePackageRepoList(List<GamePackageRepo> packageRepos)
+    {
+        PackageRepos = packageRepos;
+        foreach (var repo in packageRepos)
+        {
+            repo.RepoList = this;
         }
     }
 
+    public void Add(GamePackageRepo packageRepo)
+    {
+        PackageRepos.Add(packageRepo);
+        packageRepo.RepoList = this;
+    }
+}
+
+public class GamePackageRepo : ISaveWithJson<RepositoryCache>
+{
     public class RepositoryCache
     {
         public DateTime LastRepositoryFetch { get; set; }
@@ -79,21 +187,11 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         public required Platforms Platforms { get; init; }
     }
 
-    public static PackageRepo Silksong { get; } = new(Game.Silksong, Repository.Thunderstore);
+    public static GamePackageRepo ThunderstoreSilksong { get; } =
+        new(new RepoThunderstoreHandler(Game.Silksong));
 
-    [JsonIgnore]
-    public string CacheFileLocation =>
-        field ??= Path.Combine(
-            CogworkPaths.GetCacheSubDirectory(_game.Slug).FullName,
-            "cache.json"
-        );
-
-    [JsonIgnore]
-    public string CacheRepoIndexLocation =>
-        field ??= Path.Combine(
-            CogworkPaths.GetCacheSubDirectory(_game.Slug).FullName,
-            $"repo-index.json"
-        );
+    public static GamePackageRepoList Silksong { get; } = new([ThunderstoreSilksong]);
+    public static double MinutesUntilIndexRefresh { get; } = 10d;
 
     internal RepositoryCache RepoCache
     {
@@ -102,9 +200,9 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
             if (field is { })
                 return field;
 
-            if (File.Exists(CacheFileLocation))
+            if (File.Exists(RepoHander.RepoIndexCacheLocation))
             {
-                using var stream = File.OpenRead(CacheFileLocation);
+                using var stream = File.OpenRead(RepoHander.RepoIndexCacheLocation);
                 try
                 {
                     var cache = JsonSerializer.Deserialize<RepositoryCache>(stream);
@@ -113,8 +211,7 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
                 }
                 catch (JsonException ex)
                 {
-                    Console.Error.Write("Error reading cache file: ");
-                    Console.Error.WriteLine(ex);
+                    Cog.Error("Error reading cache file: " + ex.ToString());
                 }
             }
 
@@ -122,20 +219,21 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         }
     }
 
+    public GamePackageRepoList RepoList { get; internal set; } = null!;
     public List<Package> Packages { get; private set; } = [];
-    readonly Game _game;
-    public Repository Repo { get; }
+    public IGamePackageRepoHandler RepoHander { get; private set; }
+
+    internal ConcurrentDictionary<string, Package> nameToPackage = [];
     bool isImported;
 
-    public PackageRepo(Game game, Repository repository)
+    public GamePackageRepo(IGamePackageRepoHandler handler)
     {
-        _game = game;
-        Repo = repository;
+        RepoHander = handler;
     }
 
-    public void FetchIfShould()
+    public async Task FetchIfShould()
     {
-        Console.WriteLine("Previous fetch: " + RepoCache.LastRepositoryFetch);
+        Cog.Debug("Previous fetch: " + RepoCache.LastRepositoryFetch);
 
         var dateNow = DateTime.Now;
         var lastFetch = RepoCache.LastRepositoryFetch;
@@ -145,7 +243,7 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         if (dateNow < lastFetch)
             fetchAgain = true;
 
-        if (dateNow > lastFetch.AddMinutes(1))
+        if (dateNow > lastFetch.AddMinutes(MinutesUntilIndexRefresh))
             fetchAgain = true;
 
         if (!fetchAgain)
@@ -158,29 +256,39 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         }
 
         RepoCache.LastRepositoryFetch = dateNow;
-        Console.WriteLine("New fetch: " + RepoCache.LastRepositoryFetch);
-        this.Save(RepoCache, CacheFileLocation);
-        // TODO: Implement for real
+        Cog.Debug("New fetch: " + RepoCache.LastRepositoryFetch);
+        this.Save(RepoCache, RepoHander.RepoIndexCacheLocation);
+
+        switch (RepoHander)
+        {
+            case RepoThunderstoreHandler ts:
+                _ = await ts.FetchIndexFileToCache();
+                break;
+            default:
+                Cog.Error("Invalid RepoHandler type: " + RepoHander.GetType());
+                return;
+        }
+
         Import();
     }
 
-    public List<Package> GetAllPackages()
+    public async Task<List<Package>> GetAllPackages()
     {
-        FetchIfShould();
+        await FetchIfShould();
         return Packages;
     }
 
     public ModList GetModList(string name, ModList.ModListConfig? config = null)
     {
-        config ??= new() { Repositories = [Repository.Thunderstore] };
-        return new ModList(_game, name, config);
+        config ??= new() { RepoList = RepoList };
+        return new ModList(RepoHander.Game, name, config);
     }
 
     internal void Import()
     {
-        if (File.Exists(CacheRepoIndexLocation))
+        if (File.Exists(RepoHander.RepoIndexLocation))
         {
-            var data = File.ReadAllText(CacheRepoIndexLocation);
+            var data = File.ReadAllText(RepoHander.RepoIndexLocation);
             if (Import(data))
             {
                 isImported = true;
@@ -189,7 +297,7 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         }
 
         throw new NotImplementedException(
-            $"Repository file '{CacheRepoIndexLocation}' must exist for now."
+            $"Package index file '{RepoHander.RepoIndexLocation}' must exist."
         );
     }
 
@@ -206,17 +314,26 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
                 for (int i = 0; i < packages.Count; i++)
                 {
                     Package package = packages[i];
-                    package.Repository = Repo;
+                    package.PackageRepo = this;
 
                     if (
-                        !Repo
-                            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
+                        !nameToPackage
+                            .GetAlternateLookup<ReadOnlySpan<char>>()
                             .TryAdd(package.FullName, package)
                     )
                     {
                         // If we are here, we just created a whole lot of
                         // duplicate package instances. We connect the instances:
-                        if (Package.TryGetPackage(package.FullName, out var oldPackage))
+                        if (
+                            Package.TryGetPackage(
+                                RepoList,
+                                package.FullName,
+                                out var oldPackage,
+                                false,
+                                out _,
+                                out _
+                            )
+                        )
                         {
                             oldPackage.Versions = package.Versions;
                             packages[i] = oldPackage;
@@ -229,9 +346,14 @@ public class PackageRepo : ISaveWithJson<PackageRepo.RepositoryCache>
         }
         catch (JsonException ex)
         {
-            Console.Error.Write("Error reading cache file: ");
-            Console.Error.WriteLine(ex);
+            Cog.Error("Error reading cache file: " + ex.ToString());
         }
         return false;
+    }
+
+    public override string ToString()
+    {
+        var url = RepoHander.Url;
+        return url.Authority + url.PathAndQuery;
     }
 }

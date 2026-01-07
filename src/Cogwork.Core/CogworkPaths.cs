@@ -4,7 +4,7 @@ namespace Cogwork.Core;
 
 public static class CogworkPaths
 {
-    const string appId = "com.github.Hamunii.Cogwork";
+    const string appId = "Hamunii.Cogwork";
     public static DirectoryInfo CacheDirectory
     {
         get

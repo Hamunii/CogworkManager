@@ -8,8 +8,15 @@ public class ModList : ISaveWithJson
 {
     public class ModListConfig
     {
+        public readonly record struct HandlerUrlType(Uri Url, string Type);
+
+        [JsonIgnore]
+        public GamePackageRepoList RepoList { get; init; } = null!;
+
         [JsonInclude]
-        public required List<PackageRepo.Repository> Repositories { get; init; }
+        [JsonPropertyName("Repos")]
+        public IEnumerable<HandlerUrlType> RepoHandlers =>
+            RepoList.Repos.Select(x => new HandlerUrlType(x.RepoHander.Url, x.RepoHander.Type));
     }
 
     [JsonInclude]
@@ -31,7 +38,7 @@ public class ModList : ISaveWithJson
         set =>
             value.ForEach(x =>
             {
-                var packageVersion = Package.GetPackageVersion(x);
+                var packageVersion = Package.GetPackageVersion(Config.RepoList, x);
                 Added.Add(packageVersion.Package, packageVersion);
             });
     }
@@ -44,7 +51,7 @@ public class ModList : ISaveWithJson
         set =>
             value.ForEach(x =>
             {
-                var packageVersion = Package.GetPackageVersion(x);
+                var packageVersion = Package.GetPackageVersion(Config.RepoList, x);
                 Dependencies.Add(packageVersion.Package, packageVersion);
             });
     }
@@ -55,10 +62,10 @@ public class ModList : ISaveWithJson
     [JsonIgnore]
     public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
 
-    readonly PackageRepo.Game _game;
+    readonly Game _game;
     readonly string _name;
 
-    public ModList(PackageRepo.Game game, string name, ModListConfig config)
+    public ModList(Game game, string name, ModListConfig config)
     {
         _game = game;
         _name = name;

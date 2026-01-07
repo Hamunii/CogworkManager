@@ -18,7 +18,7 @@ public record Package
     [JsonPropertyName("versions")]
     public PackageVersion[] Versions { get; internal set; }
     public PackageVersion Latest => Versions[0];
-    public PackageRepo.Repository Repository { get; internal set; } = null!;
+    public GamePackageRepo PackageRepo { get; internal set; } = null!;
 
     [JsonConstructor]
     public Package(string fullName, PackageVersion[] versions)
@@ -38,27 +38,13 @@ public record Package
         Name = fullNameSpan[enumerator.Current].ToString();
     }
 
-    public Package(
-        PackageRepo.Repository repo,
-        ReadOnlySpan<char> fullName,
-        Func<Package, PackageVersion[]> versions
-    )
-    {
-        Repository = repo;
-        FullName = fullName.ToString();
-        var enumerator = fullName.Split('-');
-        enumerator.MoveNext();
-        Author = fullName[enumerator.Current].ToString();
-        enumerator.MoveNext();
-        Name = fullName[enumerator.Current].ToString();
-        Versions = versions(this);
-
-        _ = repo.nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>().TryAdd(fullName, this);
-    }
-
     public static bool TryGetPackage(
+        GamePackageRepoList repoList,
         ReadOnlySpan<char> fullName,
-        [NotNullWhen(true)] out Package? package
+        [NotNullWhen(true)] out Package? package,
+        bool hasVersion,
+        out Version? version,
+        [NotNullWhen(true)] out GamePackageRepo repo
     )
     {
         var split = fullName.Split('-');
@@ -66,21 +52,40 @@ public record Package
         split.MoveNext();
         var name = fullName[0..split.Current.End];
 
-        PackageRepo.Repository repo;
+        if (hasVersion)
+        {
+            split.MoveNext();
+
+            try
+            {
+                version = new(fullName[split.Current].ToString());
+            }
+            catch (Exception ex)
+            {
+                throw new ArgumentException(fullName.ToString(), ex);
+            }
+        }
+        else
+        {
+            version = default;
+        }
+
         if (!split.MoveNext())
         {
-            repo = PackageRepo.Repository.Thunderstore;
+            repo = repoList.Default;
         }
         else
         {
             var repository = fullName[split.Current];
             if (repository == "ts")
             {
-                repo = PackageRepo.Repository.Thunderstore;
+                repo = repoList.Default;
             }
             else
             {
-                throw new NotImplementedException("Only 'ts' as Thunderstore is supported.");
+                throw new NotImplementedException(
+                    $"Only 'ts' (as Thunderstore) is supported. Was '{repository}'."
+                );
             }
         }
 
@@ -89,42 +94,26 @@ public record Package
             .TryGetValue(name, out package);
     }
 
-    public static Package GetPackage(ReadOnlySpan<char> fullNameWithVersion, out Version version)
+    public static PackageVersion GetPackageVersion(
+        GamePackageRepoList repoList,
+        ReadOnlySpan<char> fullNameWithVersion
+    )
     {
-        var split = fullNameWithVersion.Split('-');
-        split.MoveNext();
-        split.MoveNext();
-        var name = fullNameWithVersion[0..split.Current.End];
-        split.MoveNext();
-        try
+        if (
+            !TryGetPackage(
+                repoList,
+                fullNameWithVersion,
+                out var package,
+                hasVersion: true,
+                out var version,
+                out _
+            )
+        )
         {
-            version = new(fullNameWithVersion[split.Current].ToString());
-        }
-        catch (Exception ex)
-        {
-            throw new ArgumentException(fullNameWithVersion.ToString(), ex);
-        }
-
-        PackageRepo.Repository repo;
-        split.MoveNext();
-        var repository = fullNameWithVersion[split.Current];
-        if (repository == "ts")
-        {
-            repo = PackageRepo.Repository.Thunderstore;
-        }
-        else
-        {
-            throw new NotImplementedException("Only 'ts' as Thunderstore is supported.");
+            throw new ArgumentException($"Package for '{fullNameWithVersion}' doesn't exist.");
         }
 
-        var package = repo.nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()[name];
-        return package;
-    }
-
-    public static PackageVersion GetPackageVersion(ReadOnlySpan<char> fullNameWithVersion)
-    {
-        var package = GetPackage(fullNameWithVersion, out var version);
-        if (!package.TryGetVersion(version, out var packageVersion))
+        if (!package.TryGetVersion(version!, out var packageVersion))
         {
             throw new ArgumentException($"Version for '{fullNameWithVersion}' doesn't exist.");
         }
@@ -139,11 +128,11 @@ public record Package
         packageVersion = Versions.FirstOrDefault(x => x.Version == version);
         if (packageVersion is null)
         {
-            Console.Error.WriteLine($"Version '{version}' not found for '{ToStringSimple()}'");
+            Cog.Error($"Version '{version}' not found for '{ToStringSimple()}'");
             packageVersion = Versions.FirstOrDefault();
             if (packageVersion is null)
             {
-                Console.Error.WriteLine($"No versions of '{ToStringSimple()}' exist");
+                Cog.Error($"No versions of '{ToStringSimple()}' exist");
             }
         }
         return packageVersion is { };
@@ -178,58 +167,28 @@ public record PackageVersion
     public PackageVersion[] MarkedDependencies =>
         field ??= [
             .. DependencyStrings
-                .Select(fullNameWithVersionString =>
+                .Select(fullNameWithVersion =>
                 {
-                    var fullNameWithVersion = fullNameWithVersionString.AsSpan();
-                    var split = fullNameWithVersion.Split('-');
-                    split.MoveNext();
-                    split.MoveNext();
-                    var fullName = fullNameWithVersion[0..split.Current.End];
-                    split.MoveNext();
-                    Version version;
-                    try
-                    {
-                        version = new(fullNameWithVersion[split.Current].ToString());
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new ArgumentException(fullNameWithVersionString, ex);
-                    }
-
-                    PackageRepo.Repository repo;
-                    if (!split.MoveNext())
-                    {
-                        repo = PackageRepo.Repository.Thunderstore;
-                    }
-                    else
-                    {
-                        var repository = fullNameWithVersion[split.Current];
-                        if (repository == "ts")
-                        {
-                            repo = PackageRepo.Repository.Thunderstore;
-                        }
-                        else
-                        {
-                            throw new NotImplementedException(
-                                "Only 'ts' as Thunderstore is supported."
-                            );
-                        }
-                    }
-
                     if (
-                        !repo
-                            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
-                            .TryGetValue(fullName, out var packageFromName)
+                        !Package.TryGetPackage(
+                            Package.PackageRepo.RepoList,
+                            fullNameWithVersion,
+                            out var package,
+                            hasVersion: true,
+                            out var version,
+                            out var repo
+                        )
                     )
                     {
-                        Console.Error.WriteLine(
-                            $"Package for '{fullName}' in '{repo}' was not found."
+                        Cog.Error(
+                            $"Package for '{fullNameWithVersion}' in '{repo}' was not found."
                         );
                         return null;
                     }
 
-                    if (!packageFromName.TryGetVersion(version, out var packageVersion))
+                    if (!package.TryGetVersion(version!, out var packageVersion))
                     {
+                        Cog.Error($"Package '{fullNameWithVersion}' has no versions in '{repo}'.");
                         return null;
                     }
 
@@ -319,10 +278,8 @@ public record PackageVersion
 
     public override string ToString()
     {
-        var at = Package.Repository
-            is { RepoKind: not PackageRepo.Repository.Kind.Thunderstore } repo
-            ? repo.Url.Host
-            : "ts";
+        var repoHandler = Package.PackageRepo.RepoHander;
+        var at = repoHandler is RepoThunderstoreHandler ? "ts" : repoHandler.Url.Host;
 
         return $"{Package.Author.Name}-{Package.Name}-{Version}-{at}";
     }
