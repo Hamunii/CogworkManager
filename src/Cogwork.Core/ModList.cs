@@ -11,12 +11,12 @@ public class ModList : ISaveWithJson
         public readonly record struct HandlerUrl(Uri Url);
 
         [JsonIgnore]
-        public GamePackageRepoList RepoList { get; init; } = null!;
+        public PackageSourceIndex RepoList { get; init; } = null!;
 
         [JsonInclude]
         [JsonPropertyName("Repos")]
         public IEnumerable<HandlerUrl> RepoHandlers =>
-            RepoList.Repos.Select(x => new HandlerUrl(x.RepoHander.Url));
+            RepoList.Sources.Select(x => new HandlerUrl(x.Service.Url));
     }
 
     [JsonInclude]

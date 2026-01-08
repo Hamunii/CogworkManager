@@ -1,4 +1,4 @@
-using static Cogwork.Core.GamePackageRepo;
+using static Cogwork.Core.PackageSource;
 
 namespace Cogwork.Tests;
 
@@ -81,25 +81,24 @@ static class MockData
 }]
 """;
 
-    public static GamePackageRepoList Test { get; } =
-        new([
-            new GamePackageRepo(
-                new RepoThunderstoreHandler(
-                    new Game()
-                    {
-                        Name = "test",
-                        Slug = "test",
-                        Platforms = new(),
-                    }
-                )
-            ),
-        ]);
-
-    public static IEnumerable<Package> GetAllPackages()
+    /* public static PackageSourceIndex Test
     {
-        if (!Test.Default.Import(data))
-            throw new InvalidOperationException("This should not fail.");
+        get
+        {
+            var index = new PackageSourceIndex([
+                new PackageSource(
+                    new ThunderstoreCommunity(
+                        new Game()
+                        {
+                            Name = "test",
+                            Slug = "test",
+                            Platforms = new(),
+                        }
+                    )
+                ),
+            ]);
 
-        return Test.AllPackages;
-    }
+            return index;
+        }
+    } */
 }

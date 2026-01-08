@@ -18,7 +18,7 @@ public record Package
     [JsonPropertyName("versions")]
     public PackageVersion[] Versions { get; internal set; }
     public PackageVersion Latest => Versions[0];
-    public GamePackageRepo PackageRepo { get; internal set; } = null!;
+    public PackageSource PackageRepo { get; internal set; } = null!;
 
     [JsonConstructor]
     public Package(string fullName, PackageVersion[] versions)
@@ -39,12 +39,12 @@ public record Package
     }
 
     public static bool TryGetPackage(
-        GamePackageRepoList repoList,
+        PackageSourceIndex repoList,
         ReadOnlySpan<char> fullName,
         [NotNullWhen(true)] out Package? package,
         bool hasVersion,
         out Version? version,
-        [NotNullWhen(true)] out GamePackageRepo repo
+        [NotNullWhen(true)] out PackageSource repo
     )
     {
         var split = fullName.Split('-');
@@ -95,7 +95,7 @@ public record Package
     }
 
     public static PackageVersion GetPackageVersion(
-        GamePackageRepoList repoList,
+        PackageSourceIndex repoList,
         ReadOnlySpan<char> fullNameWithVersion
     )
     {
@@ -140,8 +140,8 @@ public record Package
 
     public ReadOnlySpan<char> ToStringSimpleWithSource()
     {
-        var repoHandler = PackageRepo.RepoHander;
-        var at = repoHandler is RepoThunderstoreHandler ? "ts" : repoHandler.Url.Host;
+        var repoHandler = PackageRepo.Service;
+        var at = repoHandler is ThunderstoreCommunity ? "ts" : repoHandler.Url.Host;
 
         return $"{Author.Name}-{Name}-{at}";
     }
@@ -286,8 +286,8 @@ public record PackageVersion
 
     public override string ToString()
     {
-        var repoHandler = Package.PackageRepo.RepoHander;
-        var at = repoHandler is RepoThunderstoreHandler ? "ts" : repoHandler.Url.Host;
+        var repoHandler = Package.PackageRepo.Service;
+        var at = repoHandler is ThunderstoreCommunity ? "ts" : repoHandler.Url.Host;
 
         return $"{Package.Author.Name}-{Package.Name}-{Version}-{at}";
     }
