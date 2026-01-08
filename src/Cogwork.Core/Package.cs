@@ -128,17 +128,23 @@ public record Package
         packageVersion = Versions.FirstOrDefault(x => x.Version == version);
         if (packageVersion is null)
         {
-            Cog.Error($"Version '{version}' not found for '{ToStringSimple()}'");
+            Cog.Debug($"Version '{version}' not found for '{ToStringSimpleWithSource()}'");
             packageVersion = Versions.FirstOrDefault();
             if (packageVersion is null)
             {
-                Cog.Error($"No versions of '{ToStringSimple()}' exist");
+                Cog.Error($"No versions of '{ToStringSimpleWithSource()}' exist");
             }
         }
         return packageVersion is { };
     }
 
-    public string ToStringSimple() => $"{Author.Name}-{Name}";
+    public ReadOnlySpan<char> ToStringSimpleWithSource()
+    {
+        var repoHandler = PackageRepo.RepoHander;
+        var at = repoHandler is RepoThunderstoreHandler ? "ts" : repoHandler.Url.Host;
+
+        return $"{Author.Name}-{Name}-{at}";
+    }
 
     public override string ToString()
     {
@@ -180,7 +186,7 @@ public record PackageVersion
                         )
                     )
                     {
-                        Cog.Error(
+                        Cog.Debug(
                             $"Package for '{fullNameWithVersion}' in '{repo}' was not found."
                         );
                         return null;
@@ -188,7 +194,9 @@ public record PackageVersion
 
                     if (!package.TryGetVersion(version!, out var packageVersion))
                     {
-                        Cog.Error($"Package '{fullNameWithVersion}' has no versions in '{repo}'.");
+                        Cog.Error(
+                            $"Package '{fullNameWithVersion}' exists but has no versions in '{repo}'."
+                        );
                         return null;
                     }
 

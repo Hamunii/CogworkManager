@@ -8,15 +8,15 @@ public class ModList : ISaveWithJson
 {
     public class ModListConfig
     {
-        public readonly record struct HandlerUrlType(Uri Url, string Type);
+        public readonly record struct HandlerUrl(Uri Url);
 
         [JsonIgnore]
         public GamePackageRepoList RepoList { get; init; } = null!;
 
         [JsonInclude]
         [JsonPropertyName("Repos")]
-        public IEnumerable<HandlerUrlType> RepoHandlers =>
-            RepoList.Repos.Select(x => new HandlerUrlType(x.RepoHander.Url, x.RepoHander.Type));
+        public IEnumerable<HandlerUrl> RepoHandlers =>
+            RepoList.Repos.Select(x => new HandlerUrl(x.RepoHander.Url));
     }
 
     [JsonInclude]

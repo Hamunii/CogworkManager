@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO.Compression;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Serilog;
@@ -13,12 +14,27 @@ namespace Cogwork.Core;
 
 internal static class CogworkCoreLogger
 {
+    static CogworkCoreLogger()
+    {
+        var assembly = typeof(CogworkCoreLogger).Assembly;
+        var name = assembly.GetName().Name;
+        var version = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+            .InformationalVersion;
+
+        Cog.Debug($"{name} {version} initialized.");
+    }
+
     static string LogFileLocation =>
-        Path.Combine(CogworkPaths.GetCacheSubDirectory("logs").FullName, "log.txt");
+        Path.Combine(CogworkPaths.GetCacheSubDirectory("logs").FullName, "log-.txt");
 
     public static Logger Cog { get; } =
         new LoggerConfiguration()
-            .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
+            .MinimumLevel.Debug()
+            .WriteTo.Console(
+                restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
+                formatProvider: CultureInfo.InvariantCulture
+            )
             .WriteTo.File(
                 LogFileLocation,
                 formatProvider: CultureInfo.InvariantCulture,
@@ -108,7 +124,7 @@ public class RepoThunderstoreHandler(Game game) : IGamePackageRepoHandler
             zipStream.CopyTo(fileStream);
         }
 
-        Cog.Debug("Fetched successfully.");
+        Cog.Information("Fetched successfully.");
 
         return true;
     }
@@ -191,7 +207,10 @@ public class GamePackageRepo : ISaveWithJson<RepositoryCache>
         new(new RepoThunderstoreHandler(Game.Silksong));
 
     public static GamePackageRepoList Silksong { get; } = new([ThunderstoreSilksong]);
-    public static double MinutesUntilIndexRefresh { get; } = 10d;
+    public static double MinutesUntilAutomaticIndexRefreshAllowed { get; } = 20d;
+
+    // TODO: Implement manual refresh.
+    public static double SecondsUntilManualIndexRefreshAllowed { get; } = 10d;
 
     internal RepositoryCache RepoCache
     {
@@ -231,7 +250,7 @@ public class GamePackageRepo : ISaveWithJson<RepositoryCache>
         RepoHander = handler;
     }
 
-    public async Task FetchIfShould()
+    public async Task FetchPackageIndexAutomatic()
     {
         Cog.Debug("Previous fetch: " + RepoCache.LastRepositoryFetch);
 
@@ -243,21 +262,22 @@ public class GamePackageRepo : ISaveWithJson<RepositoryCache>
         if (dateNow < lastFetch)
             fetchAgain = true;
 
-        if (dateNow > lastFetch.AddMinutes(MinutesUntilIndexRefresh))
+        if (dateNow > lastFetch.AddMinutes(MinutesUntilAutomaticIndexRefreshAllowed))
             fetchAgain = true;
 
         if (!fetchAgain)
         {
+            Cog.Information(
+                $"Using cached package index for '{RepoHander.Url}', last fetch was "
+                    + $"less than {MinutesUntilAutomaticIndexRefreshAllowed} minutes ago."
+            );
+
             if (!isImported)
             {
                 Import();
             }
             return;
         }
-
-        RepoCache.LastRepositoryFetch = dateNow;
-        Cog.Debug("New fetch: " + RepoCache.LastRepositoryFetch);
-        this.Save(RepoCache, RepoHander.RepoIndexCacheLocation);
 
         switch (RepoHander)
         {
@@ -269,12 +289,16 @@ public class GamePackageRepo : ISaveWithJson<RepositoryCache>
                 return;
         }
 
+        RepoCache.LastRepositoryFetch = dateNow;
+        Cog.Debug("New fetch: " + RepoCache.LastRepositoryFetch);
+        this.Save(RepoCache, RepoHander.RepoIndexCacheLocation);
+
         Import();
     }
 
     public async Task<List<Package>> GetAllPackages()
     {
-        await FetchIfShould();
+        await FetchPackageIndexAutomatic();
         return Packages;
     }
 
