@@ -13,7 +13,7 @@ using Serilog.Core;
 
 namespace Cogwork.Core;
 
-internal static class CogworkCoreLogger
+public static class CogworkCoreLogger
 {
     static CogworkCoreLogger()
     {
@@ -196,6 +196,41 @@ public class PackageSource : ISaveWithJson<PackageSourceCache>
                 Slug = "hollow-knight-silksong",
                 Platforms = new() { Steam = new() { Id = 1030300 } },
             };
+
+        public static Game Milksong { get; } =
+            new()
+            {
+                Name = "Hollow Knight: Milksong",
+                Slug = "hollow-knight-Milksong",
+                Platforms = new() { Steam = new() { Id = 1030300 } },
+            };
+
+        public static Game HollowKnight { get; } =
+            new()
+            {
+                Name = "Hollow Knight",
+                Slug = "hollow-knight",
+                Platforms = new(),
+            };
+
+        public static Game LethalCompany { get; } =
+            new()
+            {
+                Name = "Lethal Company",
+                Slug = "lethal-company",
+                Platforms = new(),
+            };
+
+        public static Game Ror2 { get; } =
+            new()
+            {
+                Name = "Risk of Rain 2",
+                Slug = "risk-of-rain-2",
+                Platforms = new(),
+            };
+
+        public static IEnumerable<Game> SupportedGames { get; } =
+        [Silksong, HollowKnight, Milksong, LethalCompany, Ror2];
 
         [JsonPropertyName("name")]
         public required string Name { get; init; }

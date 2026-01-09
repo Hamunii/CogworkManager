@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(CogworkTargetFramework)</TargetFramework>
+    <AssemblyName>cogm</AssemblyName>
+    <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
+    <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cogwork.Tests" />
+  </ItemGroup>
+
+  <!-- Local project references -->
+  <ItemGroup>
+    <ProjectReference Include="$(SolutionRoot)src/Cogwork.Core/Cogwork.Core.csproj" />
+    <Using Include="Cogwork.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.1" />
+  </ItemGroup>
+</Project>

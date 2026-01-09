@@ -47,7 +47,7 @@ The reason why I'd rather just create my own solution than use Thunderstore wher
 This project will be split into 3 parts:
 
 - **Cogwork.Core:** The package manager library (WIP)
-- **Cogwork.Cli:** A command line interface (TODO)
+- **Cogwork.Cli:** A command line interface (WIP)
 - **Cogwork.Gui:** A graphical interface (TODO; with [Adwaita](<https://gnome.pages.gitlab.gnome.org/libadwaita/>))
 
 ### Cogwork.Core
