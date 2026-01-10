@@ -12,11 +12,11 @@ namespace Cogwork.Cli;
 
 static class Program
 {
-    static readonly Option<string> optionGameOverride = new("--game")
+    static readonly Option<string> optionGameOverride = new("--game", "-g")
     {
         Description = "Override the active game to work on",
     };
-    static readonly Option<string> optionProfileOverride = new("--profile")
+    static readonly Option<string> optionProfileOverride = new("--profile", "-p")
     {
         Description = "Override the active mod profile to work on",
     };
@@ -99,7 +99,7 @@ static class Program
         AddOptionRecursive(mods, optionProfileOverride);
 
         Command source = new("source", "Manage package sources");
-        source.Aliases.Add("sr");
+        source.Aliases.Add("so");
         rootCommand.Subcommands.Add(source);
         {
             Command sourceAdd = new("add", "Add package source");
