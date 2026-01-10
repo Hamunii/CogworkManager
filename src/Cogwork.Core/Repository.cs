@@ -232,6 +232,12 @@ public class PackageSource : ISaveWithJson<PackageSourceCache>
         public static IEnumerable<Game> SupportedGames { get; } =
         [Silksong, HollowKnight, Milksong, LethalCompany, Ror2];
 
+        public static ConcurrentDictionary<string, Game> NameToGame { get; } =
+            new([
+                .. SupportedGames.Select(x => KeyValuePair.Create(x.Name.ToLowerInvariant(), x)),
+                .. SupportedGames.Select(x => KeyValuePair.Create(x.Slug, x)),
+            ]);
+
         [JsonPropertyName("name")]
         public required string Name { get; init; }
 

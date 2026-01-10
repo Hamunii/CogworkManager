@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>$(CogworkTargetFramework)</TargetFramework>
-    <AssemblyName>cogm</AssemblyName>
+    <AssemblyName>cogman</AssemblyName>
     <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
     <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
     <OutputType>Exe</OutputType>

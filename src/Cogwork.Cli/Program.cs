@@ -2,6 +2,9 @@ global using static Cogwork.Core.CogworkCoreLogger;
 global using static Cogwork.Core.PackageSource;
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text;
 using FuzzySharp;
 using FuzzySharp.Extractor;
 using FuzzySharp.SimilarityRatio;
@@ -24,6 +27,10 @@ static class Program
     {
         Description = "Prevent requesting user input and fail instead",
     };
+    static readonly Option<bool> optionExactMatching = new("--exact-matching", "-E")
+    {
+        Description = "Require exact case-insensitive string matching",
+    };
 
     static int Main(string[] args)
     {
@@ -35,6 +42,7 @@ static class Program
         {
             Command gameSelect = new("select", "Select active game to mod");
             gameSelect.Aliases.Add("s");
+            gameSelect.Options.Add(optionExactMatching);
             game.Subcommands.Add(gameSelect);
             {
                 Argument<string> gameSelectArgument = new("game")
@@ -137,7 +145,36 @@ static class Program
     private static void SelectGame(ArgumentResult result)
     {
         var gameToSelect = result.GetValueOrDefault<string>();
+        bool requireExactMatching = result.GetValue(optionExactMatching);
+
+        if (!Game.NameToGame.TryGetValue(gameToSelect, out var selectedGame))
+        {
+            if (!TryVeryFuzzySearchGame(result, gameToSelect, out selectedGame))
+            {
+                // result.AddError("Game not found: " + gameToSelect);
+                return;
+            }
+
+            if (requireExactMatching)
+            {
+                result.AddError($"Game not found: {gameToSelect}\nBest match: {selectedGame.Name}");
+                return;
+            }
+        }
+
+        // TODO: Actual logic.
+        Console.WriteLine("Selected game: " + selectedGame.Name);
+        return;
+    }
+
+    private static bool TryVeryFuzzySearchGame(
+        ArgumentResult result,
+        string gameToSelect,
+        [NotNullWhen(true)] out Game? selectedGame
+    )
+    {
         var games = Game.SupportedGames.Select(x => x.Name);
+        selectedGame = default;
 
         List<string> best = [];
         IEnumerable<string>? common = null;
@@ -206,10 +243,27 @@ static class Program
         if (best.Count == 0)
         {
             result.AddError("Game not found: " + gameToSelect);
-            return;
+            return false;
         }
         else if (best.Count > 1)
         {
+            if (result.GetValue(optionExactMatching))
+            {
+                // If exact matching is enabled here, it means this method is used for
+                // giving more feedback to the user, but ambiguous matches are irrelevant.
+                var sb = new StringBuilder();
+                sb.AppendLine(
+                    CultureInfo.InvariantCulture,
+                    $"Game not found: {gameToSelect}\nBest matches:"
+                );
+                foreach (var match in common!)
+                {
+                    sb.AppendLine(CultureInfo.InvariantCulture, $"- {match}");
+                }
+                result.AddError(sb.ToString());
+                return false;
+            }
+
             int i = 0;
             Console.WriteLine($"Ambiguous match found:");
             Console.WriteLine();
@@ -221,7 +275,7 @@ static class Program
             if (result.GetValue(optionNoInteractive))
             {
                 result.AddError("Ambiguous match for game name.");
-                return;
+                return false;
             }
             Console.WriteLine();
             Console.Write($"Select game by index (1-{best.Count}): ");
@@ -229,7 +283,7 @@ static class Program
             if (!int.TryParse(input, out var index) || index < 1 || index > best.Count)
             {
                 result.AddError("Invalid index for disambiguating game.");
-                return;
+                return false;
             }
             selected = best[index - 1];
         }
@@ -238,9 +292,9 @@ static class Program
             selected = best[0];
         }
 
-        // TODO: Actual logic.
-        Console.WriteLine("Selected game: " + selected);
-        return;
+        selected = selected.ToLowerInvariant();
+        selectedGame = Game.NameToGame[selected];
+        return true;
     }
 
     private static void FilterBestResults(
