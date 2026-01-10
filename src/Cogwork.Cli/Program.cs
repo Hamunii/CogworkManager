@@ -128,12 +128,9 @@ static class Program
 
         command.Options.Add(option);
 
-        foreach (var child in command.Children)
+        foreach (var child in command.Subcommands)
         {
-            if (child is not Command childCommand)
-                continue;
-
-            AddOptionRecursive(childCommand, option);
+            AddOptionRecursive(child, option);
         }
     }
 
