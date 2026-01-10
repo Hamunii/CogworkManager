@@ -121,6 +121,11 @@ static class Program
 
     private static void AddOptionRecursive(Command command, Option option)
     {
+        if (command.Options.Contains(option))
+        {
+            return;
+        }
+
         command.Options.Add(option);
 
         foreach (var child in command.Children)
