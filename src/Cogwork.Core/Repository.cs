@@ -28,7 +28,7 @@ public static class CogworkCoreLogger
     }
 
     static string LogFileLocation =>
-        Path.Combine(CogworkPaths.GetCacheSubDirectory("logs").FullName, "log-.txt");
+        Path.Combine(CogworkPaths.GetCacheSubDirectory("logs"), "log-.txt");
 
     public static Logger Cog { get; } =
         new LoggerConfiguration()
@@ -60,7 +60,7 @@ public class ThunderstoreCommunity(Game game) : IPackageSourceService
     [JsonIgnore]
     public string PackageIndexLocation =>
         field ??= Path.Combine(
-            CogworkPaths.GetCacheSubDirectory(game.Slug).FullName,
+            CogworkPaths.GetCacheSubDirectory(game.Slug),
             $"thunderstore-index.json"
         );
     public Uri Url { get; } = new($"https://thunderstore.io/c/{game.Slug}/");
@@ -68,7 +68,7 @@ public class ThunderstoreCommunity(Game game) : IPackageSourceService
 
     public string PackageIndexCacheLocation =>
         field ??= Path.Combine(
-            CogworkPaths.GetCacheSubDirectory(game.Slug).FullName,
+            CogworkPaths.GetCacheSubDirectory(game.Slug),
             $"thunderstore-index-cache.json"
         );
 
@@ -137,7 +137,7 @@ public class PackageSourceIndex
     /// This should be Thunderstore, if Thunderstore is present.
     /// </summary>
     [JsonIgnore]
-    public PackageSource Default => Sources[0];
+    public PackageSource Default => PackageSources[0];
 
     [JsonIgnore]
     public ReadOnlyCollection<PackageSource> Sources => field ??= new(PackageSources);
@@ -145,19 +145,15 @@ public class PackageSourceIndex
     [JsonIgnore]
     List<PackageSource> PackageSources { get; } = [];
 
-    public PackageSourceIndex(List<PackageSource> packageSources)
+    public PackageSourceIndex(PackageSource packageSource)
     {
-        PackageSources = packageSources;
-        foreach (var repo in packageSources)
-        {
-            repo.RepoList = this;
-        }
+        Add(packageSource);
     }
 
     public void Add(PackageSource packageSource)
     {
         PackageSources.Add(packageSource);
-        packageSource.RepoList = this;
+        packageSource.SourceIndex = this;
     }
 
     public async Task<IEnumerable<Package>> GetAllPackagesAsync()
@@ -168,9 +164,9 @@ public class PackageSourceIndex
     }
 }
 
-public class PackageSource : ISaveWithJson<PackageSourceCache>
+public class PackageSource
 {
-    public class PackageSourceCache
+    public class PackageSourceCache : ISaveWithJson
     {
         public DateTime LastFetch { get; set; }
     }
@@ -189,6 +185,39 @@ public class PackageSource : ISaveWithJson<PackageSourceCache>
 
     public class Game
     {
+        public class GameConfig : ISaveWithJson
+        {
+            [JsonIgnore]
+            public Game Game { get; set; } = null!;
+            public string GameName
+            {
+                get => Game.Slug;
+                set => Game = NameToGame[value];
+            }
+
+            [JsonIgnore]
+            public ModList? PreviousProfile { get; set; }
+            public string? PreviousProfileName
+            {
+                get => PreviousProfile?.Name;
+                set
+                {
+                    if (Game.NameToProfile.TryGetValue(value!, out var profile))
+                    {
+                        PreviousProfile = profile;
+                    }
+                }
+            }
+        }
+
+        internal GameConfig Config => field ??= GameConfig.LoadSavedData(GameConfigLocation);
+
+        [JsonIgnore]
+        public string GameConfigLocation =>
+            field ??= Path.Combine(CogworkPaths.GetCacheSubDirectory(Slug), $"config.json");
+
+        public ConcurrentDictionary<string, ModList> NameToProfile { get; } = [];
+
         public static Game Silksong { get; } =
             new()
             {
@@ -251,38 +280,15 @@ public class PackageSource : ISaveWithJson<PackageSourceCache>
     public static PackageSource ThunderstoreSilksong { get; } =
         new(new ThunderstoreCommunity(Game.Silksong));
 
-    public static PackageSourceIndex Silksong { get; } = new([ThunderstoreSilksong]);
+    public static PackageSourceIndex Silksong { get; } = new(ThunderstoreSilksong);
 
     public static double SecondsUntilAutomaticIndexRefreshAllowed { get; } = 60d * 20d;
     public static double SecondsUntilManualIndexRefreshAllowed { get; } = 10d;
 
-    internal PackageSourceCache SourceCache
-    {
-        get
-        {
-            if (field is { })
-                return field;
+    internal PackageSourceCache SourceCache =>
+        field ??= PackageSourceCache.LoadSavedData(Service.PackageIndexCacheLocation);
 
-            if (File.Exists(Service.PackageIndexCacheLocation))
-            {
-                using var stream = File.OpenRead(Service.PackageIndexCacheLocation);
-                try
-                {
-                    var cache = JsonSerializer.Deserialize<PackageSourceCache>(stream);
-                    if (cache is { })
-                        return field = cache;
-                }
-                catch (JsonException ex)
-                {
-                    Cog.Error("Error reading cache file: " + ex.ToString());
-                }
-            }
-
-            return field = new PackageSourceCache();
-        }
-    }
-
-    public PackageSourceIndex RepoList { get; internal set; } = null!;
+    public PackageSourceIndex SourceIndex { get; internal set; } = null!;
     public IPackageSourceService Service { get; private set; }
     private List<Package> Packages { get; set; } = [];
 
@@ -330,13 +336,13 @@ public class PackageSource : ISaveWithJson<PackageSourceCache>
             }
 
             SourceCache.LastFetch = dateNow;
-            this.Save(SourceCache, Service.PackageIndexCacheLocation);
+            SourceCache.Save(Service.PackageIndexCacheLocation);
         }
         else
         {
             Cog.Information(
                 $"Using cached package index for '{Service.Url}', last fetch was "
-                    + $"less than {secondsUntilIndexRefreshAllowed} minutes ago."
+                    + $"less than {secondsUntilIndexRefreshAllowed} seconds ago."
             );
 
             if (isImported)
@@ -345,7 +351,7 @@ public class PackageSource : ISaveWithJson<PackageSourceCache>
             }
         }
 
-        if (!TryParsePackageIndex(Service.PackageIndexLocation, out var packages))
+        if (!TryParsePackageIndexFile(Service.PackageIndexLocation, out var packages))
         {
             Cog.Error("Package index parsing failed");
             return false;
@@ -361,10 +367,9 @@ public class PackageSource : ISaveWithJson<PackageSourceCache>
         return Packages;
     }
 
-    public ModList GetModList(string name, ModList.ModListConfig? config = null)
+    public ModList GetModList(string name)
     {
-        config ??= new() { RepoList = RepoList };
-        return new ModList(Service.Game, name, config);
+        return new ModList(Service.Game, name, SourceIndex);
     }
 
     internal bool TryParsePackageIndexFile(
@@ -411,7 +416,7 @@ public class PackageSource : ISaveWithJson<PackageSourceCache>
                     // duplicate package instances. We connect the instances:
                     if (
                         Package.TryGetPackage(
-                            RepoList,
+                            SourceIndex,
                             package.FullName,
                             out var oldPackage,
                             false,

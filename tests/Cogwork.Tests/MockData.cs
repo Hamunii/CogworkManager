@@ -4,6 +4,7 @@ namespace Cogwork.Tests;
 
 static class MockData
 {
+#pragma warning disable CS0414 // The field 'MockData.data' is assigned but its value is never used
     static readonly string data = """
 [{
     "full_name": "MonoDetour-MonoDetour",
@@ -80,6 +81,7 @@ static class MockData
     ]
 }]
 """;
+#pragma warning restore
 
     /* public static PackageSourceIndex Test
     {

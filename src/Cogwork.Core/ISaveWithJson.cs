@@ -12,7 +12,7 @@ public static class ISaveWithJsonExtensions
         new() { WriteIndented = true, AllowTrailingCommas = true };
 
     extension<T>(T self)
-        where T : ISaveWithJson
+        where T : ISaveWithJson, new()
     {
         public void Save(string fileLocation)
         {
@@ -20,16 +20,29 @@ public static class ISaveWithJsonExtensions
             _ = Directory.CreateDirectory(Path.GetDirectoryName(fileLocation)!);
             File.WriteAllText(fileLocation, serialized);
         }
-    }
 
-    extension<T1, T2>(T1 self)
-        where T1 : ISaveWithJson<T2>
-    {
-        public void Save(T2 data, string fileLocation)
+        // I don't care and this doesn't even apply here
+#pragma warning disable CA1000 // Do not declare static members on generic types
+        public static T LoadSavedData(string filePath)
         {
-            var serialized = JsonSerializer.Serialize(data, Options);
-            _ = Directory.CreateDirectory(Path.GetDirectoryName(fileLocation)!);
-            File.WriteAllText(fileLocation, serialized);
+            if (!File.Exists(filePath))
+            {
+                return new();
+            }
+
+            using var stream = File.OpenRead(filePath);
+            try
+            {
+                var data = JsonSerializer.Deserialize<T>(stream);
+                if (data is { })
+                    return data;
+            }
+            catch (JsonException ex)
+            {
+                Cog.Error("Error reading cache file: " + ex.ToString());
+            }
+
+            return new();
         }
     }
 }

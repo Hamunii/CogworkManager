@@ -77,13 +77,13 @@ public record Package
         else
         {
             var repository = fullName[split.Current];
-            if (repository == "ts")
+            if (MemoryExtensions.Equals(repository, "ts", StringComparison.Ordinal))
             {
                 repo = repoList.Default;
             }
             else
             {
-                throw new NotImplementedException(
+                throw new NotSupportedException(
                     $"Only 'ts' (as Thunderstore) is supported. Was '{repository}'."
                 );
             }
@@ -110,7 +110,10 @@ public record Package
             )
         )
         {
-            throw new ArgumentException($"Package for '{fullNameWithVersion}' doesn't exist.");
+            throw new ArgumentException(
+                $"Package for '{fullNameWithVersion}' doesn't exist. "
+                    + "Was the package source data fetched and imported first?"
+            );
         }
 
         if (!package.TryGetVersion(version!, out var packageVersion))
@@ -177,7 +180,7 @@ public record PackageVersion
                 {
                     if (
                         !Package.TryGetPackage(
-                            Package.PackageRepo.RepoList,
+                            Package.PackageRepo.SourceIndex,
                             fullNameWithVersion,
                             out var package,
                             hasVersion: true,

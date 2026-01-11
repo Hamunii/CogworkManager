@@ -1,60 +1,114 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Cogwork.Core;
 
-public class ModList : ISaveWithJson
+public class ModList
 {
-    public class ModListConfig
+    public class ModListConfig : ISaveWithJson
     {
-        public readonly record struct HandlerUrl(Uri Url);
+        public readonly record struct ServiceUrl(Uri Url);
+
+        private ModList? _modList;
 
         [JsonIgnore]
-        public PackageSourceIndex RepoList { get; init; } = null!;
+        public PackageSourceIndex SourceIndex { get; set; } = null!;
 
         [JsonInclude]
-        [JsonPropertyName("Repos")]
-        public IEnumerable<HandlerUrl> RepoHandlers =>
-            RepoList.Sources.Select(x => new HandlerUrl(x.Service.Url));
+        [JsonPropertyName("Sources")]
+        public IEnumerable<ServiceUrl> Sources =>
+            SourceIndex?.Sources.Select(x => new ServiceUrl(x.Service.Url)).Distinct() ?? [];
+
+        [JsonInclude]
+        [JsonPropertyName("Added")]
+        public IEnumerable<string> AddedPackages
+        {
+            get => _modList?.Added.Values.Select(x => x.ToString()) ?? field;
+            set
+            {
+                if (_modList is null)
+                {
+                    field = value;
+                    return;
+                }
+
+                Debug.Assert(SourceIndex is { });
+
+                foreach (var package in value)
+                {
+                    var packageVersion = Package.GetPackageVersion(SourceIndex, package);
+                    _modList.Added.Add(packageVersion.Package, packageVersion);
+                }
+            }
+        } = null!;
+
+        [JsonInclude]
+        [JsonPropertyName("Dependencies")]
+        public IEnumerable<string> DependencyPackages
+        {
+            get => _modList?.Dependencies.Values.Select(x => x.ToString()) ?? field;
+            set
+            {
+                if (_modList is null)
+                {
+                    field = value;
+                    return;
+                }
+
+                Debug.Assert(SourceIndex is { });
+
+                foreach (var package in value)
+                {
+                    var packageVersion = Package.GetPackageVersion(SourceIndex, package);
+                    _modList.Dependencies.Add(packageVersion.Package, packageVersion);
+                }
+            }
+        } = null!;
+
+        internal void ConnectModList(ModList modList)
+        {
+            if (_modList is { })
+            {
+                Cog.Warning(
+                    $"{nameof(ModListConfig)} already has "
+                        + $"{nameof(_modList)} named '{_modList.Name}'"
+                );
+                return;
+            }
+
+            var added = AddedPackages;
+            var dependencies = DependencyPackages;
+
+            _modList = modList;
+            SourceIndex = _modList.SourceIndex;
+
+            AddedPackages = added;
+            DependencyPackages = dependencies;
+        }
     }
 
     [JsonInclude]
-    public ModListConfig Config { get; init; }
+    public ModListConfig Config
+    {
+        get
+        {
+            if (field is { })
+                return field;
+
+            var config = field = ModListConfig.LoadSavedData(FileLocation);
+            config.ConnectModList(this);
+            return config;
+        }
+    }
+    public string Name { get; set; }
+
+    public PackageSourceIndex SourceIndex { get; set; }
 
     [JsonIgnore]
     public string FileLocation =>
-        field ??= Path.Combine(
-            CogworkPaths.GetDataSubDirectory(_game.Slug).FullName,
-            _name,
-            "mod-list.json"
-        );
-
-    [JsonInclude]
-    [JsonPropertyName("Added")]
-    public List<string> AddedPackages
-    {
-        get => [.. Added.Values.Select(x => x.ToString())];
-        set =>
-            value.ForEach(x =>
-            {
-                var packageVersion = Package.GetPackageVersion(Config.RepoList, x);
-                Added.Add(packageVersion.Package, packageVersion);
-            });
-    }
-
-    [JsonInclude]
-    [JsonPropertyName("Dependencies")]
-    public List<string> DependencyPackages
-    {
-        get => [.. Dependencies.Values.Select(x => x.ToString())];
-        set =>
-            value.ForEach(x =>
-            {
-                var packageVersion = Package.GetPackageVersion(Config.RepoList, x);
-                Dependencies.Add(packageVersion.Package, packageVersion);
-            });
-    }
+        field ??= Path.Combine(CogworkPaths.GetDataSubDirectory(_game.Slug), Name, "mod-list.json");
 
     [JsonIgnore]
     public Dictionary<Package, PackageVersion> Added { get; private set; } = [];
@@ -63,13 +117,13 @@ public class ModList : ISaveWithJson
     public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
 
     readonly Game _game;
-    readonly string _name;
 
-    public ModList(Game game, string name, ModListConfig config)
+    public ModList(Game game, string name, PackageSourceIndex sourceIndex)
     {
         _game = game;
-        _name = name;
-        Config = config;
+        Name = name;
+        SourceIndex = sourceIndex;
+        _ = Config;
     }
 
     public void Add(Package package) => Add(package.Latest);
@@ -78,14 +132,14 @@ public class ModList : ISaveWithJson
     {
         _ = Added.AddOrUpdateToHigherVersion(package);
         RebuildDependencies();
-        this.Save(FileLocation);
+        Config.Save(FileLocation);
     }
 
     public void Remove(Package package)
     {
         Added.Remove(package);
         RebuildDependencies();
-        this.Save(FileLocation);
+        Config.Save(FileLocation);
     }
 
     public void RebuildDependencies()
@@ -134,17 +188,6 @@ public class ModList : ISaveWithJson
 
         return sb.ToString();
     }
-
-    // void Save()
-    // {
-    //     JsonSerializerOptions options = new()
-    //     {
-    //         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
-    //     };
-    //     var serialized = JsonSerializer.Serialize(this, options);
-    //     _ = Directory.CreateDirectory(Path.GetDirectoryName(FileLocation)!);
-    //     File.WriteAllText(FileLocation, serialized);
-    // }
 }
 
 public static class ModListExtensions

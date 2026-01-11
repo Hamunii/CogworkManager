@@ -5,37 +5,37 @@ namespace Cogwork.Core;
 public static class CogworkPaths
 {
     const string appId = "Hamunii.Cogwork";
-    public static DirectoryInfo CacheDirectory
+    public static string CacheDirectory
     {
         get
         {
             var path = Path.Combine(BaseDirectory.CacheHome, appId);
-            var dir = Directory.CreateDirectory(path);
-            return dir;
+            _ = Directory.CreateDirectory(path);
+            return path;
         }
     }
 
-    public static DirectoryInfo DataDirectory
+    public static string DataDirectory
     {
         get
         {
             var path = Path.Combine(BaseDirectory.DataHome, appId);
-            var dir = Directory.CreateDirectory(path);
-            return dir;
+            _ = Directory.CreateDirectory(path);
+            return path;
         }
     }
 
-    public static DirectoryInfo GetCacheSubDirectory(string subDirectory)
+    public static string GetCacheSubDirectory(string subDirectory)
     {
-        var path = Path.Combine(CacheDirectory.FullName, subDirectory);
-        var dir = Directory.CreateDirectory(path);
-        return dir;
+        var path = Path.Combine(CacheDirectory, subDirectory);
+        _ = Directory.CreateDirectory(path);
+        return path;
     }
 
-    public static DirectoryInfo GetDataSubDirectory(string subDirectory)
+    public static string GetDataSubDirectory(string subDirectory)
     {
-        var path = Path.Combine(DataDirectory.FullName, subDirectory);
-        var dir = Directory.CreateDirectory(path);
-        return dir;
+        var path = Path.Combine(DataDirectory, subDirectory);
+        _ = Directory.CreateDirectory(path);
+        return path;
     }
 }
