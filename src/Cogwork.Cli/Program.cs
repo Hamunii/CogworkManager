@@ -47,7 +47,7 @@ static class Program
             {
                 Argument<string> gameSelectArgument = new("game")
                 {
-                    Description = "Name of a game which is supported by Cogwork Manager",
+                    Description = "Name of a game which is supported",
                     // This is to not require quotation marks.
                     Arity = ArgumentArity.OneOrMore,
                     CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
@@ -56,7 +56,7 @@ static class Program
                 gameSelect.Arguments.Add(gameSelectArgument);
             }
 
-            Command gameList = new("list", "List all games supported by Cogwork Manager");
+            Command gameList = new("list", "List all games supported");
             gameList.Aliases.Add("l");
             game.Subcommands.Add(gameList);
             {
