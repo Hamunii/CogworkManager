@@ -89,22 +89,22 @@ static class Program
         }
         AddOptionRecursive(profile, optionGameOverride);
 
-        Command mods = new("mods", "Manage mods on a mod profile");
-        mods.Aliases.Add("m");
-        rootCommand.Subcommands.Add(mods);
+        Command mod = new("mod", "Manage mods on a mod profile");
+        mod.Aliases.Add("m");
+        rootCommand.Subcommands.Add(mod);
         {
-            Command modsAdd = new("add", "Add mods to a profile");
-            modsAdd.Aliases.Add("a");
-            mods.Subcommands.Add(modsAdd);
-            rootCommand.Subcommands.Add(modsAdd);
+            Command modAdd = new("add", "Add mods to a profile");
+            modAdd.Aliases.Add("a");
+            mod.Subcommands.Add(modAdd);
+            rootCommand.Subcommands.Add(modAdd);
 
-            Command modsRemove = new("remove", "Remove mods from a profile");
-            modsRemove.Aliases.Add("r");
-            mods.Subcommands.Add(modsRemove);
-            rootCommand.Subcommands.Add(modsRemove);
+            Command modRemove = new("remove", "Remove mods from a profile");
+            modRemove.Aliases.Add("r");
+            mod.Subcommands.Add(modRemove);
+            rootCommand.Subcommands.Add(modRemove);
         }
-        AddOptionRecursive(mods, optionGameOverride);
-        AddOptionRecursive(mods, optionProfileOverride);
+        AddOptionRecursive(mod, optionGameOverride);
+        AddOptionRecursive(mod, optionProfileOverride);
 
         Command source = new("source", "Manage package sources");
         source.Aliases.Add("so");
