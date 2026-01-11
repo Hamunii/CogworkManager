@@ -29,7 +29,7 @@ static class Program
     };
     static readonly Option<bool> optionExactMatching = new("--exact-matching", "-E")
     {
-        Description = "Require exact case-insensitive string matching",
+        Description = "Only an exact match is picked implicitly",
     };
 
     static int Main(string[] args)
@@ -145,19 +145,12 @@ static class Program
     private static void SelectGame(ArgumentResult result)
     {
         var gameToSelect = result.GetValueOrDefault<string>();
-        bool requireExactMatching = result.GetValue(optionExactMatching);
+        bool exactMatching = result.GetValue(optionExactMatching);
 
         if (!Game.NameToGame.TryGetValue(gameToSelect, out var selectedGame))
         {
             if (!TryVeryFuzzySearchGame(result, gameToSelect, out selectedGame))
             {
-                // result.AddError("Game not found: " + gameToSelect);
-                return;
-            }
-
-            if (requireExactMatching)
-            {
-                result.AddError($"Game not found: {gameToSelect}\nBest match: {selectedGame.Name}");
                 return;
             }
         }
@@ -173,6 +166,9 @@ static class Program
         [NotNullWhen(true)] out Game? selectedGame
     )
     {
+        var noInteractive = result.GetValue(optionNoInteractive);
+        var exactMatching = result.GetValue(optionExactMatching);
+
         var games = Game.SupportedGames.Select(x => x.Name);
         selectedGame = default;
 
@@ -247,23 +243,6 @@ static class Program
         }
         else if (best.Count > 1)
         {
-            if (result.GetValue(optionExactMatching))
-            {
-                // If exact matching is enabled here, it means this method is used for
-                // giving more feedback to the user, but ambiguous matches are irrelevant.
-                var sb = new StringBuilder();
-                sb.AppendLine(
-                    CultureInfo.InvariantCulture,
-                    $"Game not found: {gameToSelect}\nBest matches:"
-                );
-                foreach (var match in common!)
-                {
-                    sb.AppendLine(CultureInfo.InvariantCulture, $"- {match}");
-                }
-                result.AddError(sb.ToString());
-                return false;
-            }
-
             int i = 0;
             Console.WriteLine($"Ambiguous match found:");
             Console.WriteLine();
@@ -272,7 +251,7 @@ static class Program
                 i++;
                 Console.WriteLine($"({i}): " + match);
             }
-            if (result.GetValue(optionNoInteractive))
+            if (noInteractive)
             {
                 result.AddError("Ambiguous match for game name.");
                 return false;
@@ -290,6 +269,27 @@ static class Program
         else
         {
             selected = best[0];
+
+            if (exactMatching)
+            {
+                if (noInteractive)
+                {
+                    result.AddError($"Game not found: {gameToSelect}\nBest match: {selected}");
+                    return false;
+                }
+
+                Console.WriteLine($"Selecting game: " + selected);
+                Console.Write($"Is this ok [y/N]: ");
+
+                var input = Console.ReadLine()?.ToLowerInvariant();
+                Console.WriteLine();
+
+                if (input is not ("y" or "yes"))
+                {
+                    Console.WriteLine($"The game was not selected.");
+                    return false;
+                }
+            }
         }
 
         selected = selected.ToLowerInvariant();
