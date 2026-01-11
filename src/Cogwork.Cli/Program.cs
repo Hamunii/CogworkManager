@@ -4,12 +4,12 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Text;
 using FuzzySharp;
 using FuzzySharp.Extractor;
 using FuzzySharp.SimilarityRatio;
 using FuzzySharp.SimilarityRatio.Scorer.Composite;
 using FuzzySharp.SimilarityRatio.Scorer.StrategySensitive;
+using Spectre.Console;
 
 namespace Cogwork.Cli;
 
@@ -156,7 +156,10 @@ static class Program
         }
 
         // TODO: Actual logic.
-        Console.WriteLine("Selected game: " + selectedGame.Name);
+        AnsiConsole.MarkupLineInterpolated(
+            CultureInfo.InvariantCulture,
+            $"Selected game: [purple]{selectedGame.Name}[/]"
+        );
         return;
     }
 
@@ -174,7 +177,7 @@ static class Program
 
         List<string> best = [];
         IEnumerable<string>? common = null;
-        FilterBestResults(
+        var score = FilterBestResults(
             Process.ExtractTop(
                 gameToSelect,
                 games,
@@ -183,11 +186,11 @@ static class Program
             ),
             ref best
         );
-        if (best.Count != 1)
+        if (best.Count != 1 || !IsAutoAccept(score))
         {
             List<string> best2 = [];
 
-            FilterBestResults(
+            var score2 = FilterBestResults(
                 Process.ExtractTop(
                     gameToSelect,
                     games,
@@ -195,8 +198,9 @@ static class Program
                 ),
                 ref best2
             );
+            score = Math.Max(score, score2);
 
-            if (best2.Count == 1)
+            if (best2.Count == 1 && IsAutoAccept(score))
             {
                 best = best2;
             }
@@ -204,16 +208,18 @@ static class Program
             {
                 List<string> best3 = [];
 
-                FilterBestResults(
+                var score3 = FilterBestResults(
                     Process.ExtractTop(
                         gameToSelect,
                         games,
-                        cutoff: 40,
+                        cutoff: 60,
                         scorer: ScorerCache.Get<TokenInitialismScorer>()
                     ),
                     ref best3
                 );
-                if (best3.Count == 1)
+                score = Math.Max(score, score3);
+
+                if (best3.Count == 1 && IsAutoAccept(score))
                 {
                     best = best3;
                 }
@@ -243,34 +249,34 @@ static class Program
         }
         else if (best.Count > 1)
         {
-            int i = 0;
-            Console.WriteLine($"Ambiguous match found:");
-            Console.WriteLine();
-            foreach (var match in common!)
-            {
-                i++;
-                Console.WriteLine($"({i}): " + match);
-            }
             if (noInteractive)
             {
+                AnsiConsole.MarkupLine($"[yellow]Ambiguous match found:[/]");
+                Console.WriteLine();
+                foreach (var match in common!)
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"[yellow]- {match}[/]"
+                    );
+                }
                 result.AddError("Ambiguous match for game name.");
                 return false;
             }
-            Console.WriteLine();
-            Console.Write($"Select game by index (1-{best.Count}): ");
-            var input = Console.ReadLine();
-            if (!int.TryParse(input, out var index) || index < 1 || index > best.Count)
-            {
-                result.AddError("Invalid index for disambiguating game.");
-                return false;
-            }
-            selected = best[index - 1];
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title(
+                        "[yellow]Ambiguous match. Please select the game you are looking for:[/]"
+                    )
+                    .AddChoices(best)
+            );
+            selected = choice;
         }
         else
         {
             selected = best[0];
 
-            if (exactMatching)
+            if (exactMatching || !IsAutoAccept(score))
             {
                 if (noInteractive)
                 {
@@ -278,15 +284,14 @@ static class Program
                     return false;
                 }
 
-                Console.WriteLine($"Selecting game: " + selected);
-                Console.Write($"Is this ok [y/N]: ");
+                AnsiConsole.MarkupLineInterpolated(
+                    CultureInfo.InvariantCulture,
+                    $"Selecting game: [purple]{selected}[/]"
+                );
 
-                var input = Console.ReadLine()?.ToLowerInvariant();
-                Console.WriteLine();
-
-                if (input is not ("y" or "yes"))
+                if (!AnsiConsole.Confirm("Is this ok?", defaultValue: true))
                 {
-                    Console.WriteLine($"The game was not selected.");
+                    AnsiConsole.MarkupLine($"[yellow]The game was not selected.[/]");
                     return false;
                 }
             }
@@ -294,22 +299,24 @@ static class Program
 
         selected = selected.ToLowerInvariant();
         selectedGame = Game.NameToGame[selected];
+
         return true;
+        static bool IsAutoAccept(int score) => score >= 90;
     }
 
-    private static void FilterBestResults(
+    private static int FilterBestResults(
         IEnumerable<ExtractedResult<string>> res,
         ref List<string> best
     )
     {
         int bestScore = -100;
-        Cog.Debug($"Filtering started");
+        Cog.Information($"Filtering started");
 
         foreach (var result in res)
         {
             if (result.Score > bestScore)
             {
-                Cog.Debug($"{result.Score}: {result.Index} {result.Value}");
+                Cog.Information($"{result.Score}: {result.Index} {result.Value}");
                 best.Clear();
                 best.Add(result.Value);
                 bestScore = result.Score;
@@ -317,14 +324,14 @@ static class Program
             else if (bestScore == 100 ? result.Score == bestScore : bestScore - result.Score <= 4)
             {
                 best.Add(result.Value);
-                Cog.Debug($"{result.Score}: {result.Index} {result.Value}");
+                Cog.Information($"{result.Score}: {result.Index} {result.Value}");
             }
             else
             {
-                Cog.Debug($"{result.Score} (dropped): {result.Index} {result.Value}");
+                Cog.Information($"{result.Score} (dropped): {result.Index} {result.Value}");
             }
         }
 
-        return;
+        return bestScore;
     }
 }
