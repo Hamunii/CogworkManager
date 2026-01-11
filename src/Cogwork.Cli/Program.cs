@@ -23,14 +23,48 @@ static class Program
     {
         Description = "Override the active mod profile to work on",
     };
+    static readonly Option<bool> optionAssumeYes = new("--assume-yes", "-y")
+    {
+        Description = "Assumes yes on boolean questions",
+    };
+    static readonly Option<bool> optionAssumeNo = new("--assume-no", "-n")
+    {
+        Description = "Assumes no on boolean questions",
+    };
     static readonly Option<bool> optionNoInteractive = new("--no-interactive", "-N")
     {
-        Description = "Prevent requesting user input and fail instead",
+        Description = "Prevent requesting user input and fail if a prompt can't be answered",
     };
     static readonly Option<bool> optionExactMatching = new("--exact-matching", "-E")
     {
         Description = "Only an exact match is picked implicitly",
     };
+
+    /// <summary>
+    /// Gets assumed boolean value or null and returns true,
+    /// or adds an error and returns false if configuration is invalid.
+    /// </summary>
+    public static bool Assume(this ArgumentResult result, out bool? assumption)
+    {
+        var yes = result.GetValue(optionAssumeYes);
+        var no = result.GetValue(optionAssumeNo);
+
+        if (yes && no)
+        {
+            result.AddError($"Options --assume-yes and --assume-no are mutually exclusive");
+            assumption = null;
+            return false;
+        }
+
+        if (yes)
+            assumption = true;
+        else if (no)
+            assumption = false;
+        else
+            assumption = null;
+
+        return true;
+    }
 
     static int Main(string[] args)
     {
@@ -43,6 +77,8 @@ static class Program
             Command gameSelect = new("select", "Select active game to mod");
             gameSelect.Aliases.Add("s");
             gameSelect.Options.Add(optionExactMatching);
+            gameSelect.Options.Add(optionAssumeYes);
+            gameSelect.Options.Add(optionAssumeNo);
             game.Subcommands.Add(gameSelect);
             {
                 Argument<string> gameSelectArgument = new("game")
@@ -145,7 +181,6 @@ static class Program
     private static void SelectGame(ArgumentResult result)
     {
         var gameToSelect = result.GetValueOrDefault<string>();
-        bool exactMatching = result.GetValue(optionExactMatching);
 
         if (!Game.NameToGame.TryGetValue(gameToSelect, out var selectedGame))
         {
@@ -158,7 +193,7 @@ static class Program
         // TODO: Actual logic.
         AnsiConsole.MarkupLineInterpolated(
             CultureInfo.InvariantCulture,
-            $"Selected game: [purple]{selectedGame.Name}[/]"
+            $"Selected game: [blue]{selectedGame.Name}[/]"
         );
         return;
     }
@@ -169,11 +204,15 @@ static class Program
         [NotNullWhen(true)] out Game? selectedGame
     )
     {
+        selectedGame = default;
+
+        if (!result.Assume(out var assumption))
+            return false;
+
         var noInteractive = result.GetValue(optionNoInteractive);
         var exactMatching = result.GetValue(optionExactMatching);
 
         var games = Game.SupportedGames.Select(x => x.Name);
-        selectedGame = default;
 
         List<string> best = [];
         IEnumerable<string>? common = null;
@@ -198,10 +237,10 @@ static class Program
                 ),
                 ref best2
             );
-            score = Math.Max(score, score2);
 
-            if (best2.Count == 1 && IsAutoAccept(score))
+            if (best2.Count == 1 && IsAutoAccept(score2))
             {
+                score = score2;
                 best = best2;
             }
             else
@@ -217,15 +256,26 @@ static class Program
                     ),
                     ref best3
                 );
-                score = Math.Max(score, score3);
 
-                if (best3.Count == 1 && IsAutoAccept(score))
+                if (best3.Count == 1 && IsAutoAccept(score3))
                 {
+                    score = score3;
                     best = best3;
                 }
                 else
                 {
-                    common = best.Intersect(best2).Union(best3);
+                    var common2 = best.Intersect(best2);
+                    if (common2.Any())
+                    {
+                        score = Math.Max(score, score2);
+                        common = common2.Union(best3);
+                    }
+                    else
+                    {
+                        common = best.Union(best3);
+                    }
+                    score = Math.Max(score, score3);
+
                     if (!common.Any())
                     {
                         Cog.Debug("No matches in common, using first match.");
@@ -276,9 +326,9 @@ static class Program
         {
             selected = best[0];
 
-            if (exactMatching || !IsAutoAccept(score))
+            if ((!IsAutoAccept(score) || exactMatching) && assumption is not true)
             {
-                if (noInteractive)
+                if (noInteractive && assumption is null)
                 {
                     result.AddError($"Game not found: {gameToSelect}\nBest match: {selected}");
                     return false;
@@ -289,7 +339,7 @@ static class Program
                     $"Selecting game: [purple]{selected}[/]"
                 );
 
-                if (!AnsiConsole.Confirm("Is this ok?", defaultValue: true))
+                if (assumption is false || !AnsiConsole.Confirm("Is this ok?", defaultValue: true))
                 {
                     AnsiConsole.MarkupLine($"[yellow]The game was not selected.[/]");
                     return false;
@@ -310,13 +360,13 @@ static class Program
     )
     {
         int bestScore = -100;
-        Cog.Information($"Filtering started");
+        Cog.Debug($"Filtering started");
 
         foreach (var result in res)
         {
             if (result.Score > bestScore)
             {
-                Cog.Information($"{result.Score}: {result.Index} {result.Value}");
+                Cog.Debug($"{result.Score}: {result.Index} {result.Value}");
                 best.Clear();
                 best.Add(result.Value);
                 bestScore = result.Score;
@@ -324,11 +374,11 @@ static class Program
             else if (bestScore == 100 ? result.Score == bestScore : bestScore - result.Score <= 4)
             {
                 best.Add(result.Value);
-                Cog.Information($"{result.Score}: {result.Index} {result.Value}");
+                Cog.Debug($"{result.Score}: {result.Index} {result.Value}");
             }
             else
             {
-                Cog.Information($"{result.Score} (dropped): {result.Index} {result.Value}");
+                Cog.Debug($"{result.Score} (dropped): {result.Index} {result.Value}");
             }
         }
 
