@@ -18,7 +18,7 @@ public sealed record Package
     [JsonPropertyName("versions")]
     public PackageVersion[] Versions { get; internal set; }
     public PackageVersion Latest => Versions[0];
-    public PackageSource PackageRepo { get; internal set; } = null!;
+    public PackageSource Source { get; internal set; } = null!;
 
     [JsonConstructor]
     public Package(string fullName, PackageVersion[] versions)
@@ -39,12 +39,12 @@ public sealed record Package
     }
 
     public static bool TryGetPackage(
-        PackageSourceIndex repoList,
+        PackageSourceIndex sourceIndex,
         ReadOnlySpan<char> fullName,
         [NotNullWhen(true)] out Package? package,
         bool hasVersion,
         out Version? version,
-        [NotNullWhen(true)] out PackageSource repo
+        [NotNullWhen(true)] out PackageSource source
     )
     {
         var split = fullName.Split('-');
@@ -72,36 +72,36 @@ public sealed record Package
 
         if (!split.MoveNext())
         {
-            repo = repoList.Default;
+            source = sourceIndex.Default;
         }
         else
         {
-            var repository = fullName[split.Current];
-            if (MemoryExtensions.Equals(repository, "ts", StringComparison.Ordinal))
+            var service = fullName[split.Current];
+            if (MemoryExtensions.Equals(service, "ts", StringComparison.Ordinal))
             {
-                repo = repoList.Default;
+                source = sourceIndex.Default;
             }
             else
             {
                 throw new NotSupportedException(
-                    $"Only 'ts' (as Thunderstore) is supported. Was '{repository}'."
+                    $"Only 'ts' (as Thunderstore) is supported. Was '{service}'."
                 );
             }
         }
 
-        return repo
+        return source
             .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
             .TryGetValue(name, out package);
     }
 
     public static PackageVersion GetPackageVersion(
-        PackageSourceIndex repoList,
+        PackageSourceIndex sourceIndex,
         ReadOnlySpan<char> fullNameWithVersion
     )
     {
         if (
             !TryGetPackage(
-                repoList,
+                sourceIndex,
                 fullNameWithVersion,
                 out var package,
                 hasVersion: true,
@@ -143,8 +143,8 @@ public sealed record Package
 
     public ReadOnlySpan<char> ToStringSimpleWithSource()
     {
-        var repoHandler = PackageRepo.Service;
-        var at = repoHandler is ThunderstoreCommunity ? "ts" : repoHandler.Url.Host;
+        var service = Source.Service;
+        var at = service is ThunderstoreCommunity ? "ts" : service.Url.Host;
 
         return $"{Author.Name}-{Name}-{at}";
     }
@@ -180,17 +180,17 @@ public sealed record PackageVersion
                 {
                     if (
                         !Package.TryGetPackage(
-                            Package.PackageRepo.SourceIndex,
+                            Package.Source.SourceIndex,
                             fullNameWithVersion,
                             out var package,
                             hasVersion: true,
                             out var version,
-                            out var repo
+                            out var source
                         )
                     )
                     {
                         Cog.Debug(
-                            $"Package for '{fullNameWithVersion}' in '{repo}' was not found."
+                            $"Package for '{fullNameWithVersion}' in '{source}' was not found."
                         );
                         return null;
                     }
@@ -198,7 +198,7 @@ public sealed record PackageVersion
                     if (!package.TryGetVersion(version!, out var packageVersion))
                     {
                         Cog.Error(
-                            $"Package '{fullNameWithVersion}' exists but has no versions in '{repo}'."
+                            $"Package '{fullNameWithVersion}' exists but has no versions in '{source}'."
                         );
                         return null;
                     }
@@ -289,8 +289,8 @@ public sealed record PackageVersion
 
     public override string ToString()
     {
-        var repoHandler = Package.PackageRepo.Service;
-        var at = repoHandler is ThunderstoreCommunity ? "ts" : repoHandler.Url.Host;
+        var service = Package.Source.Service;
+        var at = service is ThunderstoreCommunity ? "ts" : service.Url.Host;
 
         return $"{Package.Author.Name}-{Package.Name}-{Version}-{at}";
     }

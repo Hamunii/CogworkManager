@@ -387,7 +387,7 @@ public sealed class PackageSource
                     _ = await ts.FetchIndexFileToCacheAsync();
                     break;
                 default:
-                    Cog.Error("Invalid RepoHandler type: " + Service.GetType());
+                    Cog.Error($"Invalid {nameof(Service)} type: " + Service.GetType());
                     return false;
             }
 
@@ -460,7 +460,7 @@ public sealed class PackageSource
             for (int i = 0; i < packages.Count; i++)
             {
                 Package package = packages[i];
-                package.PackageRepo = this;
+                package.Source = this;
 
                 if (
                     !nameToPackage
