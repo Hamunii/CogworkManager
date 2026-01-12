@@ -55,7 +55,7 @@ public interface IPackageSourceService
     public Game Game { get; }
 }
 
-public class ThunderstoreCommunity(Game game) : IPackageSourceService
+public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 {
     [JsonIgnore]
     public string PackageIndexLocation =>
@@ -130,7 +130,7 @@ public class ThunderstoreCommunity(Game game) : IPackageSourceService
     }
 }
 
-public class PackageSourceIndex
+public sealed class PackageSourceIndex
 {
     /// <summary>
     /// The package source which is resolved when a package source is not defined.
@@ -164,9 +164,9 @@ public class PackageSourceIndex
     }
 }
 
-public class PackageSource
+public sealed class PackageSource
 {
-    public class PackageSourceCache : ISaveWithJson
+    public sealed class PackageSourceCache : ISaveWithJson
     {
         public DateTime LastFetch { get; set; }
     }
@@ -177,15 +177,15 @@ public class PackageSource
         public required long Id { get; init; }
     }
 
-    public class Platforms
+    public sealed class Platforms
     {
         [JsonPropertyName("steam")]
         public SteamId? Steam { get; init; }
     }
 
-    public class Game
+    public sealed class Game
     {
-        public class GlobalConfig : ISaveWithJson
+        public sealed class GlobalConfig : ISaveWithJson
         {
             [JsonIgnore]
             public static string GlobalConfigLocation =>
@@ -222,7 +222,7 @@ public class PackageSource
             }
         }
 
-        public class GameConfig : ISaveWithJson
+        public sealed class GameConfig : ISaveWithJson
         {
             [JsonIgnore]
             public Game? Game { get; set; }

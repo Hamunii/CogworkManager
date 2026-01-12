@@ -1,6 +1,6 @@
 namespace Cogwork.Tests.Management;
 
-public class ModListTests
+public sealed class ModListTests
 {
     [Fact]
     public async Task PrintModListAsync()

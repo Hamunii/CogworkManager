@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace Cogwork.Core;
 
-public record Package
+public sealed record Package
 {
     public Author Author { get; }
     public string Name { get; }
@@ -171,7 +171,7 @@ public record Package
     }
 }
 
-public record PackageVersion
+public sealed record PackageVersion
 {
     public PackageVersion[] MarkedDependencies =>
         field ??= [

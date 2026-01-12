@@ -5,9 +5,9 @@ using System.Text.Json.Serialization;
 
 namespace Cogwork.Core;
 
-public class ModList
+public sealed class ModList
 {
-    public class ModListConfig : ISaveWithJson
+    public sealed class ModListConfig : ISaveWithJson
     {
         public readonly record struct ServiceUrl(Uri Url);
 
