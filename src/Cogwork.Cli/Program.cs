@@ -40,6 +40,19 @@ static class Program
         Description = "Only an exact match is picked implicitly",
     };
 
+    static int Main(string[] args)
+    {
+        try
+        {
+            return Initialize(args);
+        }
+        catch (Exception ex)
+        {
+            Cog.Fatal("Unhandled exception occurred:\n" + ex.ToString());
+            return -1;
+        }
+    }
+
     /// <summary>
     /// Gets assumed boolean value or null and returns true,
     /// or adds an error and returns false if configuration is invalid.
@@ -66,7 +79,7 @@ static class Program
         return true;
     }
 
-    static int Main(string[] args)
+    static int Initialize(string[] args)
     {
         RootCommand rootCommand = new("Cogwork Manager CLI - mod package manager");
 
@@ -92,7 +105,7 @@ static class Program
                 gameSelect.Arguments.Add(gameSelectArgument);
             }
 
-            Command gameList = new("list", "List all games supported");
+            Command gameList = new("list", "List all supported games");
             gameList.Aliases.Add("l");
             game.Subcommands.Add(gameList);
             {
