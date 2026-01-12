@@ -185,36 +185,92 @@ public class PackageSource
 
     public class Game
     {
-        public class GameConfig : ISaveWithJson
+        public class GlobalConfig : ISaveWithJson
         {
             [JsonIgnore]
-            public Game Game { get; set; } = null!;
-            public string GameName
-            {
-                get => Game.Slug;
-                set => Game = NameToGame[value];
-            }
+            public static string GlobalConfigLocation =>
+                field ??= Path.Combine(CogworkPaths.DataDirectory, $"state.json");
+            internal static GlobalConfig Instance =>
+                field ??= GlobalConfig.LoadSavedData(GlobalConfigLocation);
 
-            [JsonIgnore]
-            public ModList? PreviousProfile { get; set; }
-            public string? PreviousProfileName
+            public string? ActiveGameSlug { get; set; }
+
+            public static Game? ActiveGame
             {
-                get => PreviousProfile?.Name;
+                get
+                {
+                    if (field is { })
+                        return field;
+
+                    var config = Instance;
+                    if (config.ActiveGameSlug is null)
+                        return null;
+
+                    if (!NameToGame.TryGetValue(config.ActiveGameSlug, out var game))
+                    {
+                        return null;
+                    }
+
+                    return field = game;
+                }
                 set
                 {
-                    if (Game.NameToProfile.TryGetValue(value!, out var profile))
-                    {
-                        PreviousProfile = profile;
-                    }
+                    field = value;
+                    Instance.ActiveGameSlug = value?.Slug;
+                    Instance.Save(GlobalConfigLocation);
                 }
             }
         }
 
-        internal GameConfig Config => field ??= GameConfig.LoadSavedData(GameConfigLocation);
+        public class GameConfig : ISaveWithJson
+        {
+            [JsonIgnore]
+            public Game? Game { get; set; }
+
+            [JsonIgnore]
+            public ModList? ActiveProfile { get; set; }
+            public string? ActiveProfileName
+            {
+                get => ActiveProfile?.Name ?? field;
+                set
+                {
+                    if (Game is null || value is null)
+                    {
+                        field = value;
+                        return;
+                    }
+
+                    if (Game.NameToProfile.TryGetValue(value, out var profile))
+                    {
+                        ActiveProfile = profile;
+                    }
+                }
+            }
+
+            public void ConnectGame(Game game)
+            {
+                var previousProfileName = ActiveProfileName;
+                Game = game;
+                ActiveProfileName = previousProfileName;
+            }
+        }
+
+        public GameConfig Config
+        {
+            get
+            {
+                if (field is { })
+                    return field;
+
+                field = GameConfig.LoadSavedData(GameConfigLocation);
+                field.ConnectGame(this);
+                return field;
+            }
+        }
 
         [JsonIgnore]
         public string GameConfigLocation =>
-            field ??= Path.Combine(CogworkPaths.GetCacheSubDirectory(Slug), $"config.json");
+            field ??= Path.Combine(CogworkPaths.GetDataSubDirectory(Slug), $"config.json");
 
         public ConcurrentDictionary<string, ModList> NameToProfile { get; } = [];
 

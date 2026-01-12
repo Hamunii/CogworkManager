@@ -112,8 +112,18 @@ static class Program
         {
             status.SetAction(parse =>
             {
-                Console.WriteLine($"Active game: <todo>");
-                Console.WriteLine($"Mod profile: <todo>");
+                var activeGame = Game.GlobalConfig.ActiveGame;
+                var activeGameName = activeGame?.Name ?? "<none>";
+                var modProfileName = activeGame?.Config.ActiveProfileName ?? "<none>";
+
+                AnsiConsole.MarkupInterpolated(
+                    CultureInfo.InvariantCulture,
+                    $"""
+                    Active game: [blue]{activeGameName}[/]
+                    Mod profile: [blue]{modProfileName}[/]
+
+                    """
+                );
             });
         }
 
@@ -190,11 +200,12 @@ static class Program
             }
         }
 
-        // TODO: Actual logic.
         AnsiConsole.MarkupLineInterpolated(
             CultureInfo.InvariantCulture,
             $"Selected game: [blue]{selectedGame.Name}[/]"
         );
+
+        Game.GlobalConfig.ActiveGame = selectedGame;
         return;
     }
 

@@ -97,9 +97,9 @@ public class ModList
             if (field is { })
                 return field;
 
-            var config = field = ModListConfig.LoadSavedData(FileLocation);
-            config.ConnectModList(this);
-            return config;
+            field = ModListConfig.LoadSavedData(FileLocation);
+            field.ConnectModList(this);
+            return field;
         }
     }
     public string Name { get; set; }
