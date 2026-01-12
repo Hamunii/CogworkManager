@@ -23,10 +23,13 @@ public static class ISaveWithJsonExtensions
 
         // I don't care and this doesn't even apply here
 #pragma warning disable CA1000 // Do not declare static members on generic types
-        public static T LoadSavedData(string filePath)
+        public static T LoadSavedData(string filePath) => LoadSavedData<T>(filePath, out _);
+
+        public static T LoadSavedData(string filePath, out bool existed)
         {
             if (!File.Exists(filePath))
             {
+                existed = false;
                 return new();
             }
 
@@ -35,13 +38,17 @@ public static class ISaveWithJsonExtensions
             {
                 var data = JsonSerializer.Deserialize<T>(stream);
                 if (data is { })
+                {
+                    existed = true;
                     return data;
+                }
             }
             catch (JsonException ex)
             {
-                Cog.Error("Error reading cache file: " + ex.ToString());
+                Cog.Error($"Error reading json file '{filePath}': " + ex.ToString());
             }
 
+            existed = false;
             return new();
         }
     }

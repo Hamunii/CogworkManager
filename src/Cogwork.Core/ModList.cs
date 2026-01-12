@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -15,6 +16,20 @@ public sealed class ModList
 
         [JsonIgnore]
         public PackageSourceIndex SourceIndex { get; set; } = null!;
+        public string? DisplayName
+        {
+            get => _modList?.DisplayName ?? field;
+            set
+            {
+                if (_modList is null || value is null)
+                {
+                    field = value;
+                    return;
+                }
+
+                _modList.DisplayName = value;
+            }
+        }
 
         [JsonInclude]
         [JsonPropertyName("Sources")]
@@ -28,9 +43,9 @@ public sealed class ModList
             get => _modList?.Added.Values.Select(x => x.ToString()) ?? field;
             set
             {
-                if (_modList is null)
+                if (_modList is null || value is null)
                 {
-                    field = value;
+                    field = value ?? [];
                     return;
                 }
 
@@ -51,9 +66,9 @@ public sealed class ModList
             get => _modList?.Dependencies.Values.Select(x => x.ToString()) ?? field;
             set
             {
-                if (_modList is null)
+                if (_modList is null || value is null)
                 {
-                    field = value;
+                    field = value ?? [];
                     return;
                 }
 
@@ -67,14 +82,21 @@ public sealed class ModList
             }
         } = null!;
 
-        internal void ConnectModList(ModList modList)
+        /// <summary>
+        /// Connects a <see cref="ModList"/> and a <see cref="ModListConfig"/>
+        /// together so their data is linked.
+        /// </summary>
+        internal void ConnectModListIfNeeded(ModList modList, bool existed = true)
         {
             if (_modList is { })
             {
-                Cog.Warning(
-                    $"{nameof(ModListConfig)} already has "
-                        + $"{nameof(_modList)} named '{_modList.Name}'"
-                );
+                return;
+            }
+
+            if (!existed)
+            {
+                _modList = modList;
+                SourceIndex = _modList.SourceIndex;
                 return;
             }
 
@@ -89,6 +111,9 @@ public sealed class ModList
         }
     }
 
+    static Dictionary<string, ModList> IdToModList { get; } = [];
+    static readonly Lock idToModListLock = new();
+
     [JsonInclude]
     public ModListConfig Config
     {
@@ -98,17 +123,17 @@ public sealed class ModList
                 return field;
 
             field = ModListConfig.LoadSavedData(FileLocation);
-            field.ConnectModList(this);
             return field;
         }
+        private set;
     }
-    public string Name { get; set; }
+    public string DisplayName { get; set; }
+    public string Id { get; set; }
 
     public PackageSourceIndex SourceIndex { get; set; }
 
     [JsonIgnore]
-    public string FileLocation =>
-        field ??= Path.Combine(CogworkPaths.GetDataSubDirectory(_game.Slug), Name, "mod-list.json");
+    public string FileLocation => field ??= GetProfileFileLocation(_game, Id);
 
     [JsonIgnore]
     public Dictionary<Package, PackageVersion> Added { get; private set; } = [];
@@ -118,18 +143,92 @@ public sealed class ModList
 
     readonly Game _game;
 
-    public ModList(Game game, string name, PackageSourceIndex sourceIndex)
+    private ModList(
+        Game game,
+        string name,
+        string? profileId,
+        PackageSourceIndex sourceIndex,
+        ModListConfig? config
+    )
     {
         _game = game;
-        Name = name;
+        DisplayName = name;
+
+        if (profileId is { })
+        {
+            Id = profileId;
+        }
+        else
+        {
+            Span<char> id = new char[name.Length];
+            name.CopyTo(id);
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                id.Replace(c, '_');
+            }
+
+            profileId = id.ToString();
+            var profilesDir = CogworkPaths.GetProfilesSubDirectory(_game, "");
+            var wouldBePath = Path.Combine(profilesDir, profileId);
+            int num = 1;
+            while (File.Exists(wouldBePath))
+            {
+                num++;
+                wouldBePath = Path.Combine(profilesDir, Id + num);
+            }
+            if (num == 1)
+                Id = profileId;
+            else
+                Id = profileId + num;
+        }
+
         SourceIndex = sourceIndex;
-        _ = Config;
+
+        if (config is { })
+        {
+            Config = config;
+        }
+        else
+        {
+            // Init config. This is kinda bad.
+            _ = Config;
+        }
+    }
+
+    /// <summary>
+    /// Constructs a new mod profile which has not existed before.
+    /// </summary>
+    public ModList(Game game, string name, PackageSourceIndex sourceIndex)
+        : this(game, name, profileId: null, sourceIndex, config: null) { }
+
+    public static string GetProfileFileLocation(Game game, string id) =>
+        Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "profile.json");
+
+    public static ModList? GetFromId(Game game, string profileId)
+    {
+        lock (idToModListLock)
+        {
+            if (IdToModList.TryGetValue(profileId, out var modList))
+                return modList;
+
+            var path = GetProfileFileLocation(game, profileId);
+            if (!File.Exists(path))
+                return null;
+
+            var config = ModListConfig.LoadSavedData(path);
+            // TODO: Parse the PackageSourceIndex from the config
+            // and actually give it to the ModList.
+            modList = new ModList(game, config.DisplayName ?? profileId, profileId, null!, config);
+            IdToModList.Add(profileId, modList);
+            return modList;
+        }
     }
 
     public void Add(Package package) => Add(package.Latest);
 
     public void Add(PackageVersion package)
     {
+        Config.ConnectModListIfNeeded(this);
         _ = Added.AddOrUpdateToHigherVersion(package);
         RebuildDependencies();
         Config.Save(FileLocation);
@@ -137,6 +236,7 @@ public sealed class ModList
 
     public void Remove(Package package)
     {
+        Config.ConnectModListIfNeeded(this);
         Added.Remove(package);
         RebuildDependencies();
         Config.Save(FileLocation);
@@ -171,6 +271,8 @@ public sealed class ModList
 
     public override string ToString()
     {
+        Config.ConnectModListIfNeeded(this);
+
         var sb = new StringBuilder();
         sb.AppendLine("Added:");
         foreach (var added in Added.Values)

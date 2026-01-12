@@ -229,9 +229,9 @@ public sealed class PackageSource
 
             [JsonIgnore]
             public ModList? ActiveProfile { get; set; }
-            public string? ActiveProfileName
+            public string? ActiveProfileId
             {
-                get => ActiveProfile?.Name ?? field;
+                get => ActiveProfile?.Id ?? field;
                 set
                 {
                     if (Game is null || value is null)
@@ -239,19 +239,15 @@ public sealed class PackageSource
                         field = value;
                         return;
                     }
-
-                    if (Game.NameToProfile.TryGetValue(value, out var profile))
-                    {
-                        ActiveProfile = profile;
-                    }
+                    ActiveProfile = ModList.GetFromId(Game, value);
                 }
             }
 
             public void ConnectGame(Game game)
             {
-                var previousProfileName = ActiveProfileName;
+                var activeProfileId = ActiveProfileId;
                 Game = game;
-                ActiveProfileName = previousProfileName;
+                ActiveProfileId = activeProfileId;
             }
         }
 
@@ -270,9 +266,7 @@ public sealed class PackageSource
 
         [JsonIgnore]
         public string GameConfigLocation =>
-            field ??= Path.Combine(CogworkPaths.GetDataSubDirectory(Slug), $"config.json");
-
-        public ConcurrentDictionary<string, ModList> NameToProfile { get; } = [];
+            field ??= Path.Combine(CogworkPaths.GetGamesSubDirectory(this), "config.json");
 
         public static Game Silksong { get; } =
             new()

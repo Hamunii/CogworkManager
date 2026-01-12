@@ -127,7 +127,9 @@ static class Program
             {
                 var activeGame = Game.GlobalConfig.ActiveGame;
                 var activeGameName = activeGame?.Name ?? "<none>";
-                var modProfileName = activeGame?.Config.ActiveProfileName ?? "<none>";
+
+                var activeProfile = activeGame?.Config.ActiveProfile;
+                var modProfileName = activeProfile?.DisplayName ?? "<none>";
 
                 AnsiConsole.MarkupInterpolated(
                     CultureInfo.InvariantCulture,
