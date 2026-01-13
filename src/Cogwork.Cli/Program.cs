@@ -4,6 +4,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using FuzzySharp;
 using FuzzySharp.Extractor;
 using FuzzySharp.SimilarityRatio;
@@ -57,7 +58,7 @@ static class Program
     /// Gets assumed boolean value or null and returns true,
     /// or adds an error and returns false if configuration is invalid.
     /// </summary>
-    public static bool Assume(this ArgumentResult result, out bool? assumption)
+    public static bool Assume(this SymbolResult result, out bool? assumption)
     {
         var yes = result.GetValue(optionAssumeYes);
         var no = result.GetValue(optionAssumeNo);
@@ -146,7 +147,74 @@ static class Program
         profile.Aliases.Add("p");
         rootCommand.Subcommands.Add(profile);
         {
-            // TODO
+            Command profileList = new("list", "List all your profiles for the active game");
+            profileList.Aliases.Add("l");
+            profile.Subcommands.Add(profileList);
+            {
+                profileList.Validators.Add(result =>
+                {
+                    if (!result.HasActiveGame(out var game))
+                        return;
+
+                    ModList[] profiles = [.. game.EnumerateProfiles()];
+                    profiles.Sort(
+                        static (a, b) =>
+                            StringComparer.Ordinal.Compare(a.DisplayName, b.DisplayName)
+                    );
+
+                    Dictionary<string, int> displayNameToProfileCount = [];
+
+                    foreach (var profile in profiles)
+                    {
+                        ref var num = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                            displayNameToProfileCount,
+                            profile.DisplayName,
+                            out var exists
+                        );
+                        num++;
+                    }
+
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"[green]Listing profiles for:[/] [blue]{game.Name}[/]"
+                    );
+
+                    var activeProfile = game.Config.ActiveProfile;
+
+                    foreach (var profile in profiles)
+                    {
+                        var nameCollision = displayNameToProfileCount[profile.DisplayName] > 1;
+                        if (nameCollision)
+                        {
+                            AnsiConsole.MarkupInterpolated(
+                                CultureInfo.InvariantCulture,
+                                $"[gray]{profile.DisplayName}[/] [gray]([/]{profile.Id}[gray])[/]"
+                            );
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupInterpolated(
+                                CultureInfo.InvariantCulture,
+                                $"{profile.DisplayName}"
+                            );
+                        }
+
+                        if (profile == activeProfile)
+                        {
+                            AnsiConsole.MarkupLineInterpolated(
+                                CultureInfo.InvariantCulture,
+                                $" [blue][[Active]][/]"
+                            );
+                        }
+                        else
+                        {
+                            AnsiConsole.WriteLine();
+                        }
+                    }
+
+                    Cog.Verbose($"listed {profiles.Length} profiles");
+                });
+            }
         }
         AddOptionRecursive(profile, optionGameOverride);
 
@@ -203,6 +271,19 @@ static class Program
         }
     }
 
+    private static bool HasActiveGame(this SymbolResult result, [NotNullWhen(true)] out Game? game)
+    {
+        if (Game.GlobalConfig.ActiveGame is not { } activeGame)
+        {
+            game = default;
+            result.AddError("An active game is not selected. Use 'cogman game select <game>'.");
+            return false;
+        }
+
+        game = activeGame;
+        return true;
+    }
+
     private static void SelectGame(ArgumentResult result)
     {
         var gameToSelect = result.GetValueOrDefault<string>();
@@ -225,7 +306,7 @@ static class Program
     }
 
     private static bool TryVeryFuzzySearchGame(
-        ArgumentResult result,
+        SymbolResult result,
         string gameToSelect,
         [NotNullWhen(true)] out Game? selectedGame
     )

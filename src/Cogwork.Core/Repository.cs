@@ -325,6 +325,20 @@ public sealed class PackageSource
 
         [JsonPropertyName("platforms")]
         public required Platforms Platforms { get; init; }
+
+        public IEnumerable<ModList> EnumerateProfiles()
+        {
+            DirectoryInfo profilesDir = new(CogworkPaths.GetProfilesDirectory(this));
+
+            foreach (var profileDir in profilesDir.EnumerateDirectories())
+            {
+                var profile = ModList.GetFromId(this, profileDir.Name);
+                if (profile is { })
+                {
+                    yield return profile;
+                }
+            }
+        }
     }
 
     public static PackageSource ThunderstoreSilksong { get; } =

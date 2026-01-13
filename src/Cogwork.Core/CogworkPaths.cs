@@ -18,14 +18,14 @@ public static class CogworkPaths
     public static string GetGamesSubDirectory(Game game) =>
         CombineAndCreate(DataDirectory, "games", game.Slug);
 
-    public static string GetGamesSubDirectory(Game game, string subDirectory) =>
-        CombineAndCreate(DataDirectory, "games", game.Slug, subDirectory);
+    public static string GetProfilesDirectory(Game game) =>
+        CombineAndCreate(DataDirectory, "games", game.Slug, "profiles");
 
     public static string GetProfilesSubDirectoryNoCreate(Game game, string subDirectory) =>
-        Path.Combine(GetGamesSubDirectory(game, "profiles"), subDirectory);
+        Path.Combine(GetProfilesDirectory(game), subDirectory);
 
     public static string GetProfilesSubDirectory(Game game, string subDirectory) =>
-        CombineAndCreate(GetGamesSubDirectory(game, "profiles"), subDirectory);
+        CombineAndCreate(GetProfilesDirectory(game), subDirectory);
 
     static string CombineAndCreate(params string[] paths)
     {

@@ -204,6 +204,9 @@ public sealed class ModList
     public static string GetProfileFileLocation(Game game, string id) =>
         Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "profile.json");
 
+    /// <summary>
+    /// Gets ModList from id or returns null if it doesn't exist.
+    /// </summary>
     public static ModList? GetFromId(Game game, string profileId)
     {
         lock (idToModListLock)
