@@ -33,8 +33,11 @@ public sealed class ModList
 
         [JsonInclude]
         [JsonPropertyName("Sources")]
-        public IEnumerable<ServiceUrl> Sources =>
-            SourceIndex?.Sources.Select(x => new ServiceUrl(x.Service.Url)).Distinct() ?? [];
+        public IEnumerable<ServiceUrl> Sources
+        {
+            get => SourceIndex?.Sources.Select(x => new ServiceUrl(x.Service.Url)).Distinct() ?? [];
+            set => _ = value; // it appears setters are essential for Json Source generator stuff
+        }
 
         [JsonInclude]
         [JsonPropertyName("Added")]

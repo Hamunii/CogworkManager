@@ -92,7 +92,10 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                 response.Content.ReadAsStream(),
                 CompressionMode.Decompress
             );
-            var strings = JsonSerializer.Deserialize<string[]>(zipStream);
+            var strings = JsonSerializer.Deserialize<string[]>(
+                zipStream,
+                ISaveWithJsonExtensions.Options
+            );
             if (strings is not { Length: 1 })
             {
                 if (strings is null)

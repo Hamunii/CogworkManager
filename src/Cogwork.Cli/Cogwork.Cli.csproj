@@ -5,6 +5,7 @@
     <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
     <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
     <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>

@@ -4,6 +4,7 @@
     <AssemblyName>Cogwork.Core</AssemblyName>
     <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
     <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>
