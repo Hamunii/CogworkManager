@@ -1,11 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- For when I figure out a GitHub actions setup for building everything. -->
+    <!-- <RuntimeIdentifiers>linux-x64;linux-arm64;win-x64;win-arm64;any</RuntimeIdentifiers> -->
+    <RuntimeIdentifiers>linux-x64;any</RuntimeIdentifiers>
     <TargetFramework>$(CogworkTargetFramework)</TargetFramework>
     <AssemblyName>cogman</AssemblyName>
     <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
     <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
     <OutputType>Exe</OutputType>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>cogman</ToolCommandName>
+    <PackageId>Hamunii.Cogwork.Cli</PackageId>
+    <Authors>Hamunii</Authors>
+    <Description>A CLI mod package manager for a few games on Thunderstore.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishAot>true</PublishAot>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
   </PropertyGroup>
 
   <ItemGroup>

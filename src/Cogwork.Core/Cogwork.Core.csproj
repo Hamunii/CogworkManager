@@ -4,7 +4,9 @@
     <AssemblyName>Cogwork.Core</AssemblyName>
     <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
     <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
+    <IsPackable>false</IsPackable>
     <IsAotCompatible>true</IsAotCompatible>
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
