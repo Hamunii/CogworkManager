@@ -129,6 +129,11 @@ public sealed class ModList
     }
     public string DisplayName { get; set; }
     public string Id { get; set; }
+    public string DisambiguatedDisplayName
+    {
+        get => field ?? DisplayName;
+        set;
+    }
 
     public PackageSourceIndex SourceIndex { get; set; }
 

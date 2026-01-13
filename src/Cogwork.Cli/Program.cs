@@ -130,7 +130,9 @@ static class Program
                 var activeGameName = activeGame?.Name ?? "<none>";
 
                 var activeProfile = activeGame?.Config.ActiveProfile;
-                var modProfileName = activeProfile?.DisplayName ?? "<none>";
+                // Ensure disambiguated name is accurate.
+                _ = activeGame?.GetProfiles();
+                var modProfileName = activeProfile?.DisambiguatedDisplayName ?? "<none>";
 
                 AnsiConsole.MarkupInterpolated(
                     CultureInfo.InvariantCulture,
@@ -147,32 +149,96 @@ static class Program
         profile.Aliases.Add("p");
         rootCommand.Subcommands.Add(profile);
         {
+            Command profileSelect = new(
+                "select",
+                "Select mod profile for the active game. Leave argument empty to select from a list"
+            );
+            profileSelect.Aliases.Add("s");
+            profileSelect.Options.Add(optionExactMatching);
+            profileSelect.Options.Add(optionAssumeYes);
+            profileSelect.Options.Add(optionAssumeNo);
+            profile.Subcommands.Add(profileSelect);
+            {
+                Argument<string> gameSelectArgument = new("profile?")
+                {
+                    Description = "Name of profile or empty to select from a list",
+                    Arity = ArgumentArity.ZeroOrMore,
+                    CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
+                };
+                gameSelectArgument.Validators.Add(result =>
+                {
+                    var argument = result.GetValueOrDefault<string>();
+                });
+                profileSelect.Arguments.Add(gameSelectArgument);
+                profileSelect.Validators.Add(result =>
+                {
+                    Game? game;
+                    if (result.GetValue(optionGameOverride) is { } overrideGame)
+                    {
+                        if (!result.TryGetGame(overrideGame, out game))
+                            return;
+                    }
+                    else if (!HasActiveGame(result, out game))
+                        return;
+
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"Performing for game: [purple]{game.Name}[/]"
+                    );
+
+                    var profiles = game.GetProfiles().Select(x => x.profile).ToArray();
+                    ModList? selected;
+
+                    if (result.GetValue(gameSelectArgument) is { } argument)
+                    {
+                        selected = profiles.FirstOrDefault(x =>
+                            x.DisambiguatedDisplayName == argument
+                        );
+                        if (selected is null)
+                        {
+                            var names = profiles.Select(x => x.DisambiguatedDisplayName).ToArray();
+                            if (!TryVeryFuzzySearch(result, argument, names, out var name))
+                                return;
+
+                            selected = profiles.First(x => x.DisambiguatedDisplayName == name);
+                        }
+                    }
+                    else
+                    {
+                        var choice = AnsiConsole.Prompt(
+                            new SelectionPrompt<string>()
+                                .Title("Select a [green]profile[/]:")
+                                .AddChoices(profiles.Select(x => x.DisambiguatedDisplayName))
+                        );
+
+                        selected = profiles.First(x => x.DisambiguatedDisplayName == choice);
+                    }
+
+                    game.Config.ActiveProfile = selected;
+                    game.Config.Save(game.GameConfigLocation);
+
+                    Cog.Debug($"selected {selected.DisambiguatedDisplayName}");
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"Selected profile: [blue]{selected.DisambiguatedDisplayName}[/]"
+                    );
+                });
+            }
+
             Command profileList = new("list", "List all your profiles for the active game");
             profileList.Aliases.Add("l");
             profile.Subcommands.Add(profileList);
             {
                 profileList.Validators.Add(result =>
                 {
-                    if (!result.HasActiveGame(out var game))
-                        return;
-
-                    ModList[] profiles = [.. game.EnumerateProfiles()];
-                    profiles.Sort(
-                        static (a, b) =>
-                            StringComparer.Ordinal.Compare(a.DisplayName, b.DisplayName)
-                    );
-
-                    Dictionary<string, int> displayNameToProfileCount = [];
-
-                    foreach (var profile in profiles)
+                    Game? game;
+                    if (result.GetValue(optionGameOverride) is { } overrideGame)
                     {
-                        ref var num = ref CollectionsMarshal.GetValueRefOrAddDefault(
-                            displayNameToProfileCount,
-                            profile.DisplayName,
-                            out var exists
-                        );
-                        num++;
+                        if (!result.TryGetGame(overrideGame, out game))
+                            return;
                     }
+                    else if (!HasActiveGame(result, out game))
+                        return;
 
                     AnsiConsole.MarkupLineInterpolated(
                         CultureInfo.InvariantCulture,
@@ -181,9 +247,8 @@ static class Program
 
                     var activeProfile = game.Config.ActiveProfile;
 
-                    foreach (var profile in profiles)
+                    foreach (var (profile, nameCollision) in game.GetProfiles())
                     {
-                        var nameCollision = displayNameToProfileCount[profile.DisplayName] > 1;
                         if (nameCollision)
                         {
                             AnsiConsole.MarkupInterpolated(
@@ -211,8 +276,6 @@ static class Program
                             AnsiConsole.WriteLine();
                         }
                     }
-
-                    Cog.Verbose($"listed {profiles.Length} profiles");
                 });
             }
         }
@@ -284,17 +347,43 @@ static class Program
         return true;
     }
 
+    static List<(ModList profile, bool hasCollision)> GetProfiles(this Game game)
+    {
+        ModList[] profiles = [.. game.EnumerateProfiles()];
+        profiles.Sort(
+            static (a, b) => StringComparer.Ordinal.Compare(a.DisplayName, b.DisplayName)
+        );
+
+        Dictionary<string, int> displayNameToProfileCount = [];
+
+        foreach (var profile in profiles)
+        {
+            ref var num = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                displayNameToProfileCount,
+                profile.DisplayName,
+                out var exists
+            );
+            num++;
+        }
+
+        List<(ModList profile, bool hasCollision)> values = [];
+        foreach (var profile in profiles)
+        {
+            var nameCollision = displayNameToProfileCount[profile.DisplayName] > 1;
+            if (nameCollision)
+            {
+                profile.DisambiguatedDisplayName = $"{profile.DisplayName} ({profile.Id})";
+            }
+            values.Add((profile, nameCollision));
+        }
+        return values;
+    }
+
     private static void SelectGame(ArgumentResult result)
     {
-        var gameToSelect = result.GetValueOrDefault<string>();
-
-        if (!Game.NameToGame.TryGetValue(gameToSelect, out var selectedGame))
-        {
-            if (!TryVeryFuzzySearchGame(result, gameToSelect, out selectedGame))
-            {
-                return;
-            }
-        }
+        var search = result.GetValueOrDefault<string>();
+        if (!TryGetGame(result, search, out var selectedGame))
+            return;
 
         AnsiConsole.MarkupLineInterpolated(
             CultureInfo.InvariantCulture,
@@ -305,13 +394,32 @@ static class Program
         return;
     }
 
-    private static bool TryVeryFuzzySearchGame(
-        SymbolResult result,
-        string gameToSelect,
+    private static bool TryGetGame(
+        this SymbolResult result,
+        string search,
         [NotNullWhen(true)] out Game? selectedGame
     )
     {
-        selectedGame = default;
+        if (!Game.NameToGame.TryGetValue(search, out selectedGame))
+        {
+            var games = Game.SupportedGames.Select(x => x.Name.ToLowerInvariant()).ToArray();
+            if (!TryVeryFuzzySearch(result, search, games, out var selected))
+                return false;
+
+            selectedGame = Game.NameToGame[selected];
+        }
+
+        return true;
+    }
+
+    private static bool TryVeryFuzzySearch(
+        SymbolResult result,
+        string toSelect,
+        IEnumerable<string> searchList,
+        [NotNullWhen(true)] out string? selectedValue
+    )
+    {
+        selectedValue = default;
 
         if (!result.Assume(out var assumption))
             return false;
@@ -319,14 +427,13 @@ static class Program
         var noInteractive = result.GetValue(optionNoInteractive);
         var exactMatching = result.GetValue(optionExactMatching);
 
-        var games = Game.SupportedGames.Select(x => x.Name);
-
         List<string> best = [];
         IEnumerable<string>? common = null;
         var score = FilterBestResults(
             Process.ExtractTop(
-                gameToSelect,
-                games,
+                toSelect,
+                searchList,
+                processor: s => s,
                 cutoff: 40,
                 scorer: ScorerCache.Get<WeightedRatioScorer>()
             ),
@@ -338,8 +445,9 @@ static class Program
 
             var score2 = FilterBestResults(
                 Process.ExtractTop(
-                    gameToSelect,
-                    games,
+                    toSelect,
+                    searchList,
+                    processor: s => s,
                     scorer: ScorerCache.Get<PartialTokenAbbreviationScorer>()
                 ),
                 ref best2
@@ -356,8 +464,9 @@ static class Program
 
                 var score3 = FilterBestResults(
                     Process.ExtractTop(
-                        gameToSelect,
-                        games,
+                        toSelect,
+                        searchList,
+                        processor: s => s,
                         cutoff: 60,
                         scorer: ScorerCache.Get<TokenInitialismScorer>()
                     ),
@@ -401,7 +510,7 @@ static class Program
 
         if (best.Count == 0)
         {
-            result.AddError("Game not found: " + gameToSelect);
+            result.AddError("Match not found: " + toSelect);
             return false;
         }
         else if (best.Count > 1)
@@ -417,13 +526,13 @@ static class Program
                         $"[yellow]- {match}[/]"
                     );
                 }
-                result.AddError("Ambiguous match for game name.");
+                result.AddError("Ambiguous match.");
                 return false;
             }
             var choice = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
                     .Title(
-                        "[yellow]Ambiguous match. Please select the game you are looking for:[/]"
+                        "[yellow]Ambiguous match. Please select the option you are looking for:[/]"
                     )
                     .AddChoices(best)
             );
@@ -437,25 +546,24 @@ static class Program
             {
                 if (noInteractive && assumption is null)
                 {
-                    result.AddError($"Game not found: {gameToSelect}\nBest match: {selected}");
+                    result.AddError($"Match not found: {toSelect}\nBest match: {selected}");
                     return false;
                 }
 
                 AnsiConsole.MarkupLineInterpolated(
                     CultureInfo.InvariantCulture,
-                    $"Selecting game: [purple]{selected}[/]"
+                    $"Selecting: [purple]{selected}[/]"
                 );
 
                 if (assumption is false || !AnsiConsole.Confirm("Is this ok?", defaultValue: true))
                 {
-                    AnsiConsole.MarkupLine($"[yellow]The game was not selected.[/]");
+                    AnsiConsole.MarkupLine($"[yellow]The value was not selected.[/]");
                     return false;
                 }
             }
         }
 
-        selected = selected.ToLowerInvariant();
-        selectedGame = Game.NameToGame[selected];
+        selectedValue = selected;
 
         return true;
         static bool IsAutoAccept(int score) => score >= 90;
