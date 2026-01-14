@@ -26,7 +26,7 @@ The way this works means that even if you add a dependency to your project with 
 
 You know which packages you referenced yourself, and you can easily remove a package you added, and all orphaned dependencies are simply just removed. This is the experience I want.
 
-### Current Situation
+### Building a Package Manager
 
 Ever since I realized the package management issues with mod managers, it has been on my mind that this should be improved. I have mentioned it to a few people, some developing mod managers, but there hasn't been a ton of interest in actually implementing package management as I've envisioned.
 
@@ -42,18 +42,23 @@ With my own package manager, I can have my own package repositories where I coul
 
 The reason why I'd rather just create my own solution than use Thunderstore where I could use it, is that I don't think Thunderstore is a particularly good platform. However, it's generally less bad than the competition. I'm unlikely to create a competitor though, as this is mostly for fun.
 
-## Architecture
+## Project
 
-This project will be split into 3 parts:
+Cogwork Manager is currently split into 2 parts:
 
 - **Cogwork.Core:** The package manager library (WIP)
-- **Cogwork.Cli:** A command line interface (WIP)
-- **Cogwork.Gui:** A graphical interface (TODO; with [Adwaita](<https://gnome.pages.gitlab.gnome.org/libadwaita/>))
+- **Cogwork.Cli:** A command line interface named "cogman" (WIP)
+
+A third part will likely eventually be implemented:
+
+- **Cogwork.Gui:** A graphical interface named "Cogwork Manager" (with [Adwaita](<https://gnome.pages.gitlab.gnome.org/libadwaita/>))
 
 ### Cogwork.Core
 
-This is where the shared backend logic lives for Cogwork Manager. I want as much as possible of the app to live here so that writing user interfaces for it is easy, and so that it can potentially be used as a library to write alternate mod manager UIs. Because, I'm not that into developing user interfaces, even if I like designing them.
+This is where the shared backend logic lives for Cogwork Manager. Having it like this allow making multiple frontends for the mod package manager easier. Also meaning that if someone wants to create their own interface for Cogwork.Core, they absolutely can.
 
-This is also because I want a good CLI mod package manager for when I don't want to leave the terminal while developing mods, but I also want a GUI app for everything else.
+This library is heavily WIP still so everything about the implementation may change, and will probably be rewritten and documented once I have the full model figured out and working first.
 
-This library is heavily WIP so everything about the implementation may change, and will probably be rewritten and documented once I have the full model figured out and working first.
+### Cogwork.Cli
+
+Aka "cogman". I care about good command line tools, so I've focused a lot on the intuitiveness of the program. Additionally, I really want the CLI to be as capable the GUI option whenever I will make it. Once I release the CLI mod manager, I'd recommend giving it a try if you're at least a bit familiar with CLI tools.
