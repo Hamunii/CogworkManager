@@ -159,17 +159,13 @@ static class Program
             profileSelect.Options.Add(optionAssumeNo);
             profile.Subcommands.Add(profileSelect);
             {
-                Argument<string> gameSelectArgument = new("profile?")
+                Argument<string> profileSelectArgument = new("profile?")
                 {
                     Description = "Name of profile or empty to select from a list",
                     Arity = ArgumentArity.ZeroOrMore,
                     CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
                 };
-                gameSelectArgument.Validators.Add(result =>
-                {
-                    var argument = result.GetValueOrDefault<string>();
-                });
-                profileSelect.Arguments.Add(gameSelectArgument);
+                profileSelect.Arguments.Add(profileSelectArgument);
                 profileSelect.Validators.Add(result =>
                 {
                     Game? game;
@@ -189,7 +185,7 @@ static class Program
                     var profiles = game.GetProfiles().Select(x => x.profile).ToArray();
                     ModList? selected;
 
-                    if (result.GetValue(gameSelectArgument) is { } argument)
+                    if (result.GetValue(profileSelectArgument) is { } argument)
                     {
                         selected = profiles.FirstOrDefault(x =>
                             x.DisambiguatedDisplayName == argument
@@ -281,20 +277,28 @@ static class Program
         }
         AddOptionRecursive(profile, optionGameOverride);
 
-        Command mod = new("mods", "Manage mods on a mod profile");
-        mod.Aliases.Add("m");
-        rootCommand.Subcommands.Add(mod);
+        Command mods = new("mods", "Manage mods on a mod profile");
+        mods.Aliases.Add("m");
+        rootCommand.Subcommands.Add(mods);
         {
-            Command modAdd = new("add", "Add mods to a profile");
-            modAdd.Aliases.Add("a");
-            mod.Subcommands.Add(modAdd);
+            Command modsAdd = new("add", "Add mods to a profile");
+            modsAdd.Aliases.Add("a");
+            mods.Subcommands.Add(modsAdd);
+            Argument<string> modsAddArgument = new("package?")
+            {
+                Description = "Name of package or empty to select from a list",
+                Arity = ArgumentArity.ZeroOrMore,
+                CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
+            };
+            modsAdd.Arguments.Add(modsAddArgument);
+            modsAdd.Validators.Add(result => { });
 
-            Command modRemove = new("remove", "Remove mods from a profile");
-            modRemove.Aliases.Add("r");
-            mod.Subcommands.Add(modRemove);
+            Command modsRemove = new("remove", "Remove mods from a profile");
+            modsRemove.Aliases.Add("r");
+            mods.Subcommands.Add(modsRemove);
         }
-        AddOptionRecursive(mod, optionGameOverride);
-        AddOptionRecursive(mod, optionProfileOverride);
+        AddOptionRecursive(mods, optionGameOverride);
+        AddOptionRecursive(mods, optionProfileOverride);
 
         Command source = new("sources", "Manage package sources");
         source.Aliases.Add("so");
