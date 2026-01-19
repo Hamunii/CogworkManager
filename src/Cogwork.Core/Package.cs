@@ -225,7 +225,7 @@ public sealed record PackageVersion
 
     [JsonInclude]
     [JsonPropertyName("dependencies")]
-    string[] DependencyStrings { get; }
+    public string[] DependencyStrings { get; }
 
     public PackageVersion(Version version, string[] dependencyStrings)
     {

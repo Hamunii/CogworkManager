@@ -1,8 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using static Cogwork.Core.ModList;
-using static Cogwork.Core.ModList.ModListConfig;
 
 namespace Cogwork.Core;
 
@@ -18,6 +16,7 @@ public interface ISaveWithJson<T>;
 [JsonSerializable(typeof(Game.GameConfig))]
 [JsonSerializable(typeof(Game.GlobalConfig))]
 [JsonSerializable(typeof(PackageSourceCache))]
+[JsonSerializable(typeof(List<Package>))]
 [JsonSerializable(typeof(string[]))]
 internal partial class SourceGenerationContext : JsonSerializerContext { }
 
