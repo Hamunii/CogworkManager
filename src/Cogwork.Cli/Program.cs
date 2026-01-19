@@ -2,6 +2,7 @@ global using static Cogwork.Core.CogworkCoreLogger;
 global using static Cogwork.Core.PackageSource;
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -41,11 +42,11 @@ static class Program
         Description = "Only an exact match is picked implicitly",
     };
 
-    static int Main(string[] args)
+    static async Task<int> Main(string[] args)
     {
         try
         {
-            return Initialize(args);
+            return await Initialize(args);
         }
         catch (Exception ex)
         {
@@ -80,7 +81,7 @@ static class Program
         return true;
     }
 
-    static int Initialize(string[] args)
+    static async Task<int> Initialize(string[] args)
     {
         RootCommand rootCommand = new("Cogwork Manager CLI - mod package manager");
 
@@ -174,7 +175,7 @@ static class Program
                         if (!result.TryGetGame(overrideGame, out game))
                             return;
                     }
-                    else if (!HasActiveGame(result, out game))
+                    else if (!TryGetActiveGame(result, out game))
                         return;
 
                     AnsiConsole.MarkupLineInterpolated(
@@ -211,7 +212,10 @@ static class Program
                     }
 
                     game.Config.ActiveProfile = selected;
-                    game.Config.Save(game.GameConfigLocation);
+                    game.Config.Save(
+                        game.GameConfigLocation,
+                        SourceGenerationContext.Default.GameConfig
+                    );
 
                     Cog.Debug($"selected {selected.DisambiguatedDisplayName}");
                     AnsiConsole.MarkupLineInterpolated(
@@ -233,7 +237,7 @@ static class Program
                         if (!result.TryGetGame(overrideGame, out game))
                             return;
                     }
-                    else if (!HasActiveGame(result, out game))
+                    else if (!TryGetActiveGame(result, out game))
                         return;
 
                     AnsiConsole.MarkupLineInterpolated(
@@ -284,14 +288,70 @@ static class Program
             Command modsAdd = new("add", "Add mods to a profile");
             modsAdd.Aliases.Add("a");
             mods.Subcommands.Add(modsAdd);
-            Argument<string> modsAddArgument = new("package?")
+            Argument<string> modsAddArgument = new("package")
             {
-                Description = "Name of package or empty to select from a list",
-                Arity = ArgumentArity.ZeroOrMore,
+                Description = "Names of packages separated by space",
+                Arity = ArgumentArity.OneOrMore,
                 CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
             };
             modsAdd.Arguments.Add(modsAddArgument);
-            modsAdd.Validators.Add(result => { });
+            modsAdd.Validators.Add(async result =>
+            {
+                if (!result.Assume(out var assumption))
+                    return;
+
+                if (!TryGetActiveGameAndProfile(result, out var game, out var profile))
+                    return;
+
+                var searches = result.GetValue(modsAddArgument)?.Split(' ');
+                if (searches is null || searches.Length != 1)
+                {
+                    result.AddError("Packages to search must be 1 for now");
+                    return;
+                }
+
+                var packages = await profile.SourceIndex.GetAllPackagesAsync();
+                if (
+                    !TryFuzzySearch(
+                        result,
+                        searches[0],
+                        packages.Select(x => x.FullName),
+                        out var selected
+                    )
+                )
+                {
+                    return;
+                }
+
+                if (
+                    !Package.TryGetPackage(
+                        profile.SourceIndex,
+                        selected,
+                        out var package,
+                        hasVersion: false,
+                        out _,
+                        out _
+                    )
+                )
+                {
+                    throw new UnreachableException("Package name wasn't found.");
+                }
+
+                if (profile.Add(package))
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"Added package [green]{package.Latest}[/]"
+                    );
+                }
+                else
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"Package [blue]{package.Latest}[/] is already added"
+                    );
+                }
+            });
 
             Command modsRemove = new("remove", "Remove mods from a profile");
             modsRemove.Aliases.Add("r");
@@ -318,7 +378,7 @@ static class Program
         AddOptionRecursive(rootCommand, optionNoInteractive);
 
         var result = rootCommand.Parse(args);
-        return result.Invoke();
+        return await result.InvokeAsync();
     }
 
     private static void AddOptionRecursive(Command command, Option option)
@@ -336,7 +396,27 @@ static class Program
         }
     }
 
-    private static bool HasActiveGame(this SymbolResult result, [NotNullWhen(true)] out Game? game)
+    private static bool TryGetActiveGameAndProfile(
+        CommandResult result,
+        [NotNullWhen(true)] out Game? game,
+        [NotNullWhen(true)] out ModList? profile
+    )
+    {
+        profile = default;
+
+        if (!result.TryGetActiveGame(out game))
+            return false;
+
+        if (!result.TryGetActiveProfile(game, out profile))
+            return false;
+
+        return true;
+    }
+
+    private static bool TryGetActiveGame(
+        this SymbolResult result,
+        [NotNullWhen(true)] out Game? game
+    )
     {
         if (Game.GlobalConfig.ActiveGame is not { } activeGame)
         {
@@ -346,6 +426,25 @@ static class Program
         }
 
         game = activeGame;
+        return true;
+    }
+
+    private static bool TryGetActiveProfile(
+        this SymbolResult result,
+        Game game,
+        [NotNullWhen(true)] out ModList? profile
+    )
+    {
+        if (game.Config.ActiveProfile is not { } activeProfile)
+        {
+            profile = default;
+            result.AddError(
+                "An active profile is not selected. Use 'cogman profile select <profile?>'."
+            );
+            return false;
+        }
+
+        profile = activeProfile;
         return true;
     }
 
@@ -414,7 +513,7 @@ static class Program
         return true;
     }
 
-    private static bool TryVeryFuzzySearch(
+    private static bool TryFuzzySearch(
         SymbolResult result,
         string toSelect,
         IEnumerable<string> searchList,
@@ -430,9 +529,45 @@ static class Program
         var exactMatching = result.GetValue(optionExactMatching);
 
         List<string> best = [];
+        var score = FilterBestResults(
+            FuzzySharp.Process.ExtractTop(
+                toSelect,
+                searchList,
+                processor: s => s,
+                cutoff: 60,
+                scorer: ScorerCache.Get<WeightedRatioScorer>()
+            ),
+            ref best
+        );
+
+        return SelectFuzzySearch(
+            result,
+            toSelect,
+            out selectedValue,
+            assumption,
+            best,
+            best,
+            score
+        );
+    }
+
+    private static bool TryVeryFuzzySearch(
+        SymbolResult result,
+        string toSelect,
+        IEnumerable<string> searchList,
+        [NotNullWhen(true)] out string? selected
+    )
+    {
+        if (!result.Assume(out var assumption))
+        {
+            selected = default;
+            return false;
+        }
+
+        List<string> best = [];
         IEnumerable<string>? common = null;
         var score = FilterBestResults(
-            Process.ExtractTop(
+            FuzzySharp.Process.ExtractTop(
                 toSelect,
                 searchList,
                 processor: s => s,
@@ -446,7 +581,7 @@ static class Program
             List<string> best2 = [];
 
             var score2 = FilterBestResults(
-                Process.ExtractTop(
+                FuzzySharp.Process.ExtractTop(
                     toSelect,
                     searchList,
                     processor: s => s,
@@ -465,7 +600,7 @@ static class Program
                 List<string> best3 = [];
 
                 var score3 = FilterBestResults(
-                    Process.ExtractTop(
+                    FuzzySharp.Process.ExtractTop(
                         toSelect,
                         searchList,
                         processor: s => s,
@@ -507,6 +642,31 @@ static class Program
                 }
             }
         }
+
+        return SelectFuzzySearch(
+            result,
+            toSelect,
+            out selected,
+            assumption,
+            best,
+            common ?? best,
+            score
+        );
+    }
+
+    private static bool SelectFuzzySearch(
+        SymbolResult result,
+        string toSelect,
+        [NotNullWhen(true)] out string? selectedValue,
+        bool? assumption,
+        List<string> best,
+        IEnumerable<string> common,
+        int score
+    )
+    {
+        var noInteractive = result.GetValue(optionNoInteractive);
+        var exactMatching = result.GetValue(optionExactMatching);
+        selectedValue = default;
 
         string selected;
 
@@ -566,10 +726,10 @@ static class Program
         }
 
         selectedValue = selected;
-
         return true;
-        static bool IsAutoAccept(int score) => score >= 90;
     }
+
+    static bool IsAutoAccept(int score) => score >= 90;
 
     private static int FilterBestResults(
         IEnumerable<ExtractedResult<string>> res,

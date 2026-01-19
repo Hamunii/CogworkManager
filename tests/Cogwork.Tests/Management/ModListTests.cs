@@ -30,7 +30,7 @@ public sealed class ModListTests
 
         await PackageSource.ThunderstoreSilksong.FetchPackageIndexAutomaticAsync();
 
-        var modList2 = PackageSource.ThunderstoreSilksong.GetModList("test2");
+        var modList2 = PackageSource.ThunderstoreSilksong.NewModList("test2");
         var silksongPackages = await PackageSource.ThunderstoreSilksong.GetPackagesAsync();
         var bingoUI = silksongPackages.First(x => x is { FullName: "flibber-BingoUI" });
 

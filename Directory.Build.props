@@ -12,7 +12,7 @@
     <!-- Make Release config not mean Debug for projects outside the current solution. -->
     <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
-    <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
+    <!-- <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn> -->
     <!--
       Trim analysis warning IL2026 complains about RequiresUnreferencedCodeAttribute,
       AOT analysis warning IL3050 complains about RequiresDynamicCodeAttribute.

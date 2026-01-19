@@ -2,6 +2,7 @@ global using static Cogwork.Core.CogworkCoreLogger;
 global using static Cogwork.Core.PackageSource;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO.Compression;
@@ -53,6 +54,9 @@ public interface IPackageSourceService
     public string PackageIndexCacheLocation { get; }
     public Uri Url { get; }
     public Game Game { get; }
+
+    // Apparently one should preferably keep a singleton of HttpClient.
+    internal static HttpClient SharedClient { get; } = new();
 }
 
 public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
@@ -78,7 +82,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
         Cog.Information("Fetching: " + url);
 
-        using HttpClient client = new();
+        HttpClient client = IPackageSourceService.SharedClient;
         var response = await client.GetAsync(url);
         if (!response.IsSuccessStatusCode)
         {
@@ -92,9 +96,9 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                 response.Content.ReadAsStream(),
                 CompressionMode.Decompress
             );
-            var strings = JsonSerializer.Deserialize<string[]>(
+            var strings = JsonSerializer.Deserialize(
                 zipStream,
-                ISaveWithJsonExtensions.Options
+                SourceGenerationContext.Default.StringArray
             );
             if (strings is not { Length: 1 })
             {
@@ -161,7 +165,8 @@ public sealed class PackageSourceIndex
 
     public async Task<IEnumerable<Package>> GetAllPackagesAsync()
     {
-        var fetchTasks = PackageSources.Select(x => x.GetPackagesAsync());
+        Cog.Information($"Package sources count: {PackageSources.Count}");
+        var fetchTasks = PackageSources.Select(x => x.GetPackagesAsync()).ToArray();
         Task.WaitAll(fetchTasks);
         return fetchTasks.SelectMany(x => x.Result);
     }
@@ -194,7 +199,10 @@ public sealed class PackageSource
             public static string GlobalConfigLocation =>
                 field ??= Path.Combine(CogworkPaths.DataDirectory, $"state.json");
             internal static GlobalConfig Instance =>
-                field ??= GlobalConfig.LoadSavedData(GlobalConfigLocation);
+                field ??= GlobalConfig.LoadSavedData(
+                    GlobalConfigLocation,
+                    SourceGenerationContext.Default.GlobalConfig
+                );
 
             public string? ActiveGameSlug { get; set; }
 
@@ -220,7 +228,10 @@ public sealed class PackageSource
                 {
                     field = value;
                     Instance.ActiveGameSlug = value?.Slug;
-                    Instance.Save(GlobalConfigLocation);
+                    Instance.Save(
+                        GlobalConfigLocation,
+                        SourceGenerationContext.Default.GlobalConfig
+                    );
                 }
             }
         }
@@ -261,7 +272,10 @@ public sealed class PackageSource
                 if (field is { })
                     return field;
 
-                field = GameConfig.LoadSavedData(GameConfigLocation);
+                field = GameConfig.LoadSavedData(
+                    GameConfigLocation,
+                    SourceGenerationContext.Default.GameConfig
+                );
                 field.ConnectGame(this);
                 return field;
             }
@@ -271,48 +285,37 @@ public sealed class PackageSource
         public string GameConfigLocation =>
             field ??= Path.Combine(CogworkPaths.GetGamesSubDirectory(this), "config.json");
 
+        internal PackageSource DefaultSource { get; }
+
+        internal Game(string name, string slug, bool useThunderstoreDefaultSource)
+        {
+            if (useThunderstoreDefaultSource)
+            {
+                Name = name;
+                Slug = slug;
+                DefaultSource = new(new ThunderstoreCommunity(this));
+            }
+            else
+            {
+                throw new NotImplementedException(
+                    "Thunderstore is currently hardcoded as the source for games."
+                );
+            }
+        }
+
         public static Game Silksong { get; } =
-            new()
+            new("Hollow Knight: Silksong", "hollow-knight-silksong", true)
             {
-                Name = "Hollow Knight: Silksong",
-                Slug = "hollow-knight-silksong",
                 Platforms = new() { Steam = new() { Id = 1030300 } },
-            };
-
-        public static Game Milksong { get; } =
-            new()
-            {
-                Name = "Hollow Knight: Milksong",
-                Slug = "hollow-knight-Milksong",
-                Platforms = new() { Steam = new() { Id = 1030300 } },
-            };
-
-        public static Game HollowKnight { get; } =
-            new()
-            {
-                Name = "Hollow Knight",
-                Slug = "hollow-knight",
-                Platforms = new(),
             };
 
         public static Game LethalCompany { get; } =
-            new()
-            {
-                Name = "Lethal Company",
-                Slug = "lethal-company",
-                Platforms = new(),
-            };
+            new("Lethal Company", "lethal-company", true) { Platforms = new() };
 
         public static Game Ror2 { get; } =
-            new()
-            {
-                Name = "Risk of Rain 2",
-                Slug = "risk-of-rain-2",
-                Platforms = new(),
-            };
+            new("Risk of Rain 2", "risk-of-rain-2", true) { Platforms = new() };
 
-        public static IEnumerable<Game> SupportedGames { get; } =
-        [Silksong, HollowKnight, Milksong, LethalCompany, Ror2];
+        public static IEnumerable<Game> SupportedGames { get; } = [Silksong, LethalCompany, Ror2];
 
         public static ConcurrentDictionary<string, Game> NameToGame { get; } =
             new([
@@ -321,10 +324,10 @@ public sealed class PackageSource
             ]);
 
         [JsonPropertyName("name")]
-        public required string Name { get; init; }
+        public string Name { get; init; }
 
         [JsonPropertyName("slug")]
-        public required string Slug { get; init; }
+        public string Slug { get; init; }
 
         [JsonPropertyName("platforms")]
         public required Platforms Platforms { get; init; }
@@ -353,7 +356,10 @@ public sealed class PackageSource
     public static double SecondsUntilManualIndexRefreshAllowed { get; } = 10d;
 
     internal PackageSourceCache SourceCache =>
-        field ??= PackageSourceCache.LoadSavedData(Service.PackageIndexCacheLocation);
+        field ??= PackageSourceCache.LoadSavedData(
+            Service.PackageIndexCacheLocation,
+            SourceGenerationContext.Default.PackageSourceCache
+        );
 
     public PackageSourceIndex SourceIndex { get; internal set; } = null!;
     public IPackageSourceService Service { get; private set; }
@@ -403,7 +409,10 @@ public sealed class PackageSource
             }
 
             SourceCache.LastFetch = dateNow;
-            SourceCache.Save(Service.PackageIndexCacheLocation);
+            SourceCache.Save(
+                Service.PackageIndexCacheLocation,
+                SourceGenerationContext.Default.PackageSourceCache
+            );
         }
         else
         {
@@ -434,7 +443,7 @@ public sealed class PackageSource
         return Packages;
     }
 
-    public ModList GetModList(string name)
+    public ModList NewModList(string name)
     {
         return new ModList(Service.Game, name, SourceIndex);
     }
@@ -459,9 +468,9 @@ public sealed class PackageSource
     {
         try
         {
-            packages = JsonSerializer.Deserialize<List<Package>>(
+            packages = JsonSerializer.Deserialize(
                 data,
-                ISaveWithJsonExtensions.Options
+                SourceGenerationContext.Default.ListPackage
             );
             if (packages is null)
             {

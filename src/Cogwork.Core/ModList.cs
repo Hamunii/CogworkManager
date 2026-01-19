@@ -15,7 +15,7 @@ public sealed class ModList
         private ModList? _modList;
 
         [JsonIgnore]
-        public PackageSourceIndex SourceIndex { get; set; } = null!;
+        public PackageSourceIndex? SourceIndex { get; set; }
         public string? DisplayName
         {
             get => _modList?.DisplayName ?? field;
@@ -125,7 +125,10 @@ public sealed class ModList
             if (field is { })
                 return field;
 
-            field = ModListConfig.LoadSavedData(FileLocation);
+            field = ModListConfig.LoadSavedData(
+                FileLocation,
+                SourceGenerationContext.Default.ModListConfig
+            );
             return field;
         }
         private set;
@@ -226,23 +229,32 @@ public sealed class ModList
             if (!File.Exists(path))
                 return null;
 
-            var config = ModListConfig.LoadSavedData(path);
-            // TODO: Parse the PackageSourceIndex from the config
-            // and actually give it to the ModList.
-            modList = new ModList(game, config.DisplayName ?? profileId, profileId, null!, config);
+            var config = ModListConfig.LoadSavedData(
+                path,
+                SourceGenerationContext.Default.ModListConfig
+            );
+            // TODO: properly parse the PackageSourceIndex from the config.
+            modList = new ModList(
+                game,
+                config.DisplayName ?? profileId,
+                profileId,
+                config.SourceIndex ?? new(game.DefaultSource),
+                config
+            );
             IdToModList.Add(profileId, modList);
             return modList;
         }
     }
 
-    public void Add(Package package) => Add(package.Latest);
+    public bool Add(Package package) => Add(package.Latest);
 
-    public void Add(PackageVersion package)
+    public bool Add(PackageVersion package)
     {
         Config.ConnectModListIfNeeded(this);
-        _ = Added.AddOrUpdateToHigherVersion(package);
+        var updated = Added.AddOrUpdateToHigherVersion(package);
         RebuildDependencies();
-        Config.Save(FileLocation);
+        Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
+        return updated;
     }
 
     public void Remove(Package package)
@@ -250,7 +262,7 @@ public sealed class ModList
         Config.ConnectModListIfNeeded(this);
         Added.Remove(package);
         RebuildDependencies();
-        Config.Save(FileLocation);
+        Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
     }
 
     public void RebuildDependencies()

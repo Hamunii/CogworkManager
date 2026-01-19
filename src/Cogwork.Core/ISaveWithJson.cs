@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using static Cogwork.Core.ModList;
 
 namespace Cogwork.Core;
@@ -18,7 +19,7 @@ public interface ISaveWithJson<T>;
 [JsonSerializable(typeof(PackageSourceCache))]
 [JsonSerializable(typeof(List<Package>))]
 [JsonSerializable(typeof(string[]))]
-internal partial class SourceGenerationContext : JsonSerializerContext { }
+public partial class SourceGenerationContext : JsonSerializerContext { }
 
 public static class ISaveWithJsonExtensions
 {
@@ -28,24 +29,19 @@ public static class ISaveWithJsonExtensions
     extension<T>(T self)
         where T : ISaveWithJson, new()
     {
-        public void Save(string fileLocation)
+        public void Save(string fileLocation, JsonTypeInfo<T> typeInfo)
         {
-            var serialized = JsonSerializer.Serialize(self, Options);
-            _ = Directory.CreateDirectory(Path.GetDirectoryName(fileLocation)!);
-            File.WriteAllText(fileLocation, serialized);
-        }
-
-        public void Save(string serialized, string fileLocation)
-        {
+            var serialized = JsonSerializer.Serialize(self, typeInfo);
             _ = Directory.CreateDirectory(Path.GetDirectoryName(fileLocation)!);
             File.WriteAllText(fileLocation, serialized);
         }
 
         // I don't care and this doesn't even apply here
 #pragma warning disable CA1000 // Do not declare static members on generic types
-        public static T LoadSavedData(string filePath) => LoadSavedData<T>(filePath, out _);
+        public static T LoadSavedData(string filePath, JsonTypeInfo<T> typeInfo) =>
+            LoadSavedData<T>(filePath, typeInfo, out _);
 
-        public static T LoadSavedData(string filePath, out bool existed)
+        public static T LoadSavedData(string filePath, JsonTypeInfo<T> typeInfo, out bool existed)
         {
             if (!File.Exists(filePath))
             {
@@ -56,7 +52,7 @@ public static class ISaveWithJsonExtensions
             using var stream = File.OpenRead(filePath);
             try
             {
-                var data = JsonSerializer.Deserialize<T>(stream, Options);
+                var data = JsonSerializer.Deserialize(stream, typeInfo);
                 if (data is { })
                 {
                     existed = true;
