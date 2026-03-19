@@ -295,7 +295,7 @@ static class Program
                 CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
             };
             modsAdd.Arguments.Add(modsAddArgument);
-            modsAdd.Validators.Add(async result =>
+            modsAdd.Validators.Add(result =>
             {
                 if (!result.Assume(out var assumption))
                     return;
@@ -310,7 +310,7 @@ static class Program
                     return;
                 }
 
-                var packages = await profile.SourceIndex.GetAllPackagesAsync();
+                var packages = profile.SourceIndex.GetAllPackagesAsync().GetAwaiter().GetResult();
                 if (
                     !TryFuzzySearch(
                         result,
@@ -356,6 +356,82 @@ static class Program
             Command modsRemove = new("remove", "Remove mods from a profile");
             modsRemove.Aliases.Add("r");
             mods.Subcommands.Add(modsRemove);
+            Argument<string> modsRemoveArgument = new("packages?")
+            {
+                Description = "Limit selection of packages to remove by name separated by spaces",
+                Arity = ArgumentArity.ZeroOrMore,
+                CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
+            };
+            modsRemove.Arguments.Add(modsRemoveArgument);
+            modsRemove.Validators.Add(result =>
+            {
+                if (!result.Assume(out var assumption))
+                    return;
+
+                if (!TryGetActiveGameAndProfile(result, out var game, out var profile))
+                    return;
+
+                profile.Initialize().GetAwaiter().GetResult();
+                var added = profile.Added.Select(x => x.Key).ToList();
+
+                var searches = result.GetValue(modsRemoveArgument)?.Split(' ');
+
+                List<Package> removable = searches is null ? added : [];
+                List<string> matches = [];
+                foreach (var search in searches ?? [])
+                {
+                    var score = FilterBestResults(
+                        FuzzySharp.Process.ExtractTop(
+                            search,
+                            added.Select(x => x.FullName),
+                            processor: s => s,
+                            cutoff: 60,
+                            scorer: ScorerCache.Get<WeightedRatioScorer>()
+                        ),
+                        ref matches
+                    );
+
+                    foreach (var m in matches)
+                    {
+                        if (
+                            !Package.TryGetPackage(
+                                profile.SourceIndex,
+                                m,
+                                out var package,
+                                hasVersion: false,
+                                out _,
+                                out _
+                            )
+                        )
+                        {
+                            throw new UnreachableException();
+                        }
+                        removable.Add(package);
+                    }
+                }
+
+                if (removable.Count == 0)
+                {
+                    result.AddError("No matching packages");
+                    return;
+                }
+
+                var packagesToRemove = AnsiConsole.Prompt(
+                    new MultiSelectionPrompt<Package>()
+                        .Title("Select [green]packages[/] to remove")
+                        .UseConverter(x => x.FullName)
+                        .AddChoices(removable)
+                );
+
+                profile.Remove(packagesToRemove);
+
+                AnsiConsole.WriteLine("Removed:");
+                foreach (var item in packagesToRemove)
+                {
+                    AnsiConsole.WriteLine($"- {item.ToStringSimpleWithSource()}");
+                }
+                return;
+            });
         }
         AddOptionRecursive(mods, optionGameOverride);
         AddOptionRecursive(mods, optionProfileOverride);

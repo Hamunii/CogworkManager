@@ -246,6 +246,30 @@ public sealed class ModList
         }
     }
 
+    // This is horrible, please rewrite everything.
+    public async Task Initialize()
+    {
+        // Initialize package data
+        _ = await SourceIndex.GetAllPackagesAsync();
+        Config.ConnectModListIfNeeded(this);
+        return;
+    }
+
+    public bool Add(IEnumerable<Package> packages) => Add(packages.Select(x => x.Latest));
+
+    public bool Add(IEnumerable<PackageVersion> packages)
+    {
+        Config.ConnectModListIfNeeded(this);
+        bool updated = false;
+        foreach (var package in packages)
+        {
+            updated |= Added.AddOrUpdateToHigherVersion(package);
+        }
+        RebuildDependencies();
+        Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
+        return updated;
+    }
+
     public bool Add(Package package) => Add(package.Latest);
 
     public bool Add(PackageVersion package)
@@ -255,6 +279,17 @@ public sealed class ModList
         RebuildDependencies();
         Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
         return updated;
+    }
+
+    public void Remove(IEnumerable<Package> packages)
+    {
+        Config.ConnectModListIfNeeded(this);
+        foreach (var package in packages)
+        {
+            Added.Remove(package);
+        }
+        RebuildDependencies();
+        Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
     }
 
     public void Remove(Package package)
