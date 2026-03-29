@@ -2,9 +2,11 @@ global using static Cogwork.Core.CogworkCoreLogger;
 global using static Cogwork.Core.PackageSource;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO.Compression;
+using System.Net;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -54,7 +56,7 @@ public static class CogworkCoreLogger
 
 public interface IPackageSourceService
 {
-    public string PackageIndexLocation { get; }
+    public string PackageIndexDirectory { get; }
     public string PackageIndexCacheLocation { get; }
 
     /// <summary>
@@ -69,8 +71,7 @@ public interface IPackageSourceService
 
     public Task<bool> DownloadPackage(
         PackageVersion packageVersion,
-        IProgress<double>? progress = null,
-        Action<long?>? onContentLengthKnown = null,
+        ProgressContext progress = default,
         CancellationToken cancellationToken = default
     );
 
@@ -81,11 +82,9 @@ public interface IPackageSourceService
 public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 {
     [JsonIgnore]
-    public string PackageIndexLocation =>
-        field ??= Path.Combine(
-            CogworkPaths.GetCacheSubDirectory(game.Slug),
-            $"thunderstore-index.json"
-        );
+    public string PackageIndexDirectory =>
+        field ??= CogworkPaths.GetCacheSubDirectory(game.Slug, "thunderstore");
+
     public string PackageInstallSubDirectory { get; } = "thunderstore";
 
     public Uri Url { get; } = new($"https://thunderstore.io/c/{game.Slug}/");
@@ -97,7 +96,10 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
             $"thunderstore-index-cache.json"
         );
 
-    public async Task<bool> FetchIndexFileToCacheAsync()
+    public string PackageIndexLocation(int index) =>
+        Path.Combine(PackageIndexDirectory, $"{index}.json.zip");
+
+    public async Task<bool> FetchIndexFileToCacheAsync(ProgressContext progress = default)
     {
         var url = $"https://thunderstore.io/c/{game.Slug}/api/v1/package-listing-index/";
 
@@ -111,7 +113,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
             return false;
         }
 
-        string packageIndexUrl;
+        string[] packageIndexUrls;
         {
             using GZipStream zipStream = new(
                 response.Content.ReadAsStream(),
@@ -121,39 +123,47 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                 zipStream,
                 SourceGenerationContext.Default.StringArray
             );
-            if (strings is not { Length: 1 })
+            if (strings is null)
             {
-                if (strings is null)
-                {
-                    Cog.Error($"Expected string[] but received null from '{url}'.");
-                    return false;
-                }
-
-                Cog.Error($"Expected 1 string but received {strings.Length} from '{url}'.");
+                Cog.Error($"Expected string[] but received null from '{url}'.");
                 return false;
             }
-            packageIndexUrl = strings[0];
-            Cog.Debug("Got package index url: " + packageIndexUrl);
+            packageIndexUrls = strings;
+            Cog.Debug("Got package index urls: " + packageIndexUrls.Length);
         }
 
-        response = await client.GetAsync(packageIndexUrl);
-        if (!response.IsSuccessStatusCode)
-        {
-            Cog.Error("Error fetching package index url: " + response.StatusCode);
-            return false;
-        }
+        // TODO: Properly handle progress when package index urls are multiple.
 
+        int i = 0;
+        var tasks = packageIndexUrls
+            .Select(
+                async Task<HttpStatusCode> (x) =>
+                {
+                    using var zipFileStream = new FileStream(
+                        PackageIndexLocation(i),
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.None
+                    );
+                    i++;
+                    var status = await client.DownloadAsync(x, zipFileStream, progress);
+                    return status;
+                }
+            )
+            .ToArray();
+
+        Task.WaitAll(tasks);
+
+        foreach (var status in tasks.Select(x => x.Result))
         {
-            using GZipStream zipStream = new(
-                response.Content.ReadAsStream(),
-                CompressionMode.Decompress
-            );
-            using var fileStream = File.OpenWrite(PackageIndexLocation);
-            zipStream.CopyTo(fileStream);
+            if (!status.IsSuccess)
+            {
+                Cog.Error("Error fetching package index url: " + status);
+                return false;
+            }
         }
 
         Cog.Information("Fetched successfully.");
-
         return true;
     }
 
@@ -163,7 +173,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
     public bool IsPackageDownloaded(PackageVersion packageVersion, out string zipFileLocation)
     {
         var package = packageVersion.Package;
-        var version = packageVersion.Version.ToString(3);
+        var version = packageVersion.Version.ToString();
         var installPathRoot = CogworkPaths.GetPackagesSubDirectory(
             PackageInstallSubDirectory,
             package.FullName
@@ -175,8 +185,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
     public async Task<bool> DownloadPackage(
         PackageVersion packageVersion,
-        IProgress<double>? progress = null,
-        Action<long?>? onContentLengthKnown = null,
+        ProgressContext progress = default,
         CancellationToken cancellationToken = default
     )
     {
@@ -196,7 +205,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         var package = packageVersion.Package;
         var author = package.Author.Name;
         var name = package.Name;
-        var version = packageVersion.Version.ToString(3);
+        var version = packageVersion.Version.ToString();
         var downloadUrl = $"https://thunderstore.io/package/download/{author}/{name}/{version}/";
         Cog.Debug($"Attempting to download: {downloadUrl}");
 
@@ -205,7 +214,6 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
             downloadUrl,
             fileStream,
             progress,
-            onContentLengthKnown,
             cancellationToken
         );
 
@@ -247,10 +255,12 @@ public sealed class PackageSourceIndex
         packageSource.SourceIndex = this;
     }
 
-    public async Task<IEnumerable<Package>> GetAllPackagesAsync()
+    public async Task<IEnumerable<Package>> GetAllPackagesAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
     {
         Cog.Information($"Package sources count: {PackageSources.Count}");
-        var fetchTasks = PackageSources.Select(x => x.GetPackagesAsync()).ToArray();
+        var fetchTasks = PackageSources.Select(x => x.GetPackagesAsync(progressFactory)).ToArray();
 #if DEBUG
         // Simulate at least some delay to make sure things are awaited properly.
         await Task.Delay(100);
@@ -461,17 +471,24 @@ public sealed class PackageSource
         Service = service;
     }
 
-    public async Task FetchPackageIndexAutomaticAsync()
+    public async Task FetchPackageIndexAutomaticAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
     {
-        _ = await FetchPackageIndexAsync(SecondsUntilAutomaticIndexRefreshAllowed);
+        _ = await FetchPackageIndexAsync(SecondsUntilAutomaticIndexRefreshAllowed, progressFactory);
     }
 
-    public async Task FetchPackageIndexManualAsync()
+    public async Task FetchPackageIndexManualAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
     {
-        _ = await FetchPackageIndexAsync(SecondsUntilManualIndexRefreshAllowed);
+        _ = await FetchPackageIndexAsync(SecondsUntilManualIndexRefreshAllowed, progressFactory);
     }
 
-    private async Task<bool> FetchPackageIndexAsync(double secondsUntilIndexRefreshAllowed)
+    private async Task<bool> FetchPackageIndexAsync(
+        double secondsUntilIndexRefreshAllowed,
+        Func<PackageSource, ProgressContext>? progressFactory
+    )
     {
         var dateNow = DateTime.Now;
         var lastFetch = SourceCache.LastFetch;
@@ -486,10 +503,14 @@ public sealed class PackageSource
 
         if (fetchAgain)
         {
+            var progress = progressFactory?.Invoke(this) ?? default;
+
             switch (Service)
             {
                 case ThunderstoreCommunity ts:
-                    _ = await ts.FetchIndexFileToCacheAsync();
+                    var successfulFetch = await ts.FetchIndexFileToCacheAsync(progress);
+                    if (!successfulFetch)
+                        return false;
                     break;
                 default:
                     Cog.Error($"Invalid {nameof(Service)} type: " + Service.GetType());
@@ -515,7 +536,7 @@ public sealed class PackageSource
             }
         }
 
-        if (!TryParsePackageIndexFile(Service.PackageIndexLocation, out var packages))
+        if (!TryParsePackageIndexFile(Service.PackageIndexDirectory, out var packages))
         {
             Cog.Error("Package index parsing failed");
             return false;
@@ -525,9 +546,11 @@ public sealed class PackageSource
         return true;
     }
 
-    public async Task<List<Package>> GetPackagesAsync()
+    public async Task<List<Package>> GetPackagesAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
     {
-        await FetchPackageIndexAutomaticAsync();
+        await FetchPackageIndexAutomaticAsync(progressFactory);
         return Packages;
     }
 
@@ -541,18 +564,53 @@ public sealed class PackageSource
         [NotNullWhen(true)] out List<Package>? packages
     )
     {
-        if (!File.Exists(packageIndexPath))
+        if (!Directory.Exists(packageIndexPath))
         {
-            Cog.Error($"Package index file '{packageIndexPath}' must exist.");
+            Cog.Error($"Package index directory '{packageIndexPath}' must exist.");
             packages = default;
             return false;
         }
 
-        var data = File.ReadAllText(packageIndexPath);
-        return TryParsePackageIndex(data, out packages);
+        List<Package> allPackages = [];
+
+        var result = Parallel.ForEach(
+            Directory.EnumerateFiles(packageIndexPath),
+            (indexFile, state) =>
+            {
+                try
+                {
+                    using var fileStream = File.OpenRead(indexFile);
+                    using GZipStream zipStream = new(fileStream, CompressionMode.Decompress);
+                    if (!TryParsePackageIndex(zipStream, out var packages1))
+                    {
+                        state.Break();
+                        return;
+                    }
+
+                    lock (allPackages)
+                    {
+                        allPackages.AddRange(packages1);
+                    }
+                }
+                catch (Exception)
+                {
+                    Cog.Error(indexFile + new StackTrace(true));
+                    return;
+                }
+            }
+        );
+
+        if (!result.IsCompleted)
+        {
+            packages = default;
+            return false;
+        }
+
+        packages = allPackages;
+        return true;
     }
 
-    internal bool TryParsePackageIndex(string data, [NotNullWhen(true)] out List<Package>? packages)
+    internal bool TryParsePackageIndex(Stream data, [NotNullWhen(true)] out List<Package>? packages)
     {
         try
         {

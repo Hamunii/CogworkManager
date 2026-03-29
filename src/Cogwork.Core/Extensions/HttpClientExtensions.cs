@@ -2,14 +2,18 @@ using System.Net;
 
 namespace Cogwork.Core.Extensions;
 
+public readonly record struct ProgressContext(
+    IProgress<double>? Progress,
+    Action<IProgress<double>, long?>? OnContentLengthKnown
+);
+
 public static class HttpClientExtensions
 {
     public static async Task<HttpStatusCode> DownloadAsync(
         this HttpClient client,
         string requestUri,
         Stream destination,
-        IProgress<double>? progress = null,
-        Action<long?>? onContentLengthKnown = null,
+        ProgressContext progressContext = default,
         CancellationToken cancellationToken = default
     )
     {
@@ -22,8 +26,11 @@ public static class HttpClientExtensions
         if (!response.IsSuccessStatusCode)
             return response.StatusCode;
 
+        var progress = progressContext.Progress;
+        var onContentLengthKnown = progressContext.OnContentLengthKnown;
+
         var contentLength = response.Content.Headers.ContentLength;
-        onContentLengthKnown?.Invoke(contentLength);
+        onContentLengthKnown?.Invoke(progress!, contentLength);
 
         using var download = await response.Content.ReadAsStreamAsync(cancellationToken);
         // Ignore progress reporting when no progress reporter was

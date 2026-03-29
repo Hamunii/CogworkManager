@@ -43,7 +43,7 @@ public sealed record Package
         ReadOnlySpan<char> fullName,
         [NotNullWhen(true)] out Package? package,
         bool hasVersion,
-        out Version? version,
+        out PackageVersionNumber? version,
         [NotNullWhen(true)] out PackageSource source
     )
     {
@@ -116,7 +116,7 @@ public sealed record Package
             );
         }
 
-        if (!package.TryGetVersion(version!, out var packageVersion))
+        if (!package.TryGetVersion(version!.Value, out var packageVersion))
         {
             throw new ArgumentException($"Version for '{fullNameWithVersion}' doesn't exist.");
         }
@@ -124,7 +124,7 @@ public sealed record Package
     }
 
     public bool TryGetVersion(
-        Version version,
+        PackageVersionNumber version,
         [NotNullWhen(true)] out PackageVersion? packageVersion
     )
     {
@@ -195,7 +195,7 @@ public sealed record PackageVersion
                         return null;
                     }
 
-                    if (!package.TryGetVersion(version!, out var packageVersion))
+                    if (!package.TryGetVersion(version!.Value, out var packageVersion))
                     {
                         Cog.Error(
                             $"Package '{fullNameWithVersion}' exists but has no versions in '{source}'."
@@ -218,18 +218,28 @@ public sealed record PackageVersion
         }
     }
 
+    public PackageVersionNumber Version { get; set; }
+
     [JsonInclude]
     [JsonPropertyName("version_number")]
-    public Version Version { get; }
+    public string VersionString { get; }
     public Package Package { get; internal set; } = null!;
 
     [JsonInclude]
     [JsonPropertyName("dependencies")]
     public string[] DependencyStrings { get; }
 
-    public PackageVersion(Version version, string[] dependencyStrings)
+    public PackageVersion(string versionString, string[] dependencyStrings)
     {
-        Version = version;
+        VersionString = versionString;
+        try
+        {
+            Version = new(versionString);
+        }
+        catch (Exception ex)
+        {
+            Cog.Error($"{versionString} :: {ex}");
+        }
         DependencyStrings = dependencyStrings;
     }
 
@@ -303,4 +313,51 @@ public readonly record struct Author(string Name)
     public static implicit operator string(Author author) => author.Name;
 
     public static implicit operator Author(string author) => new(author);
+}
+
+/// <summary>
+/// A version representation with larger ints than <see cref="Version"/>
+/// because mods can have version numbers so high that its int32 fields are not enough.
+/// </summary>
+public readonly record struct PackageVersionNumber
+{
+    public long Major { get; }
+    public long Minor { get; }
+    public long Patch { get; }
+    readonly string _version;
+
+    public PackageVersionNumber(string version)
+        : this()
+    {
+        _version = version;
+        var split = version.AsSpan().Split('.');
+        split.MoveNext();
+        Major = long.Parse(version[split.Current], CultureInfo.InvariantCulture);
+        split.MoveNext();
+        Minor = long.Parse(version[split.Current], CultureInfo.InvariantCulture);
+        split.MoveNext();
+        Patch = long.Parse(version[split.Current], CultureInfo.InvariantCulture);
+    }
+
+    public bool IsHigherThan(PackageVersionNumber other)
+    {
+        if (Major > other.Major)
+            return true;
+
+        if (Major < other.Major)
+            return false;
+
+        if (Minor > other.Minor)
+            return true;
+
+        if (Minor < other.Minor)
+            return false;
+
+        if (Patch > other.Patch)
+            return true;
+
+        return false;
+    }
+
+    public override string ToString() => _version;
 }

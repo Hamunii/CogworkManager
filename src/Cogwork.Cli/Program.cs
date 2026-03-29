@@ -459,32 +459,8 @@ static class Program
                 if (!TryGetActiveGameAndProfile(result, out var game, out var profile))
                     return;
 
-                AnsiConsole
-                    .Progress()
-                    .Columns(
-                        new TaskDescriptionColumn(),
-                        new ProgressBarColumn(),
-                        new PercentageColumn(),
-                        new SpinnerColumn()
-                    )
-                    .StartAsync(async ctx =>
-                    {
-                        var taskFetch = ctx.AddTask("Fetching packages", maxValue: 1)
-                            .IsIndeterminate();
-
-                        while (!ctx.IsFinished)
-                        {
-                            await profile.Initialize();
-                            taskFetch.Increment(1);
-
-                            profile.Add(profile.Added.Keys.Select(x => x.Latest));
-                        }
-                    })
-                    .GetAwaiter()
-                    .GetResult();
-
-                var isSuccess = AnsiConsole
-                    .Progress()
+                var progress = AnsiConsole.Progress();
+                var progressResult = progress
                     .Columns(
                         new TaskDescriptionColumn(),
                         new ProgressBarColumn(),
@@ -492,8 +468,26 @@ static class Program
                         new TransferSpeedColumn(),
                         new RemainingTimeColumn()
                     )
-                    .Start(ctx =>
+                    .StartAsync(async ctx =>
                     {
+                        bool fetchedAny = false;
+
+                        await profile.Initialize(packageSource =>
+                            new(
+                                ctx.AddTask($"Fetching {packageSource}").IsIndeterminate(),
+                                (task, contentLength) =>
+                                {
+                                    fetchedAny = true;
+                                    if (contentLength is null || task is not ProgressTask pTask)
+                                        return;
+
+                                    pTask.IsIndeterminate(false).MaxValue = (double)contentLength;
+                                }
+                            )
+                        );
+
+                        profile.UpdatePackages();
+
                         var toDownload = profile.AllPackages.Where(x => !x.Value.IsDownloaded());
                         var downloadTasks = toDownload
                             .Select(x =>
@@ -502,26 +496,45 @@ static class Program
 
                                 return x.Key.Source.Service.DownloadPackage(
                                     x.Value,
-                                    task,
-                                    contentLength =>
-                                    {
-                                        if (contentLength is null)
-                                            return;
+                                    new(
+                                        task,
+                                        (task, contentLength) =>
+                                        {
+                                            if (
+                                                contentLength is null
+                                                || task is not ProgressTask pTask
+                                            )
+                                                return;
 
-                                        task.IsIndeterminate(false).MaxValue =
-                                            (double)contentLength;
-                                    }
+                                            pTask.IsIndeterminate(false).MaxValue =
+                                                (double)contentLength;
+                                        }
+                                    )
                                 );
                             })
                             .ToArray();
 
                         Task.WaitAll(downloadTasks);
-                        return downloadTasks.Select(x => x.Result).All(x => x is true);
-                    });
 
-                if (isSuccess)
+                        if (downloadTasks.Length == 0 && !fetchedAny)
+                        {
+                            progress.AutoClear(true);
+                        }
+
+                        return (
+                            tasksCount: downloadTasks.Length,
+                            allSuccess: downloadTasks.Select(x => x.Result).All(x => x is true)
+                        );
+                    })
+                    .Result;
+
+                if (progressResult.tasksCount == 0)
                 {
-                    AnsiConsole.MarkupLine("[green]Updated mods successfully[/]");
+                    AnsiConsole.MarkupLine("[green]Everything is already up-to-date[/]");
+                }
+                else if (progressResult.allSuccess)
+                {
+                    AnsiConsole.MarkupLine("[green]Mods updated successfully[/]");
                 }
                 else
                 {

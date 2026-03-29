@@ -12,6 +12,9 @@ public static class CogworkPaths
     public static string GetCacheSubDirectory(string subDirectory) =>
         CombineAndCreate(CacheDirectory, subDirectory);
 
+    public static string GetCacheSubDirectory(string subDirectory1, string subDirectory2) =>
+        CombineAndCreate(CacheDirectory, subDirectory1, subDirectory2);
+
     public static string GetDataSubDirectory(string subDirectory) =>
         CombineAndCreate(DataDirectory, subDirectory);
 

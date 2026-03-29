@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Serialization;
+using Cogwork.Core.Extensions;
 
 namespace Cogwork.Core;
 
@@ -251,10 +252,10 @@ public sealed class ModList
     }
 
     // This is horrible, please rewrite everything.
-    public async Task Initialize()
+    public async Task Initialize(Func<PackageSource, ProgressContext>? progressFactory = null)
     {
         // Initialize package data
-        _ = await SourceIndex.GetAllPackagesAsync();
+        _ = await SourceIndex.GetAllPackagesAsync(progressFactory);
         Config.ConnectModListIfNeeded(this);
         return;
     }
@@ -290,7 +291,11 @@ public sealed class ModList
         Config.ConnectModListIfNeeded(this);
         foreach (var package in packages)
         {
-            Added.Remove(package);
+            if (Added.Remove(package, out var packageVersion))
+            {
+                // Add this version temporarily to deps so version can't get downgraded on rebuild
+                Dependencies.Add(package, packageVersion);
+            }
         }
         RebuildDependencies();
         Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
@@ -299,7 +304,10 @@ public sealed class ModList
     public void Remove(Package package)
     {
         Config.ConnectModListIfNeeded(this);
-        Added.Remove(package);
+        if (Added.Remove(package, out var packageVersion))
+        {
+            Dependencies.Add(package, packageVersion);
+        }
         RebuildDependencies();
         Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
     }
@@ -314,13 +322,19 @@ public sealed class ModList
             added.Value.CollectAllDependenciesToMap(map);
         }
 
+        // If any existing dependency is higher version than would be transitively from Added,
+        // we want to keep those versions.
+        foreach (var dependency in Dependencies)
+        {
+            dependency.Value.CollectAllDependenciesToMap(map);
+        }
+
         Dictionary<Package, PackageVersion> allDependencies = [];
 
         // Pass 2: use the map to collect only dependencies of packages with highest versions.
         foreach (var added in Added)
         {
-            var higher = map.GetHigherVersion(added.Value);
-            higher.CollectAllDependenciesToDestination(map, allDependencies);
+            added.Value.CollectAllDependenciesToDestination(map, allDependencies);
         }
 
         foreach (var added in Added)
@@ -329,6 +343,15 @@ public sealed class ModList
         }
 
         Dependencies = allDependencies;
+    }
+
+    public void UpdatePackages()
+    {
+        Add(Added.Keys.Select(x => x.Latest));
+        foreach (var dependency in Dependencies)
+        {
+            Dependencies[dependency.Key] = dependency.Key.Latest;
+        }
     }
 
     public override string ToString()
@@ -381,7 +404,7 @@ public static class ModListExtensions
             return true;
         }
 
-        if (package.Version > value!.Version)
+        if (package.Version.IsHigherThan(value!.Version))
         {
             value = package;
             return true;
@@ -400,7 +423,7 @@ public static class ModListExtensions
             return package;
         }
 
-        if (package.Version > value.Version)
+        if (package.Version.IsHigherThan(value.Version))
         {
             return package;
         }
