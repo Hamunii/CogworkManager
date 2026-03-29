@@ -152,6 +152,10 @@ public sealed class ModList
     [JsonIgnore]
     public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
 
+    [JsonIgnore]
+    public IEnumerable<KeyValuePair<Package, PackageVersion>> AllPackages =>
+        Added.Concat(Dependencies);
+
     readonly Game _game;
 
     private ModList(

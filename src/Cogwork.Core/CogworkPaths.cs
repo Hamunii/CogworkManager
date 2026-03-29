@@ -15,6 +15,9 @@ public static class CogworkPaths
     public static string GetDataSubDirectory(string subDirectory) =>
         CombineAndCreate(DataDirectory, subDirectory);
 
+    public static string GetPackagesSubDirectory(string subDirectory, string packageName) =>
+        CombineAndCreate(DataDirectory, "packages", subDirectory, packageName);
+
     public static string GetGamesSubDirectory(Game game) =>
         CombineAndCreate(DataDirectory, "games", game.Slug);
 

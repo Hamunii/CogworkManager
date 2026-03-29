@@ -233,6 +233,8 @@ public sealed record PackageVersion
         DependencyStrings = dependencyStrings;
     }
 
+    public bool IsDownloaded() => Package.Source.Service.IsPackageDownloaded(this);
+
     void CollectDependencies(HashSet<PackageVersion> actualDependencies)
     {
         foreach (var dependency in MarkedDependencies)

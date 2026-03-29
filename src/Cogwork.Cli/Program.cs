@@ -450,6 +450,84 @@ static class Program
                     );
                 }
             });
+
+            Command modsUpdate = new("update", "Update mods on a profile");
+            modsUpdate.Aliases.Add("u");
+            mods.Subcommands.Add(modsUpdate);
+            modsUpdate.Validators.Add(result =>
+            {
+                if (!TryGetActiveGameAndProfile(result, out var game, out var profile))
+                    return;
+
+                AnsiConsole
+                    .Progress()
+                    .Columns(
+                        new TaskDescriptionColumn(),
+                        new ProgressBarColumn(),
+                        new PercentageColumn(),
+                        new SpinnerColumn()
+                    )
+                    .StartAsync(async ctx =>
+                    {
+                        var taskFetch = ctx.AddTask("Fetching packages", maxValue: 1)
+                            .IsIndeterminate();
+
+                        while (!ctx.IsFinished)
+                        {
+                            await profile.Initialize();
+                            taskFetch.Increment(1);
+
+                            profile.Add(profile.Added.Keys.Select(x => x.Latest));
+                        }
+                    })
+                    .GetAwaiter()
+                    .GetResult();
+
+                var isSuccess = AnsiConsole
+                    .Progress()
+                    .Columns(
+                        new TaskDescriptionColumn(),
+                        new ProgressBarColumn(),
+                        new DownloadedColumn(),
+                        new TransferSpeedColumn(),
+                        new RemainingTimeColumn()
+                    )
+                    .Start(ctx =>
+                    {
+                        var toDownload = profile.AllPackages.Where(x => !x.Value.IsDownloaded());
+                        var downloadTasks = toDownload
+                            .Select(x =>
+                            {
+                                var task = ctx.AddTask(x.Value.ToString()).IsIndeterminate();
+
+                                return x.Key.Source.Service.DownloadPackage(
+                                    x.Value,
+                                    task,
+                                    contentLength =>
+                                    {
+                                        if (contentLength is null)
+                                            return;
+
+                                        task.IsIndeterminate(false).MaxValue =
+                                            (double)contentLength;
+                                    }
+                                );
+                            })
+                            .ToArray();
+
+                        Task.WaitAll(downloadTasks);
+                        return downloadTasks.Select(x => x.Result).All(x => x is true);
+                    });
+
+                if (isSuccess)
+                {
+                    AnsiConsole.MarkupLine("[green]Updated mods successfully[/]");
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine("[red]Some updates failed[/]");
+                }
+            });
         }
         AddOptionRecursive(mods, optionGameOverride);
         AddOptionRecursive(mods, optionProfileOverride);

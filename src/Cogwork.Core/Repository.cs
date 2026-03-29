@@ -2,13 +2,13 @@ global using static Cogwork.Core.CogworkCoreLogger;
 global using static Cogwork.Core.PackageSource;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Cogwork.Core.Extensions;
 using Serilog;
 using Serilog.Core;
 
@@ -36,7 +36,7 @@ public static class CogworkCoreLogger
             .MinimumLevel.Debug()
             .WriteTo.Console(
 #if DEBUG
-                restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
+                restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Warning,
 #else
                 restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Error,
 #endif
@@ -56,8 +56,23 @@ public interface IPackageSourceService
 {
     public string PackageIndexLocation { get; }
     public string PackageIndexCacheLocation { get; }
+
+    /// <summary>
+    /// A subdirectory where all packages from this source are installed to.<br/>
+    /// Packages are not installed into profiles directly.
+    /// </summary>
+    public string PackageInstallSubDirectory { get; }
     public Uri Url { get; }
     public Game Game { get; }
+
+    public bool IsPackageDownloaded(PackageVersion packageVersion);
+
+    public Task<bool> DownloadPackage(
+        PackageVersion packageVersion,
+        IProgress<double>? progress = null,
+        Action<long?>? onContentLengthKnown = null,
+        CancellationToken cancellationToken = default
+    );
 
     // Apparently one should preferably keep a singleton of HttpClient.
     internal static HttpClient SharedClient { get; } = new();
@@ -71,6 +86,8 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
             CogworkPaths.GetCacheSubDirectory(game.Slug),
             $"thunderstore-index.json"
         );
+    public string PackageInstallSubDirectory { get; } = "thunderstore";
+
     public Uri Url { get; } = new($"https://thunderstore.io/c/{game.Slug}/");
     public Game Game => game;
 
@@ -139,6 +156,69 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
         return true;
     }
+
+    public bool IsPackageDownloaded(PackageVersion packageVersion) =>
+        IsPackageDownloaded(packageVersion, out _);
+
+    public bool IsPackageDownloaded(PackageVersion packageVersion, out string zipFileLocation)
+    {
+        var package = packageVersion.Package;
+        var version = packageVersion.Version.ToString(3);
+        var installPathRoot = CogworkPaths.GetPackagesSubDirectory(
+            PackageInstallSubDirectory,
+            package.FullName
+        );
+
+        zipFileLocation = Path.Combine(installPathRoot, $"{version}.zip");
+        return File.Exists(zipFileLocation);
+    }
+
+    public async Task<bool> DownloadPackage(
+        PackageVersion packageVersion,
+        IProgress<double>? progress = null,
+        Action<long?>? onContentLengthKnown = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (IsPackageDownloaded(packageVersion, out var zipFileLocation))
+        {
+            Cog.Debug($"Package is already downloaded for '{packageVersion}'");
+            return false;
+        }
+
+        using var fileStream = new FileStream(
+            zipFileLocation,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.Read
+        );
+
+        var package = packageVersion.Package;
+        var author = package.Author.Name;
+        var name = package.Name;
+        var version = packageVersion.Version.ToString(3);
+        var downloadUrl = $"https://thunderstore.io/package/download/{author}/{name}/{version}/";
+        Cog.Debug($"Attempting to download: {downloadUrl}");
+
+        HttpClient client = IPackageSourceService.SharedClient;
+        var statusCode = await client.DownloadAsync(
+            downloadUrl,
+            fileStream,
+            progress,
+            onContentLengthKnown,
+            cancellationToken
+        );
+
+        Cog.Debug($"Download complete for: {downloadUrl}");
+
+        if (!statusCode.IsSuccess)
+        {
+            Cog.Error($"Error downloading package '{packageVersion}': " + statusCode);
+            return false;
+        }
+
+        return true;
+    }
 }
 
 public sealed class PackageSourceIndex
@@ -171,6 +251,10 @@ public sealed class PackageSourceIndex
     {
         Cog.Information($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources.Select(x => x.GetPackagesAsync()).ToArray();
+#if DEBUG
+        // Simulate at least some delay to make sure things are awaited properly.
+        await Task.Delay(100);
+#endif
         Task.WaitAll(fetchTasks);
         return fetchTasks.SelectMany(x => x.Result);
     }
