@@ -36,6 +36,7 @@ static class Program
     static readonly Option<bool> optionNoInteractive = new("--no-interactive", "-N")
     {
         Description = "Prevent requesting user input and fail if a prompt can't be answered",
+        Recursive = true,
     };
     static readonly Option<bool> optionExactMatching = new("--exact-matching", "-E")
     {
@@ -127,22 +128,7 @@ static class Program
         {
             status.SetAction(parse =>
             {
-                var activeGame = Game.GlobalConfig.ActiveGame;
-                var activeGameName = activeGame?.Name ?? "<none>";
-
-                var activeProfile = activeGame?.Config.ActiveProfile;
-                // Ensure disambiguated name is accurate.
-                _ = activeGame?.GetProfiles();
-                var modProfileName = activeProfile?.DisambiguatedDisplayName ?? "<none>";
-
-                AnsiConsole.MarkupInterpolated(
-                    CultureInfo.InvariantCulture,
-                    $"""
-                    Active game: [blue]{activeGameName}[/]
-                    Mod profile: [blue]{modProfileName}[/]
-
-                    """
-                );
+                PrintGameAndProfile();
             });
         }
 
@@ -432,6 +418,38 @@ static class Program
                 }
                 return;
             });
+
+            Command modsList = new("list", "List mods on a profile");
+            modsList.Aliases.Add("l");
+            mods.Subcommands.Add(modsList);
+            modsList.Validators.Add(result =>
+            {
+                if (!TryGetActiveGameAndProfile(result, out _, out var profile))
+                    return;
+
+                AnsiConsole.MarkupLine($"[gray][[Context]][/]");
+                PrintGameAndProfile(hideModListHelp: true);
+
+                AnsiConsole.MarkupLine($"\n[blue][[Added Mods]][/]");
+
+                foreach (var added in profile.Config.AddedPackages)
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"- [white]{added}[/]"
+                    );
+                }
+
+                AnsiConsole.MarkupLine($"\n[blue][[Dependencies of Added Mods]][/]");
+
+                foreach (var added in profile.Config.DependencyPackages)
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"- [gray]{added}[/]"
+                    );
+                }
+            });
         }
         AddOptionRecursive(mods, optionGameOverride);
         AddOptionRecursive(mods, optionProfileOverride);
@@ -451,10 +469,49 @@ static class Program
         AddOptionRecursive(source, optionGameOverride);
         AddOptionRecursive(source, optionProfileOverride);
 
-        AddOptionRecursive(rootCommand, optionNoInteractive);
+        rootCommand.Add(optionNoInteractive);
 
         var result = rootCommand.Parse(args);
         return await result.InvokeAsync();
+    }
+
+    private static void PrintGameAndProfile(bool hideModListHelp = false)
+    {
+        var activeGame = Game.GlobalConfig.ActiveGame;
+        var activeGameName = activeGame?.Name ?? "<none>";
+
+        var activeProfile = activeGame?.Config.ActiveProfile;
+        // Ensure disambiguated name is accurate.
+        _ = activeGame?.GetProfiles();
+        var modProfileName = activeProfile?.DisambiguatedDisplayName ?? "<none>";
+
+        AnsiConsole.MarkupLineInterpolated(
+            CultureInfo.InvariantCulture,
+            $"""
+            Active game: [blue]{activeGameName}[/] [gray]?: cogman game (select | list)[/]
+            Mod profile: [blue]{modProfileName}[/] [gray]?: cogman profile (select | list)[/]
+            """
+        );
+
+        if (activeProfile is { })
+        {
+            var added = activeProfile.Config.AddedPackages.Count();
+            var deps = activeProfile.Config.DependencyPackages.Count();
+            AnsiConsole.MarkupInterpolated(
+                CultureInfo.InvariantCulture,
+                $"""
+                Mods: {added} Added, {deps} Dependencies | {added
+                    + deps} Total
+                """
+            );
+
+            if (!hideModListHelp)
+            {
+                AnsiConsole.Markup(" [gray]?: cogman mods (add | remove | list)[/]");
+            }
+
+            AnsiConsole.WriteLine();
+        }
     }
 
     private static void AddOptionRecursive(Command command, Option option)

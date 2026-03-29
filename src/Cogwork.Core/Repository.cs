@@ -35,7 +35,11 @@ public static class CogworkCoreLogger
         new LoggerConfiguration()
             .MinimumLevel.Debug()
             .WriteTo.Console(
+#if DEBUG
                 restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information,
+#else
+                restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Error,
+#endif
                 formatProvider: CultureInfo.InvariantCulture
             )
             .WriteTo.File(
