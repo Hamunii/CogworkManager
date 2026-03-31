@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
+using ZLinq;
 
 namespace Cogwork.Core;
 
@@ -44,7 +46,7 @@ public sealed record Package
         [NotNullWhen(true)] out Package? package,
         bool hasVersion,
         out PackageVersionNumber? version,
-        [NotNullWhen(true)] out PackageSource source
+        [NotNullWhen(true)] out PackageSource? source
     )
     {
         var split = fullName.Split('-');
@@ -70,23 +72,41 @@ public sealed record Package
             version = default;
         }
 
+        source = default;
+        package = default;
+
         if (!split.MoveNext())
         {
-            source = sourceIndex.Default;
+            foreach (var so in sourceIndex.Sources)
+            {
+                var dict = so.nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>();
+                if (dict.TryGetValue(name, out package))
+                {
+                    source = so;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        var service = fullName[split.Current.Start..];
+        if (service.Equals("ts", StringComparison.Ordinal))
+        {
+            source = sourceIndex.Thunderstore;
+            if (source is null)
+            {
+                Cog.Warning($"No default package source available for '{fullName}'");
+                return false;
+            }
+        }
+        else if (TryGetPackageSource(sourceIndex, service, out var packageSource))
+        {
+            source = packageSource;
         }
         else
         {
-            var service = fullName[split.Current];
-            if (MemoryExtensions.Equals(service, "ts", StringComparison.Ordinal))
-            {
-                source = sourceIndex.Default;
-            }
-            else
-            {
-                throw new NotSupportedException(
-                    $"Only 'ts' (as Thunderstore) is supported. Was '{service}'."
-                );
-            }
+            Cog.Warning($"No package source found for '{service}' ({fullName})");
+            return false;
         }
 
         return source
@@ -94,9 +114,29 @@ public sealed record Package
             .TryGetValue(name, out package);
     }
 
-    public static PackageVersion GetPackageVersion(
+    static bool TryGetPackageSource(
         PackageSourceIndex sourceIndex,
-        ReadOnlySpan<char> fullNameWithVersion
+        ReadOnlySpan<char> service,
+        [NotNullWhen(true)] out PackageSource? packageSource
+    )
+    {
+        foreach (var source in sourceIndex.Sources.AsValueEnumerable())
+        {
+            if (service.Equals(source.Service.Id, StringComparison.Ordinal))
+            {
+                packageSource = source;
+                return true;
+            }
+        }
+
+        packageSource = default;
+        return false;
+    }
+
+    public static bool TryGetPackageVersion(
+        PackageSourceIndex sourceIndex,
+        ReadOnlySpan<char> fullNameWithVersion,
+        [NotNullWhen(true)] out PackageVersion? packageVersion
     )
     {
         if (
@@ -110,17 +150,21 @@ public sealed record Package
             )
         )
         {
-            throw new ArgumentException(
+            Cog.Warning(
                 $"Package for '{fullNameWithVersion}' doesn't exist. "
                     + "Was the package source data fetched and imported first?"
+                    + new StackTrace(true)
             );
+            packageVersion = default;
+            return false;
         }
 
-        if (!package.TryGetVersion(version!.Value, out var packageVersion))
+        if (!package.TryGetVersion(version!.Value, out packageVersion))
         {
-            throw new ArgumentException($"Version for '{fullNameWithVersion}' doesn't exist.");
+            return false;
         }
-        return packageVersion;
+
+        return true;
     }
 
     public bool TryGetVersion(
@@ -141,12 +185,10 @@ public sealed record Package
         return packageVersion is { };
     }
 
-    public ReadOnlySpan<char> ToStringSimpleWithSource()
+    public string ToStringSimpleWithSource()
     {
         var service = Source.Service;
-        var at = service is ThunderstoreCommunity ? "ts" : service.Url.Host;
-
-        return $"{Author.Name}-{Name}-{at}";
+        return $"{Author.Name}-{Name}-{service.Id}";
     }
 
     public override string ToString()
@@ -302,9 +344,7 @@ public sealed record PackageVersion
     public override string ToString()
     {
         var service = Package.Source.Service;
-        var at = service is ThunderstoreCommunity ? "ts" : service.Url.Host;
-
-        return $"{Package.Author.Name}-{Package.Name}-{Version}-{at}";
+        return $"{Package.Author.Name}-{Package.Name}-{Version}-{service.Id}";
     }
 }
 

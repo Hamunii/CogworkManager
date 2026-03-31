@@ -12,6 +12,7 @@ using FuzzySharp.SimilarityRatio;
 using FuzzySharp.SimilarityRatio.Scorer.Composite;
 using FuzzySharp.SimilarityRatio.Scorer.StrategySensitive;
 using Spectre.Console;
+using ZLinq;
 
 namespace Cogwork.Cli;
 
@@ -170,14 +171,14 @@ static class Program
                     );
 
                     var profiles = game.GetProfiles().Select(x => x.profile).ToArray();
-                    ModList? selected;
+                    LazyModList selected;
 
                     if (result.GetValue(profileSelectArgument) is { } argument)
                     {
                         selected = profiles.FirstOrDefault(x =>
                             x.DisambiguatedDisplayName == argument
                         );
-                        if (selected is null)
+                        if (selected == default)
                         {
                             var names = profiles.Select(x => x.DisambiguatedDisplayName).ToArray();
                             if (!TryVeryFuzzySearch(result, argument, names, out var name))
@@ -286,7 +287,7 @@ static class Program
                 if (!result.Assume(out var assumption))
                     return;
 
-                if (!TryGetActiveGameAndProfile(result, out var game, out var profile))
+                if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
                     return;
 
                 var searches = result.GetValue(modsAddArgument)?.Split(' ');
@@ -295,8 +296,8 @@ static class Program
                     result.AddError("Packages to search must be 1 for now");
                     return;
                 }
-
-                var packages = profile.SourceIndex.GetAllPackagesAsync().GetAwaiter().GetResult();
+                var profile = lazyProfile.LoadAsync().Result;
+                var packages = profile.SourceIndex.GetAllPackagesAsync().Result;
                 if (
                     !TryFuzzySearch(
                         result,
@@ -354,10 +355,10 @@ static class Program
                 if (!result.Assume(out var assumption))
                     return;
 
-                if (!TryGetActiveGameAndProfile(result, out var game, out var profile))
+                if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
                     return;
 
-                profile.Initialize().GetAwaiter().GetResult();
+                var profile = lazyProfile.LoadAsync().Result;
                 var added = profile.Added.Select(x => x.Key).ToList();
 
                 var searches = result.GetValue(modsRemoveArgument)?.Split(' ');
@@ -424,8 +425,10 @@ static class Program
             mods.Subcommands.Add(modsList);
             modsList.Validators.Add(result =>
             {
-                if (!TryGetActiveGameAndProfile(result, out _, out var profile))
+                if (!TryGetActiveGameAndProfile(result, out _, out var lazyProfile))
                     return;
+
+                var profile = lazyProfile.GetAndBypassLoadWithRiskOfBugs();
 
                 AnsiConsole.MarkupLine($"[gray][[Context]][/]");
                 PrintGameAndProfile(hideModListHelp: true);
@@ -456,7 +459,7 @@ static class Program
             mods.Subcommands.Add(modsUpdate);
             modsUpdate.Validators.Add(result =>
             {
-                if (!TryGetActiveGameAndProfile(result, out var game, out var profile))
+                if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
                     return;
 
                 var progress = AnsiConsole.Progress();
@@ -472,9 +475,10 @@ static class Program
                     {
                         bool fetchedAny = false;
 
-                        await profile.Initialize(packageSource =>
+                        var profile = await lazyProfile.LoadAsync(packageSource =>
                             new(
-                                ctx.AddTask($"Fetching {packageSource}").IsIndeterminate(),
+                                ctx.AddTask($"Fetching {packageSource}", maxValue: 0)
+                                    .IsIndeterminate(),
                                 (task, contentLength) =>
                                 {
                                     fetchedAny = true;
@@ -486,31 +490,67 @@ static class Program
                             )
                         );
 
+                        // This is for printing output after everything is downloaded.
+                        var whatHappened = profile
+                            .AllPackages.AsValueEnumerable()
+                            .Select(x =>
+                                (
+                                    oldVersion: x.Value,
+                                    newVersion: x.Key.Latest,
+                                    newWasAlreadyDownloaded: x.Key.Latest.IsDownloaded()
+                                )
+                            )
+                            .ToArray();
+
                         profile.UpdatePackages();
 
-                        var toDownload = profile.AllPackages.Where(x => !x.Value.IsDownloaded());
+                        var toDownload = profile
+                            .AllPackages.AsValueEnumerable()
+                            .Where(x => !x.Value.IsDownloaded());
+
+                        var activeTasks = new int[1];
                         var downloadTasks = toDownload
                             .Select(x =>
                             {
-                                var task = ctx.AddTask(x.Value.ToString()).IsIndeterminate();
+                                var task = ctx.AddTask(x.Value.ToString(), maxValue: 0)
+                                    .IsIndeterminate();
 
-                                return x.Key.Source.Service.DownloadPackage(
-                                    x.Value,
-                                    new(
-                                        task,
-                                        (task, contentLength) =>
-                                        {
-                                            if (
-                                                contentLength is null
-                                                || task is not ProgressTask pTask
-                                            )
-                                                return;
+                                activeTasks[0]++;
 
-                                            pTask.IsIndeterminate(false).MaxValue =
-                                                (double)contentLength;
-                                        }
-                                    )
-                                );
+                                // The C# compiler kinda dies if this is a direct lambda that is returned I think.
+                                async Task<bool> Download()
+                                {
+                                    var isSuccess = await x.Key.Source.Service.DownloadPackageAsync(
+                                        x.Value,
+                                        new(
+                                            task,
+                                            (task, contentLength) =>
+                                            {
+                                                if (
+                                                    contentLength is null
+                                                    || task is not ProgressTask pTask
+                                                )
+                                                    return;
+
+                                                pTask.IsIndeterminate(false).MaxValue =
+                                                    (double)contentLength;
+                                            }
+                                        )
+                                    );
+
+                                    lock (activeTasks)
+                                    {
+                                        activeTasks[0]--;
+
+                                        if (activeTasks[0] > 15)
+                                            progress.HideCompleted = true;
+                                        else
+                                            progress.HideCompleted = false;
+                                    }
+
+                                    return isSuccess;
+                                }
+                                return Download();
                             })
                             .ToArray();
 
@@ -523,22 +563,60 @@ static class Program
 
                         return (
                             tasksCount: downloadTasks.Length,
-                            allSuccess: downloadTasks.Select(x => x.Result).All(x => x is true)
+                            allSuccess: downloadTasks.Select(x => x.Result).All(x => x is true),
+                            oldUpdatedToLatest: whatHappened
                         );
                     })
                     .Result;
 
-                if (progressResult.tasksCount == 0)
+                bool printedAny = false;
+
+                if (!progressResult.allSuccess)
+                {
+                    printedAny = true;
+                    AnsiConsole.MarkupLine("[red]Some updates failed[/]");
+                }
+
+                var updated = progressResult
+                    .oldUpdatedToLatest.AsValueEnumerable()
+                    .Where(x => x.oldVersion.Version != x.newVersion.Version);
+
+                if (updated.Any())
+                {
+                    printedAny = true;
+                    AnsiConsole.MarkupLine("[green]Updated mods:[/]");
+                    foreach (var (oldVersion, newVersion, _) in updated)
+                    {
+                        var packageId = oldVersion.Package.ToStringSimpleWithSource();
+                        AnsiConsole.MarkupLineInterpolated(
+                            CultureInfo.InvariantCulture,
+                            $"- {packageId} {oldVersion.Version} [yellow]→[/] [white]{newVersion.Version}[/]"
+                        );
+                    }
+                }
+
+                var downloaded = progressResult
+                    .oldUpdatedToLatest.AsValueEnumerable()
+                    .Where(x =>
+                        !x.newWasAlreadyDownloaded && x.oldVersion.Version == x.newVersion.Version
+                    );
+
+                if (downloaded.Any())
+                {
+                    printedAny = true;
+                    AnsiConsole.MarkupLine("[green]Downloaded mods:[/]");
+                    foreach (var (_, newVersion, _) in downloaded)
+                    {
+                        AnsiConsole.MarkupLineInterpolated(
+                            CultureInfo.InvariantCulture,
+                            $"- [white]{newVersion}[/]"
+                        );
+                    }
+                }
+
+                if (!printedAny)
                 {
                     AnsiConsole.MarkupLine("[green]Everything is already up-to-date[/]");
-                }
-                else if (progressResult.allSuccess)
-                {
-                    AnsiConsole.MarkupLine("[green]Mods updated successfully[/]");
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine("[red]Some updates failed[/]");
                 }
             });
         }
@@ -584,10 +662,11 @@ static class Program
             """
         );
 
-        if (activeProfile is { })
+        if (activeProfile is { } profile)
         {
-            var added = activeProfile.Config.AddedPackages.Count();
-            var deps = activeProfile.Config.DependencyPackages.Count();
+            var modList = profile.GetAndBypassLoadWithRiskOfBugs();
+            var added = modList.Config.AddedPackages.Count();
+            var deps = modList.Config.DependencyPackages.Count();
             AnsiConsole.MarkupInterpolated(
                 CultureInfo.InvariantCulture,
                 $"""
@@ -623,7 +702,7 @@ static class Program
     private static bool TryGetActiveGameAndProfile(
         CommandResult result,
         [NotNullWhen(true)] out Game? game,
-        [NotNullWhen(true)] out ModList? profile
+        out LazyModList profile
     )
     {
         profile = default;
@@ -656,7 +735,7 @@ static class Program
     private static bool TryGetActiveProfile(
         this SymbolResult result,
         Game game,
-        [NotNullWhen(true)] out ModList? profile
+        out LazyModList profile
     )
     {
         if (game.Config.ActiveProfile is not { } activeProfile)
@@ -672,9 +751,9 @@ static class Program
         return true;
     }
 
-    static List<(ModList profile, bool hasCollision)> GetProfiles(this Game game)
+    static List<(LazyModList profile, bool hasCollision)> GetProfiles(this Game game)
     {
-        ModList[] profiles = [.. game.EnumerateProfiles()];
+        LazyModList[] profiles = [.. game.EnumerateProfiles()];
         profiles.Sort(
             static (a, b) => StringComparer.Ordinal.Compare(a.DisplayName, b.DisplayName)
         );
@@ -691,7 +770,7 @@ static class Program
             num++;
         }
 
-        List<(ModList profile, bool hasCollision)> values = [];
+        List<(LazyModList profile, bool hasCollision)> values = [];
         foreach (var profile in profiles)
         {
             var nameCollision = displayNameToProfileCount[profile.DisplayName] > 1;
@@ -716,6 +795,19 @@ static class Program
         );
 
         Game.GlobalConfig.ActiveGame = selectedGame;
+        if (!selectedGame.EnumerateProfiles().Any())
+        {
+            selectedGame.Config.ActiveProfile = ModList.Create(
+                selectedGame,
+                "Default",
+                new(selectedGame.DefaultSource)
+            );
+
+            selectedGame.Config.Save(
+                selectedGame.GameConfigLocation,
+                SourceGenerationContext.Default.GameConfig
+            );
+        }
         return;
     }
 

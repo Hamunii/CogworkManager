@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Serialization;
 using Cogwork.Core.Extensions;
+using ZLinq;
 
 namespace Cogwork.Core;
 
@@ -11,7 +12,7 @@ public sealed class ModList
 {
     public sealed class ModListConfig : ISaveWithJson
     {
-        public readonly record struct ServiceUrl(Uri Url);
+        public readonly record struct ServiceUri(Uri Uri);
 
         private ModList? _modList;
 
@@ -34,10 +35,13 @@ public sealed class ModList
 
         [JsonInclude]
         [JsonPropertyName("Sources")]
-        public IEnumerable<ServiceUrl> Sources
+        public IEnumerable<ServiceUri> Sources
         {
-            get => SourceIndex?.Sources.Select(x => new ServiceUrl(x.Service.Url)).Distinct() ?? [];
-            set => _ = value; // it appears setters are essential for Json Source generator stuff
+            get =>
+                SourceIndex?.Sources.Select(x => new ServiceUri(x.Service.Uri)).Distinct()
+                ?? field
+                ?? [];
+            set => field = value;
         }
 
         [JsonInclude]
@@ -57,8 +61,10 @@ public sealed class ModList
 
                 foreach (var package in value)
                 {
-                    var packageVersion = Package.GetPackageVersion(SourceIndex, package);
-                    _modList.Added.Add(packageVersion.Package, packageVersion);
+                    if (Package.TryGetPackageVersion(SourceIndex, package, out var packageVersion))
+                        _modList.Added.Add(packageVersion.Package, packageVersion);
+                    else
+                        Lost.Add(package);
                 }
             }
         } = null!;
@@ -80,11 +86,20 @@ public sealed class ModList
 
                 foreach (var package in value)
                 {
-                    var packageVersion = Package.GetPackageVersion(SourceIndex, package);
-                    _modList.Dependencies.Add(packageVersion.Package, packageVersion);
+                    // Since these are dependencies, we don't care if some are not found, I think.
+                    if (Package.TryGetPackageVersion(SourceIndex, package, out var packageVersion))
+                        _modList.Dependencies.Add(packageVersion.Package, packageVersion);
                 }
             }
         } = null!;
+
+        [JsonInclude]
+        [JsonPropertyName("Lost")]
+        public List<string> Lost
+        {
+            get;
+            set => field = value ?? field;
+        } = [];
 
         /// <summary>
         /// Connects a <see cref="ModList"/> and a <see cref="ModListConfig"/>
@@ -206,16 +221,21 @@ public sealed class ModList
         }
         else
         {
-            // Init config. This is kinda bad.
-            _ = Config;
+            // This also magically initializes config. This is kinda bad.
+            // We make sure the just-created profile is saved.
+            Config!.ConnectModListIfNeeded(this, existed: false);
+            Config.Save(FileLocation!, SourceGenerationContext.Default.ModListConfig);
         }
     }
 
     /// <summary>
     /// Constructs a new mod profile which has not existed before.
     /// </summary>
-    public ModList(Game game, string name, PackageSourceIndex sourceIndex)
-        : this(game, name, profileId: null, sourceIndex, config: null) { }
+    public static LazyModList Create(Game game, string name, PackageSourceIndex sourceIndex)
+    {
+        var modList = new ModList(game, name, profileId: null, sourceIndex, config: null);
+        return new(modList);
+    }
 
     public static string GetProfileFileLocation(Game game, string id) =>
         Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "profile.json");
@@ -223,12 +243,12 @@ public sealed class ModList
     /// <summary>
     /// Gets ModList from id or returns null if it doesn't exist.
     /// </summary>
-    public static ModList? GetFromId(Game game, string profileId)
+    public static LazyModList? GetFromId(Game game, string profileId)
     {
         lock (idToModListLock)
         {
             if (IdToModList.TryGetValue(profileId, out var modList))
-                return modList;
+                return new(modList);
 
             var path = GetProfileFileLocation(game, profileId);
             if (!File.Exists(path))
@@ -247,17 +267,8 @@ public sealed class ModList
                 config
             );
             IdToModList.Add(profileId, modList);
-            return modList;
+            return new(modList);
         }
-    }
-
-    // This is horrible, please rewrite everything.
-    public async Task Initialize(Func<PackageSource, ProgressContext>? progressFactory = null)
-    {
-        // Initialize package data
-        _ = await SourceIndex.GetAllPackagesAsync(progressFactory);
-        Config.ConnectModListIfNeeded(this);
-        return;
     }
 
     public bool Add(IEnumerable<Package> packages) => Add(packages.Select(x => x.Latest));
@@ -347,11 +358,11 @@ public sealed class ModList
 
     public void UpdatePackages()
     {
-        Add(Added.Keys.Select(x => x.Latest));
         foreach (var dependency in Dependencies)
         {
             Dependencies[dependency.Key] = dependency.Key.Latest;
         }
+        Add(Added.Keys.Select(x => x.Latest));
     }
 
     public override string ToString()
@@ -375,6 +386,39 @@ public sealed class ModList
 
         return sb.ToString();
     }
+}
+
+public readonly record struct LazyModList
+{
+    public readonly string DisplayName => _modList.DisplayName;
+    public readonly string Id => _modList.Id;
+    public readonly string DisambiguatedDisplayName
+    {
+        get => _modList.DisambiguatedDisplayName;
+        set => _modList.DisambiguatedDisplayName = value;
+    }
+
+    readonly ModList _modList;
+
+    internal LazyModList(ModList modList)
+    {
+        _modList = modList;
+    }
+
+    public readonly async Task<ModList> LoadAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
+    {
+        _modList.SourceIndex.Import(_modList.Config.Sources.Select(x => x.Uri));
+
+        // Initialize package data
+        _ = await _modList.SourceIndex.GetAllPackagesAsync(progressFactory);
+
+        _modList.Config.ConnectModListIfNeeded(_modList);
+        return _modList;
+    }
+
+    public readonly ModList GetAndBypassLoadWithRiskOfBugs() => _modList;
 }
 
 public static class ModListExtensions

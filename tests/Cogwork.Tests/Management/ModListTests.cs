@@ -28,13 +28,13 @@ public sealed class ModListTests
         Console.WriteLine(modList);
         */
 
-        await PackageSource.ThunderstoreSilksong.FetchPackageIndexAutomaticAsync();
+        // await PackageSource.ThunderstoreSilksong.FetchPackageIndexAutomaticAsync();
 
-        var modList2 = PackageSource.ThunderstoreSilksong.NewModList("test2");
-        var silksongPackages = await PackageSource.ThunderstoreSilksong.GetPackagesAsync();
-        var bingoUI = silksongPackages.First(x => x is { FullName: "flibber-BingoUI" });
+        // var modList2 = PackageSource.ThunderstoreSilksong.NewModList("test2");
+        // var silksongPackages = await PackageSource.ThunderstoreSilksong.GetPackagesAsync();
+        // var bingoUI = silksongPackages.First(x => x is { FullName: "flibber-BingoUI" });
 
-        modList2.Add(bingoUI);
-        Console.WriteLine(modList2);
+        // modList2.Add(bingoUI);
+        // Console.WriteLine(modList2);
     }
 }
