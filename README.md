@@ -55,10 +55,12 @@ A third part will likely eventually be implemented:
 
 ### Cogwork.Core
 
-This is where the shared backend logic lives for Cogwork Manager. Having it like this allow making multiple frontends for the mod package manager easier. Also meaning that if someone wants to create their own interface for Cogwork.Core, they absolutely can.
+Cogwork.Core is the package manager library usable to anyone who dares to use it in their projects.
 
-This library is heavily WIP still so everything about the implementation may change, and will probably be rewritten and documented once I have the full model figured out and working first.
+This library is heavily WIP still so everything about the implementation may change, and will probably be rewritten and documented once I have the full model figured out and working first. So please do not attempt to use it yet.
 
 ### Cogwork.Cli
 
-Aka "cogman". I care about good command line tools, so I've focused a lot on the intuitiveness of the program. Additionally, I really want the CLI to be as capable the GUI option whenever I will make it. Once I release the CLI mod manager, I'd recommend giving it a try if you're at least a bit familiar with CLI tools.
+Aka "cogman". It's a CLI tool that focused a lot on the user experience to try and make it easy-ish to use even for people who are not used to CLI tools.
+
+The goal of cogman is to be a fully-featured mod package manager so you don't need to open a GUI app for managing mods. As of right now, it's not there. It can't actually even install mods yet, though that feature is surely coming soon.
