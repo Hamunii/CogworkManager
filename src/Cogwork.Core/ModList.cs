@@ -409,7 +409,9 @@ public readonly record struct LazyModList
         Func<PackageSource, ProgressContext>? progressFactory = null
     )
     {
-        _modList.SourceIndex.Import(_modList.Config.Sources.Select(x => x.Uri));
+        _modList.SourceIndex.Import(
+            _modList.Config.Sources.Select(x => x.Uri).Where(x => x is { })
+        );
 
         // Initialize package data
         _ = await _modList.SourceIndex.GetAllPackagesAsync(progressFactory);
