@@ -508,14 +508,11 @@ static class Program
                             .AllPackages.AsValueEnumerable()
                             .Where(x => !x.Value.IsDownloaded());
 
-                        var activeTasks = new int[1];
                         var downloadTasks = toDownload
                             .Select(x =>
                             {
                                 var task = ctx.AddTask(x.Value.ToString(), maxValue: 0)
                                     .IsIndeterminate();
-
-                                activeTasks[0]++;
 
                                 // The C# compiler kinda dies if this is a direct lambda that is returned I think.
                                 async Task<bool> Download()
@@ -537,16 +534,6 @@ static class Program
                                             }
                                         )
                                     );
-
-                                    lock (activeTasks)
-                                    {
-                                        activeTasks[0]--;
-
-                                        if (activeTasks[0] > 15)
-                                            progress.HideCompleted = true;
-                                        else
-                                            progress.HideCompleted = false;
-                                    }
 
                                     return isSuccess;
                                 }

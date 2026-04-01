@@ -111,8 +111,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
             .EnumerateFiles(PackageIndexDirectory)
             .Any(x => x.EndsWith(".todo", StringComparison.Ordinal));
 
-    public string PackageIndexLocation(int index) =>
-        Path.Combine(PackageIndexDirectory, $"{index}.json.zip");
+    public string PackageIndexLocation(string hash) => Path.Combine(PackageIndexDirectory, hash);
 
     public async Task<bool> FetchIndexToCacheAsync(ProgressContext progress = default)
     {
@@ -128,7 +127,8 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
             return false;
         }
 
-        string[] packageIndexUrls;
+        (string url, string fileName)[] allPackageIndexUrls;
+        (string url, string fileName)[] newPackageIndexUrls;
         {
             using GZipStream zipStream = new(
                 response.Content.ReadAsStream(),
@@ -143,20 +143,30 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                 Cog.Error($"Expected string[] but received null from '{url}'.");
                 return false;
             }
-            packageIndexUrls = strings;
-            Cog.Debug("Got package index urls: " + packageIndexUrls.Length);
+            allPackageIndexUrls = [.. strings.Select(url => (url, url.Split('/')[^1]))];
+            newPackageIndexUrls =
+            [
+                .. allPackageIndexUrls.Where(x => !File.Exists(PackageIndexLocation(x.fileName))),
+            ];
+            Cog.Debug(
+                $"Got package index urls: {newPackageIndexUrls.Length} new, {strings.Length} total"
+            );
         }
 
-        var progresses = new double[packageIndexUrls.Length];
+        Cog.Debug(
+            $"Downloading {newPackageIndexUrls.Length} package indexes to {PackageIndexDirectory}"
+        );
+
+        var progresses = new double[newPackageIndexUrls.Length];
         double combinedTotalBytes = 0;
         long totalContentLength = 0;
         int i = 0;
-        var tasks = packageIndexUrls
+        var tasks = newPackageIndexUrls
             .Select(
                 async Task<HttpStatusCode> (x) =>
                 {
                     using var zipFileStream = new FileStream(
-                        PackageIndexLocation(i) + ".todo",
+                        PackageIndexLocation(x.fileName) + ".todo",
                         FileMode.Create,
                         FileAccess.Write,
                         FileShare.None
@@ -202,7 +212,8 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                         );
                     }
                     i++;
-                    var status = await client.DownloadAsync(x, zipFileStream, progressContext);
+                    var status = await client.DownloadAsync(x.url, zipFileStream, progressContext);
+                    Cog.Debug($"Downloaded package {x.fileName}");
                     return status;
                 }
             )
@@ -218,12 +229,21 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                 Cog.Error("Error fetching package index url: " + status);
                 return false;
             }
-            var packageIndexLocation = PackageIndexLocation(j);
-            File.Delete(packageIndexLocation);
-            File.Move(packageIndexLocation + ".todo", packageIndexLocation);
+            var packageIndexLocation = PackageIndexLocation(newPackageIndexUrls[j].fileName);
+            File.Move(packageIndexLocation + ".todo", packageIndexLocation, overwrite: true);
             j++;
         }
 
+        var allUpToDateFiles = allPackageIndexUrls.Select(x => x.fileName).ToArray();
+        foreach (
+            var outdated in Directory
+                .EnumerateFiles(PackageIndexDirectory)
+                .Where(x => !allUpToDateFiles.Contains(Path.GetFileName(x)))
+        )
+        {
+            Cog.Debug($"Deleting outdated cache file '{outdated}'");
+            File.Delete(outdated);
+        }
         Cog.Information("Fetched successfully.");
         return true;
     }
@@ -593,7 +613,7 @@ public sealed class PackageSource
 
     public static PackageSourceIndex Silksong { get; } = new(ThunderstoreSilksong);
 
-    public static double SecondsUntilAutomaticIndexRefreshAllowed { get; } = 60d * 20d;
+    public static double SecondsUntilAutomaticIndexRefreshAllowed { get; } = 60d * 5d;
     public static double SecondsUntilManualIndexRefreshAllowed { get; } = 10d;
 
     internal PackageSourceCache SourceCache =>
@@ -704,9 +724,7 @@ public sealed class PackageSource
         List<Package> allPackages = [];
 
         var result = Parallel.ForEach(
-            Directory
-                .EnumerateFiles(packageIndexPath)
-                .Where(x => x.EndsWith(".json.zip", StringComparison.InvariantCulture)),
+            Directory.EnumerateFiles(packageIndexPath),
             (indexFile, state) =>
             {
                 try
