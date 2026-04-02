@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -7,25 +8,32 @@ namespace Cogwork.Core;
 
 public interface ISaveWithJson;
 
-public interface ISaveWithJson<T>;
+public interface ISaveWithJson<T> : ISaveWithJson
+{
+    public JsonTypeInfo<T> JsonTypeInfo { get; }
+}
 
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Metadata,
     WriteIndented = true
 )]
-[JsonSerializable(typeof(ModListConfig))]
 [JsonSerializable(typeof(Game.GameConfig))]
 [JsonSerializable(typeof(Game.GlobalConfig))]
 [JsonSerializable(typeof(PackageSourceCache))]
+[JsonSerializable(typeof(ModListData))]
+[JsonSerializable(typeof(ModListLockFile))]
+[JsonSerializable(typeof(PackageVersionNumber))]
 [JsonSerializable(typeof(List<Package>))]
 [JsonSerializable(typeof(string[]))]
-public partial class SourceGenerationContext : JsonSerializerContext { }
+public partial class JsonGen : JsonSerializerContext { }
 
 public static class ISaveWithJsonExtensions
 {
-    internal static JsonSerializerOptions Options { get; } =
-        new JsonSerializerOptions { TypeInfoResolver = SourceGenerationContext.Default };
-
+    extension<T>(T self)
+        where T : ISaveWithJson<T>, new()
+    {
+        public void Save(string fileLocation) => Save(self, fileLocation, self.JsonTypeInfo);
+    }
     extension<T>(T self)
         where T : ISaveWithJson, new()
     {
@@ -38,15 +46,34 @@ public static class ISaveWithJsonExtensions
 
         // I don't care and this doesn't even apply here
 #pragma warning disable CA1000 // Do not declare static members on generic types
-        public static T LoadSavedData(string filePath, JsonTypeInfo<T> typeInfo) =>
-            LoadSavedData<T>(filePath, typeInfo, out _);
+        public static T LoadSavedDataOrNew(string filePath, JsonTypeInfo<T> typeInfo) =>
+            LoadSavedDataOrNew(filePath, typeInfo, out _);
 
-        public static T LoadSavedData(string filePath, JsonTypeInfo<T> typeInfo, out bool existed)
+        public static T LoadSavedDataOrNew(
+            string filePath,
+            JsonTypeInfo<T> typeInfo,
+            out bool existed
+        ) => LoadSavedData(filePath, typeInfo, out existed) ?? new();
+
+        public static bool TryLoadSavedData(
+            string filePath,
+            JsonTypeInfo<T> typeInfo,
+            [MaybeNullWhen(false)] out T data
+        )
+        {
+            data = LoadSavedData(filePath, typeInfo, out var existed);
+            return existed;
+        }
+
+        public static T? LoadSavedData(string filePath, JsonTypeInfo<T> typeInfo) =>
+            LoadSavedData(filePath, typeInfo, out _);
+
+        public static T? LoadSavedData(string filePath, JsonTypeInfo<T> typeInfo, out bool existed)
         {
             if (!File.Exists(filePath))
             {
                 existed = false;
-                return new();
+                return default;
             }
 
             using var stream = File.OpenRead(filePath);
@@ -65,7 +92,7 @@ public static class ISaveWithJsonExtensions
             }
 
             existed = false;
-            return new();
+            return default;
         }
     }
 }

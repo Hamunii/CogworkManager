@@ -7,6 +7,34 @@ using ZLinq;
 
 namespace Cogwork.Core;
 
+public readonly record struct VisualPackageVersion
+{
+    public string FullName { get; }
+    public PackageVersionNumber Version { get; }
+    public string? Source { get; }
+
+    public VisualPackageVersion(KeyValuePair<string, PackageVersionNumber> keyValuePair)
+        : this(keyValuePair.Key, keyValuePair.Value) { }
+
+    public VisualPackageVersion(string packageId, PackageVersionNumber version)
+    {
+        Version = version;
+        var split = packageId.AsSpan().Split('-');
+
+        split.MoveNext();
+        split.MoveNext();
+        FullName = packageId[..split.Current.End];
+
+        if (split.MoveNext())
+        {
+            Source = packageId[split.Current];
+        }
+    }
+
+    public override string ToString() =>
+        Source is { } ? $"{FullName}-{Version}-{Source}" : $"{FullName}-{Version}";
+}
+
 public sealed record Package
 {
     public Author Author { get; }
@@ -39,6 +67,12 @@ public sealed record Package
         enumerator.MoveNext();
         Name = fullNameSpan[enumerator.Current].ToString();
     }
+
+    public static bool TryGetPackageWithNoVersion(
+        PackageSourceIndex sourceIndex,
+        ReadOnlySpan<char> fullName,
+        [NotNullWhen(true)] out Package? package
+    ) => TryGetPackage(sourceIndex, fullName, out package, hasVersion: false, out _, out _);
 
     public static bool TryGetPackage(
         PackageSourceIndex sourceIndex,
@@ -172,7 +206,7 @@ public sealed record Package
         [NotNullWhen(true)] out PackageVersion? packageVersion
     )
     {
-        packageVersion = Versions.FirstOrDefault(x => x.Version == version);
+        packageVersion = Versions.FirstOrDefault(x => version == x.Version);
         if (packageVersion is null)
         {
             Cog.Debug($"Version '{version}' not found for '{ToStringSimpleWithSource()}'");
@@ -231,9 +265,22 @@ public sealed record PackageVersion
                         )
                     )
                     {
-                        Cog.Debug(
-                            $"Package for '{fullNameWithVersion}' in '{source}' was not found."
-                        );
+                        if (source is null)
+                        {
+                            Cog.Debug(
+                                $"Package for '{fullNameWithVersion}' was not found in any sources: "
+                                    + string.Join(
+                                        ", ",
+                                        Package.Source.SourceIndex.Sources.Select(x => x.ToString())
+                                    )
+                            );
+                        }
+                        else
+                        {
+                            Cog.Debug(
+                                $"Package for '{fullNameWithVersion}' in '{source}' was not found."
+                            );
+                        }
                         return null;
                     }
 
@@ -359,6 +406,7 @@ public readonly record struct Author(string Name)
 /// A version representation with larger ints than <see cref="Version"/>
 /// because mods can have version numbers so high that its int32 fields are not enough.
 /// </summary>
+[JsonConverter(typeof(PackageVersionNumberConverter))]
 public readonly record struct PackageVersionNumber
 {
     public long Major { get; }

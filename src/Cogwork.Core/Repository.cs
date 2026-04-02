@@ -134,10 +134,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                 response.Content.ReadAsStream(),
                 CompressionMode.Decompress
             );
-            var strings = JsonSerializer.Deserialize(
-                zipStream,
-                SourceGenerationContext.Default.StringArray
-            );
+            var strings = JsonSerializer.Deserialize(zipStream, JsonGen.Default.StringArray);
             if (strings is null)
             {
                 Cog.Error($"Expected string[] but received null from '{url}'.");
@@ -328,10 +325,14 @@ public sealed class PackageSourceIndex
     [JsonIgnore]
     List<PackageSource> PackageSources { get; } = [];
 
+    public PackageSourceIndex() { }
+
     public PackageSourceIndex(PackageSource packageSource)
     {
         Add(packageSource);
     }
+
+    public PackageSourceIndex(IEnumerable<Uri> uris) => Import(uris);
 
     public void Import(IEnumerable<Uri> uris)
     {
@@ -413,6 +414,20 @@ public sealed class PackageSourceIndex
         Task.WaitAll(fetchTasks);
         return fetchTasks.SelectMany(x => x.Result);
     }
+
+    public async Task FetchAllPackagesAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
+    {
+        Cog.Information($"Package sources count: {PackageSources.Count}");
+        var fetchTasks = PackageSources
+            .Select(x => x.FetchPackageIndexAutomaticAsync(progressFactory))
+            .ToArray();
+#if DEBUG
+        await Task.Delay(100);
+#endif
+        Task.WaitAll(fetchTasks);
+    }
 }
 
 public sealed class PackageSource
@@ -442,9 +457,9 @@ public sealed class PackageSource
             public static string GlobalConfigLocation =>
                 field ??= Path.Combine(CogworkPaths.DataDirectory, $"state.json");
             internal static GlobalConfig Instance =>
-                field ??= GlobalConfig.LoadSavedData(
+                field ??= GlobalConfig.LoadSavedDataOrNew(
                     GlobalConfigLocation,
-                    SourceGenerationContext.Default.GlobalConfig
+                    JsonGen.Default.GlobalConfig
                 );
 
             public string? ActiveGameSlug { get; set; }
@@ -471,10 +486,7 @@ public sealed class PackageSource
                 {
                     field = value;
                     Instance.ActiveGameSlug = value?.Slug;
-                    Instance.Save(
-                        GlobalConfigLocation,
-                        SourceGenerationContext.Default.GlobalConfig
-                    );
+                    Instance.Save(GlobalConfigLocation, JsonGen.Default.GlobalConfig);
                 }
             }
         }
@@ -516,9 +528,9 @@ public sealed class PackageSource
                 if (field is { })
                     return field;
 
-                field = GameConfig.LoadSavedData(
+                field = GameConfig.LoadSavedDataOrNew(
                     GameConfigLocation,
-                    SourceGenerationContext.Default.GameConfig
+                    JsonGen.Default.GameConfig
                 );
                 field.ConnectGame(this);
                 return field;
@@ -529,7 +541,7 @@ public sealed class PackageSource
         public string GameConfigLocation =>
             field ??= Path.Combine(CogworkPaths.GetGamesSubDirectory(this), "config.json");
 
-        public PackageSource DefaultSource { get; }
+        public PackageSource? DefaultSource { get; }
 
         internal Game(string name, string slug, PackageSource? defaultSource = null)
         {
@@ -617,9 +629,9 @@ public sealed class PackageSource
     public static double SecondsUntilManualIndexRefreshAllowed { get; } = 10d;
 
     internal PackageSourceCache SourceCache =>
-        field ??= PackageSourceCache.LoadSavedData(
+        field ??= PackageSourceCache.LoadSavedDataOrNew(
             Service.PackageIndexCacheLocation,
-            SourceGenerationContext.Default.PackageSourceCache
+            JsonGen.Default.PackageSourceCache
         );
 
     public PackageSourceIndex SourceIndex { get; internal set; } = null!;
@@ -673,10 +685,7 @@ public sealed class PackageSource
                 return false;
 
             SourceCache.LastFetch = dateNow;
-            SourceCache.Save(
-                Service.PackageIndexCacheLocation,
-                SourceGenerationContext.Default.PackageSourceCache
-            );
+            SourceCache.Save(Service.PackageIndexCacheLocation, JsonGen.Default.PackageSourceCache);
         }
         else
         {
@@ -764,10 +773,7 @@ public sealed class PackageSource
     {
         try
         {
-            packages = JsonSerializer.Deserialize(
-                data,
-                SourceGenerationContext.Default.ListPackage
-            );
+            packages = JsonSerializer.Deserialize(data, JsonGen.Default.ListPackage);
             if (packages is null)
             {
                 Cog.Error("Package index file json deserialization returned null");
@@ -815,6 +821,6 @@ public sealed class PackageSource
     public override string ToString()
     {
         var url = Service.Uri;
-        return url.Authority + url.PathAndQuery;
+        return url.ToString();
     }
 }

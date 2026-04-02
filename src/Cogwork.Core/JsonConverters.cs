@@ -1,0 +1,26 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Cogwork.Core;
+
+public class PackageVersionNumberConverter : JsonConverter<PackageVersionNumber>
+{
+    public override PackageVersionNumber Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    )
+    {
+        var version = reader.GetString();
+        return new PackageVersionNumber(version ?? "0.0.0");
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        PackageVersionNumber value,
+        JsonSerializerOptions options
+    )
+    {
+        writer.WriteStringValue(value.ToString());
+    }
+}

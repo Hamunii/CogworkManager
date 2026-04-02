@@ -1,244 +1,274 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Cogwork.Core.Extensions;
 using ZLinq;
 
 namespace Cogwork.Core;
 
-public sealed class ModList
+public readonly record struct ServiceUri(Uri Uri);
+
+public readonly record struct ModListData(
+    string? DisplayName,
+    IEnumerable<ServiceUri>? Sources,
+    IEnumerable<string>? PackageIds
+) : ISaveWithJson<ModListData>
 {
-    public sealed class ModListConfig : ISaveWithJson
-    {
-        public readonly record struct ServiceUri(Uri Uri);
+    [JsonIgnore]
+    public JsonTypeInfo<ModListData> JsonTypeInfo => JsonGen.Default.ModListData;
+}
 
-        private ModList? _modList;
+public readonly record struct ModListLockFile(
+    IEnumerable<KeyValuePair<string, PackageVersionNumber>>? ResolvedAdded,
+    IEnumerable<KeyValuePair<string, PackageVersionNumber>>? ResolvedDependencies
+) : ISaveWithJson<ModListLockFile>
+{
+    [JsonIgnore]
+    public JsonTypeInfo<ModListLockFile> JsonTypeInfo => JsonGen.Default.ModListLockFile;
+}
 
-        [JsonIgnore]
-        public PackageSourceIndex? SourceIndex { get; set; }
-        public string? DisplayName
-        {
-            get => _modList?.DisplayName ?? field;
-            set
-            {
-                if (_modList is null || value is null)
-                {
-                    field = value;
-                    return;
-                }
-
-                _modList.DisplayName = value;
-            }
-        }
-
-        [JsonInclude]
-        [JsonPropertyName("Sources")]
-        public IEnumerable<ServiceUri> Sources
-        {
-            get =>
-                SourceIndex?.Sources.Select(x => new ServiceUri(x.Service.Uri)).Distinct()
-                ?? field
-                ?? [];
-            set => field = value;
-        }
-
-        [JsonInclude]
-        [JsonPropertyName("Added")]
-        public IEnumerable<string> AddedPackages
-        {
-            get => _modList?.Added.Values.Select(x => x.ToString()) ?? field;
-            set
-            {
-                if (_modList is null || value is null)
-                {
-                    field = value ?? [];
-                    return;
-                }
-
-                Debug.Assert(SourceIndex is { });
-
-                foreach (var package in value)
-                {
-                    if (Package.TryGetPackageVersion(SourceIndex, package, out var packageVersion))
-                        _modList.Added.Add(packageVersion.Package, packageVersion);
-                    else
-                        Lost.Add(package);
-                }
-            }
-        } = null!;
-
-        [JsonInclude]
-        [JsonPropertyName("Dependencies")]
-        public IEnumerable<string> DependencyPackages
-        {
-            get => _modList?.Dependencies.Values.Select(x => x.ToString()) ?? field;
-            set
-            {
-                if (_modList is null || value is null)
-                {
-                    field = value ?? [];
-                    return;
-                }
-
-                Debug.Assert(SourceIndex is { });
-
-                foreach (var package in value)
-                {
-                    // Since these are dependencies, we don't care if some are not found, I think.
-                    if (Package.TryGetPackageVersion(SourceIndex, package, out var packageVersion))
-                        _modList.Dependencies.Add(packageVersion.Package, packageVersion);
-                }
-            }
-        } = null!;
-
-        [JsonInclude]
-        [JsonPropertyName("Lost")]
-        public List<string> Lost
-        {
-            get;
-            set => field = value ?? field;
-        } = [];
-
-        /// <summary>
-        /// Connects a <see cref="ModList"/> and a <see cref="ModListConfig"/>
-        /// together so their data is linked.
-        /// </summary>
-        internal void ConnectModListIfNeeded(ModList modList, bool existed = true)
-        {
-            if (_modList is { })
-            {
-                return;
-            }
-
-            if (!existed)
-            {
-                _modList = modList;
-                SourceIndex = _modList.SourceIndex;
-                return;
-            }
-
-            var added = AddedPackages;
-            var dependencies = DependencyPackages;
-
-            _modList = modList;
-            SourceIndex = _modList.SourceIndex;
-
-            AddedPackages = added;
-            DependencyPackages = dependencies;
-        }
-    }
-
-    static Dictionary<string, ModList> IdToModList { get; } = [];
-    static readonly Lock idToModListLock = new();
-
-    [JsonInclude]
-    public ModListConfig Config
-    {
-        get
-        {
-            if (field is { })
-                return field;
-
-            field = ModListConfig.LoadSavedData(
-                FileLocation,
-                SourceGenerationContext.Default.ModListConfig
-            );
-            return field;
-        }
-        private set;
-    }
-    public string DisplayName { get; set; }
-    public string Id { get; set; }
+public sealed class LazyModList
+{
+    public required string DisplayName { get; init; }
+    public string Id { get; }
     public string DisambiguatedDisplayName
     {
         get => field ?? DisplayName;
         set;
     }
+    public required PackageSourceIndex SourceIndex { get; init; }
+    public required Game Game { get; init; }
+    public IEnumerable<string> AddedPackageIds { get; private set; }
+    public Dictionary<string, PackageVersionNumber>? ResolvedAdded
+    {
+        get
+        {
+            if (_isResolvedAddedDirty)
+            {
+                field = new(
+                    _modList!.Added.Select(x => new KeyValuePair<string, PackageVersionNumber>(
+                        x.Key.ToStringSimpleWithSource(),
+                        x.Value.Version
+                    ))
+                );
+                _isResolvedAddedDirty = false;
+            }
+            return field;
+        }
+        private set;
+    }
 
-    public PackageSourceIndex SourceIndex { get; set; }
+    public Dictionary<string, PackageVersionNumber>? ResolvedDependencies
+    {
+        get
+        {
+            if (_isResolvedDependenciesDirty)
+            {
+                field = new(
+                    _modList!.Dependencies.Select(x => new KeyValuePair<
+                        string,
+                        PackageVersionNumber
+                    >(x.Key.ToStringSimpleWithSource(), x.Value.Version))
+                );
+                _isResolvedDependenciesDirty = false;
+            }
+            return field;
+        }
+        private set;
+    }
+    public string ProfileSaveDataPath => field ??= ModList.GetProfileFileLocation(Game, Id);
+    ModList? _modList;
+    bool _isResolvedAddedDirty;
+    bool _isResolvedDependenciesDirty;
 
-    [JsonIgnore]
-    public string FileLocation => field ??= GetProfileFileLocation(_game, Id);
-
-    [JsonIgnore]
-    public Dictionary<Package, PackageVersion> Added { get; private set; } = [];
-
-    [JsonIgnore]
-    public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
-
-    [JsonIgnore]
-    public IEnumerable<KeyValuePair<Package, PackageVersion>> AllPackages =>
-        Added.Concat(Dependencies);
-
-    readonly Game _game;
-
-    private ModList(
-        Game game,
-        string name,
-        string? profileId,
-        PackageSourceIndex sourceIndex,
-        ModListConfig? config
+    internal LazyModList(
+        string profileId,
+        IEnumerable<string>? addedPackageIds,
+        ModListLockFile lockFile
     )
     {
-        _game = game;
-        DisplayName = name;
+        Id = profileId;
+        AddedPackageIds = addedPackageIds ?? [];
 
-        if (profileId is { })
+        if (lockFile.ResolvedAdded is { } resolvedAdded)
         {
-            Id = profileId;
-        }
-        else
-        {
-            Span<char> id = new char[name.Length];
-            name.CopyTo(id);
-            foreach (char c in Path.GetInvalidFileNameChars())
-            {
-                id.Replace(c, '_');
-            }
-
-            profileId = id.ToString();
-            var profilesDir = CogworkPaths.GetProfilesSubDirectory(_game, "");
-            var wouldBePath = Path.Combine(profilesDir, profileId);
-            int num = 1;
-            while (File.Exists(wouldBePath))
-            {
-                num++;
-                wouldBePath = Path.Combine(profilesDir, Id + num);
-            }
-            if (num == 1)
-                Id = profileId;
-            else
-                Id = profileId + num;
+            ResolvedAdded = new(resolvedAdded);
         }
 
-        SourceIndex = sourceIndex;
-
-        if (config is { })
+        if (lockFile.ResolvedDependencies is { } resolvedDependencies)
         {
-            Config = config;
+            ResolvedDependencies = new(resolvedDependencies);
         }
-        else
+
+        lock (ModList.idToModListLock)
         {
-            // This also magically initializes config. This is kinda bad.
-            // We make sure the just-created profile is saved.
-            Config!.ConnectModListIfNeeded(this, existed: false);
-            Config.Save(FileLocation!, SourceGenerationContext.Default.ModListConfig);
+            ModList.IdToModList.Add(profileId, this);
         }
     }
 
-    /// <summary>
-    /// Constructs a new mod profile which has not existed before.
-    /// </summary>
-    public static LazyModList Create(Game game, string name, PackageSourceIndex sourceIndex)
+    public async Task<ModList> LoadAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
     {
-        var modList = new ModList(game, name, profileId: null, sourceIndex, config: null);
-        return new(modList);
+        await SourceIndex.FetchAllPackagesAsync(progressFactory);
+
+        if (_modList is { })
+            return _modList;
+
+        _modList = new(
+            this,
+            onNewAddedDictionary: (modList, added) =>
+                AddedPackageIds = added
+                    .Select(x => x.Key.ToStringSimpleWithSource())
+                    .Concat(modList.LostPackageIds),
+            onResolved: () =>
+            {
+                _isResolvedAddedDirty = true;
+                _isResolvedDependenciesDirty = true;
+            }
+        );
+
+        return _modList;
     }
 
-    public static string GetProfileFileLocation(Game game, string id) =>
-        Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "profile.json");
+    public void SaveData()
+    {
+        ModListData modListData = new()
+        {
+            DisplayName = DisplayName,
+            Sources = SourceIndex.Sources.Select(x => new ServiceUri(x.Service.Uri)),
+            PackageIds = AddedPackageIds,
+        };
+
+        modListData.Save(ProfileSaveDataPath);
+        ModListLockFile lockFile = new([], []);
+        lockFile.Save(ProfilePackageLockPath);
+    }
+
+    public string ProfilePackageLockPath => field ??= GetProfilePackageLockPath(Game, Id);
+
+    public static string GetProfilePackageLockPath(Game game, string id) =>
+        Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "lock.json");
+}
+
+public sealed class ModList
+{
+    internal static readonly Lock idToModListLock = new();
+    internal static Dictionary<string, LazyModList> IdToModList { get; } = [];
+    public PackageSourceIndex SourceIndex => _lazy.SourceIndex;
+    public Dictionary<Package, PackageVersion> Added { get; } = [];
+    public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
+    public IEnumerable<KeyValuePair<Package, PackageVersion>> AllPackages =>
+        Added.Concat(Dependencies);
+    public List<string> LostPackageIds { get; } = [];
+    readonly LazyModList _lazy;
+    readonly Action<ModList, Dictionary<Package, PackageVersion>> _onNewAddedList;
+    readonly Action _onResolved;
+
+    internal ModList(
+        LazyModList lazyModList,
+        Action<ModList, Dictionary<Package, PackageVersion>> onNewAddedDictionary,
+        Action onResolved
+    )
+    {
+        _lazy = lazyModList;
+        List<PackageVersion> packages = [];
+
+        foreach (var packageId in _lazy.AddedPackageIds)
+        {
+            if (Package.TryGetPackageWithNoVersion(_lazy.SourceIndex, packageId, out var package))
+            {
+                if (
+                    _lazy.ResolvedAdded is { } resolved
+                    && resolved.TryGetValue(
+                        package.ToStringSimpleWithSource(),
+                        out var packageVersionNumber
+                    )
+                    && package.TryGetVersion(packageVersionNumber, out var packageVersion)
+                )
+                {
+                    Cog.Verbose($"Add PackageVersion {packageVersion}");
+                    packages.Add(packageVersion);
+                    continue;
+                }
+
+                Cog.Verbose($"Add Package (no resolved Version found) {package.Latest}");
+                packages.Add(package.Latest);
+            }
+            else
+            {
+                LostPackageIds.Add(packageId);
+            }
+        }
+
+        _onNewAddedList = onNewAddedDictionary;
+        _onResolved = onResolved;
+        _onNewAddedList(this, Added);
+
+        Add(packages);
+    }
+
+    public static LazyModList CreateNew(Game game, string name)
+    {
+        var modList = new LazyModList(GetUniqueProfileId(game, name), null, default)
+        {
+            Game = game,
+            DisplayName = name,
+            SourceIndex = game.DefaultSource is { } ? new(game.DefaultSource) : new(),
+        };
+
+        // Since this profile didn't exist previously, we should save it now so it stays.
+        modList.SaveData();
+        return modList;
+    }
+
+    private static string GetUniqueProfileId(Game game, string name)
+    {
+        Span<char> nameSpan = new char[name.Length];
+        name.CopyTo(nameSpan);
+        foreach (char c in Path.GetInvalidFileNameChars())
+        {
+            nameSpan.Replace(c, '_');
+        }
+
+        var safeName = nameSpan.ToString();
+        var profilesDir = CogworkPaths.GetProfilesSubDirectory(game, "");
+        var wouldBePath = Path.Combine(profilesDir, safeName);
+        int num = 1;
+        while (File.Exists(wouldBePath))
+        {
+            num++;
+            wouldBePath = Path.Combine(profilesDir, safeName + num);
+        }
+        if (num > 1)
+        {
+            safeName += num;
+        }
+
+        return safeName;
+    }
+
+    public static LazyModList CreateFromData(
+        Game game,
+        string profileId,
+        ModListData data,
+        ModListLockFile lockFile
+    )
+    {
+        var modList = new LazyModList(profileId, data.PackageIds, lockFile)
+        {
+            Game = game,
+            DisplayName = data.DisplayName ?? profileId,
+            SourceIndex =
+                data.Sources is { } ? new(data.Sources.Select(x => x.Uri))
+                : game.DefaultSource is { } ? new(game.DefaultSource)
+                : new(),
+        };
+
+        return modList;
+    }
 
     /// <summary>
     /// Gets ModList from id or returns null if it doesn't exist.
@@ -248,41 +278,51 @@ public sealed class ModList
         lock (idToModListLock)
         {
             if (IdToModList.TryGetValue(profileId, out var modList))
-                return new(modList);
+                return modList;
 
             var path = GetProfileFileLocation(game, profileId);
             if (!File.Exists(path))
                 return null;
 
-            var config = ModListConfig.LoadSavedData(
-                path,
-                SourceGenerationContext.Default.ModListConfig
+            var data = ModListData.LoadSavedData(path, JsonGen.Default.ModListData);
+            var lockFile = ModListLockFile.LoadSavedData(
+                LazyModList.GetProfilePackageLockPath(game, profileId),
+                JsonGen.Default.ModListLockFile
             );
-            // TODO: properly parse the PackageSourceIndex from the config.
-            modList = new ModList(
-                game,
-                config.DisplayName ?? profileId,
-                profileId,
-                config.SourceIndex ?? new(game.DefaultSource),
-                config
-            );
-            IdToModList.Add(profileId, modList);
-            return new(modList);
+            modList = CreateFromData(game, profileId, data, lockFile);
+            return modList;
         }
+    }
+
+    public static string GetProfileFileLocation(Game game, string id) =>
+        Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "profile.json");
+
+    public void SaveLockFile()
+    {
+        ModListLockFile lockFile = new(
+            Added.Select(x => new KeyValuePair<string, PackageVersionNumber>(
+                x.Key.ToStringSimpleWithSource(),
+                x.Value.Version
+            )),
+            Dependencies.Select(x => new KeyValuePair<string, PackageVersionNumber>(
+                x.Key.ToStringSimpleWithSource(),
+                x.Value.Version
+            ))
+        );
+
+        lockFile.Save(_lazy.ProfilePackageLockPath);
     }
 
     public bool Add(IEnumerable<Package> packages) => Add(packages.Select(x => x.Latest));
 
     public bool Add(IEnumerable<PackageVersion> packages)
     {
-        Config.ConnectModListIfNeeded(this);
         bool updated = false;
         foreach (var package in packages)
         {
             updated |= Added.AddOrUpdateToHigherVersion(package);
         }
-        RebuildDependencies();
-        Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
+        DirtyRebuildDependencies();
         return updated;
     }
 
@@ -290,16 +330,13 @@ public sealed class ModList
 
     public bool Add(PackageVersion package)
     {
-        Config.ConnectModListIfNeeded(this);
         var updated = Added.AddOrUpdateToHigherVersion(package);
-        RebuildDependencies();
-        Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
+        DirtyRebuildDependencies();
         return updated;
     }
 
     public void Remove(IEnumerable<Package> packages)
     {
-        Config.ConnectModListIfNeeded(this);
         foreach (var package in packages)
         {
             if (Added.Remove(package, out var packageVersion))
@@ -308,22 +345,19 @@ public sealed class ModList
                 Dependencies.Add(package, packageVersion);
             }
         }
-        RebuildDependencies();
-        Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
+        DirtyRebuildDependencies();
     }
 
     public void Remove(Package package)
     {
-        Config.ConnectModListIfNeeded(this);
         if (Added.Remove(package, out var packageVersion))
         {
             Dependencies.Add(package, packageVersion);
         }
-        RebuildDependencies();
-        Config.Save(FileLocation, SourceGenerationContext.Default.ModListConfig);
+        DirtyRebuildDependencies();
     }
 
-    public void RebuildDependencies()
+    void DirtyRebuildDependencies()
     {
         Dictionary<Package, PackageVersion> map = [];
 
@@ -354,6 +388,10 @@ public sealed class ModList
         }
 
         Dependencies = allDependencies;
+        _onResolved();
+
+        _lazy.SaveData();
+        SaveLockFile();
     }
 
     public void UpdatePackages()
@@ -367,8 +405,6 @@ public sealed class ModList
 
     public override string ToString()
     {
-        Config.ConnectModListIfNeeded(this);
-
         var sb = new StringBuilder();
         sb.AppendLine("Added:");
         foreach (var added in Added.Values)
@@ -386,41 +422,6 @@ public sealed class ModList
 
         return sb.ToString();
     }
-}
-
-public readonly record struct LazyModList
-{
-    public readonly string DisplayName => _modList.DisplayName;
-    public readonly string Id => _modList.Id;
-    public readonly string DisambiguatedDisplayName
-    {
-        get => _modList.DisambiguatedDisplayName;
-        set => _modList.DisambiguatedDisplayName = value;
-    }
-
-    readonly ModList _modList;
-
-    internal LazyModList(ModList modList)
-    {
-        _modList = modList;
-    }
-
-    public readonly async Task<ModList> LoadAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
-    )
-    {
-        _modList.SourceIndex.Import(
-            _modList.Config.Sources.Select(x => x.Uri).Where(x => x is { })
-        );
-
-        // Initialize package data
-        _ = await _modList.SourceIndex.GetAllPackagesAsync(progressFactory);
-
-        _modList.Config.ConnectModListIfNeeded(_modList);
-        return _modList;
-    }
-
-    public readonly ModList GetAndBypassLoadWithRiskOfBugs() => _modList;
 }
 
 public static class ModListExtensions

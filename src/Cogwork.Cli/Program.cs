@@ -154,62 +154,71 @@ static class Program
                     CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
                 };
                 profileSelect.Arguments.Add(profileSelectArgument);
-                profileSelect.Validators.Add(result =>
-                {
-                    Game? game;
-                    if (result.GetValue(optionGameOverride) is { } overrideGame)
-                    {
-                        if (!result.TryGetGame(overrideGame, out game))
-                            return;
-                    }
-                    else if (!TryGetActiveGame(result, out game))
-                        return;
-
-                    AnsiConsole.MarkupLineInterpolated(
-                        CultureInfo.InvariantCulture,
-                        $"Performing for game: [purple]{game.Name}[/]"
-                    );
-
-                    var profiles = game.GetProfiles().Select(x => x.profile).ToArray();
-                    LazyModList selected;
-
-                    if (result.GetValue(profileSelectArgument) is { } argument)
-                    {
-                        selected = profiles.FirstOrDefault(x =>
-                            x.DisambiguatedDisplayName == argument
-                        );
-                        if (selected == default)
+                profileSelect.Validators.Add(
+                    (Action<CommandResult>)(
+                        result =>
                         {
-                            var names = profiles.Select(x => x.DisambiguatedDisplayName).ToArray();
-                            if (!TryVeryFuzzySearch(result, argument, names, out var name))
+                            Game? game;
+                            if (result.GetValue(optionGameOverride) is { } overrideGame)
+                            {
+                                if (!result.TryGetGame(overrideGame, out game))
+                                    return;
+                            }
+                            else if (!TryGetActiveGame(result, out game))
                                 return;
 
-                            selected = profiles.First(x => x.DisambiguatedDisplayName == name);
+                            AnsiConsole.MarkupLineInterpolated(
+                                CultureInfo.InvariantCulture,
+                                $"Performing for game: [purple]{game.Name}[/]"
+                            );
+
+                            var profiles = game.GetProfiles().Select(x => x.profile).ToArray();
+                            LazyModList? selected;
+
+                            if (result.GetValue(profileSelectArgument) is { } argument)
+                            {
+                                selected = profiles.FirstOrDefault(x =>
+                                    x.DisambiguatedDisplayName == argument
+                                );
+                                if (selected == default)
+                                {
+                                    var names = profiles
+                                        .Select(x => x.DisambiguatedDisplayName)
+                                        .ToArray();
+                                    if (!TryVeryFuzzySearch(result, argument, names, out var name))
+                                        return;
+
+                                    selected = profiles.First(x =>
+                                        x.DisambiguatedDisplayName == name
+                                    );
+                                }
+                            }
+                            else
+                            {
+                                var choice = AnsiConsole.Prompt(
+                                    new SelectionPrompt<string>()
+                                        .Title("Select a [green]profile[/]:")
+                                        .AddChoices(
+                                            profiles.Select(x => x.DisambiguatedDisplayName)
+                                        )
+                                );
+
+                                selected = profiles.First(x =>
+                                    x.DisambiguatedDisplayName == choice
+                                );
+                            }
+
+                            game.Config.ActiveProfile = selected;
+                            game.Config.Save(game.GameConfigLocation, JsonGen.Default.GameConfig);
+
+                            Cog.Debug($"selected {selected.DisambiguatedDisplayName}");
+                            AnsiConsole.MarkupLineInterpolated(
+                                CultureInfo.InvariantCulture,
+                                $"Selected profile: [blue]{selected.DisambiguatedDisplayName}[/]"
+                            );
                         }
-                    }
-                    else
-                    {
-                        var choice = AnsiConsole.Prompt(
-                            new SelectionPrompt<string>()
-                                .Title("Select a [green]profile[/]:")
-                                .AddChoices(profiles.Select(x => x.DisambiguatedDisplayName))
-                        );
-
-                        selected = profiles.First(x => x.DisambiguatedDisplayName == choice);
-                    }
-
-                    game.Config.ActiveProfile = selected;
-                    game.Config.Save(
-                        game.GameConfigLocation,
-                        SourceGenerationContext.Default.GameConfig
-                    );
-
-                    Cog.Debug($"selected {selected.DisambiguatedDisplayName}");
-                    AnsiConsole.MarkupLineInterpolated(
-                        CultureInfo.InvariantCulture,
-                        $"Selected profile: [blue]{selected.DisambiguatedDisplayName}[/]"
-                    );
-                });
+                    )
+                );
             }
 
             Command profileList = new("list", "List all your profiles for the active game");
@@ -428,14 +437,21 @@ static class Program
                 if (!TryGetActiveGameAndProfile(result, out _, out var lazyProfile))
                     return;
 
-                var profile = lazyProfile.GetAndBypassLoadWithRiskOfBugs();
+                if (lazyProfile.ResolvedAdded is null || lazyProfile.ResolvedDependencies is null)
+                {
+                    _ = lazyProfile.LoadAsync().Result;
+                }
 
                 AnsiConsole.MarkupLine($"[gray][[Context]][/]");
                 PrintGameAndProfile(hideModListHelp: true);
 
                 AnsiConsole.MarkupLine($"\n[blue][[Added Mods]][/]");
 
-                foreach (var added in profile.Config.AddedPackages)
+                foreach (
+                    var added in lazyProfile
+                        .ResolvedAdded!.AsValueEnumerable()
+                        .Select(x => new VisualPackageVersion(x))
+                )
                 {
                     AnsiConsole.MarkupLineInterpolated(
                         CultureInfo.InvariantCulture,
@@ -445,7 +461,11 @@ static class Program
 
                 AnsiConsole.MarkupLine($"\n[blue][[Dependencies of Added Mods]][/]");
 
-                foreach (var added in profile.Config.DependencyPackages)
+                foreach (
+                    var added in lazyProfile
+                        .ResolvedDependencies!.AsValueEnumerable()
+                        .Select(x => new VisualPackageVersion(x))
+                )
                 {
                     AnsiConsole.MarkupLineInterpolated(
                         CultureInfo.InvariantCulture,
@@ -651,9 +671,12 @@ static class Program
 
         if (activeProfile is { } profile)
         {
-            var modList = profile.GetAndBypassLoadWithRiskOfBugs();
-            var added = modList.Config.AddedPackages.Count();
-            var deps = modList.Config.DependencyPackages.Count();
+            if (profile.ResolvedAdded is null || profile.ResolvedDependencies is null)
+            {
+                _ = profile.LoadAsync().Result;
+            }
+            var added = profile.ResolvedAdded!.Count;
+            var deps = profile.ResolvedDependencies!.Count;
             AnsiConsole.MarkupInterpolated(
                 CultureInfo.InvariantCulture,
                 $"""
@@ -689,7 +712,7 @@ static class Program
     private static bool TryGetActiveGameAndProfile(
         CommandResult result,
         [NotNullWhen(true)] out Game? game,
-        out LazyModList profile
+        [NotNullWhen(true)] out LazyModList? profile
     )
     {
         profile = default;
@@ -722,7 +745,7 @@ static class Program
     private static bool TryGetActiveProfile(
         this SymbolResult result,
         Game game,
-        out LazyModList profile
+        [NotNullWhen(true)] out LazyModList? profile
     )
     {
         if (game.Config.ActiveProfile is not { } activeProfile)
@@ -784,16 +807,8 @@ static class Program
         Game.GlobalConfig.ActiveGame = selectedGame;
         if (!selectedGame.EnumerateProfiles().Any())
         {
-            selectedGame.Config.ActiveProfile = ModList.Create(
-                selectedGame,
-                "Default",
-                new(selectedGame.DefaultSource)
-            );
-
-            selectedGame.Config.Save(
-                selectedGame.GameConfigLocation,
-                SourceGenerationContext.Default.GameConfig
-            );
+            selectedGame.Config.ActiveProfile = ModList.CreateNew(selectedGame, "Default");
+            selectedGame.Config.Save(selectedGame.GameConfigLocation, JsonGen.Default.GameConfig);
         }
         return;
     }
