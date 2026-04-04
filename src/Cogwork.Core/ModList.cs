@@ -421,19 +421,14 @@ public sealed class ModList
         Add(Added.Keys.Select(x => x.Latest));
     }
 
-    public async Task<bool> InstallPackage(
-        PackageVersion packageVersion,
-        CancellationToken cancellationToken = default
-    )
+    public async Task<bool> InstallPackages(CancellationToken cancellationToken = default)
     {
-        var path = await packageVersion.ExtractAsync(cancellationToken);
-        if (path is null)
+        var installRules = _lazy.Game.InstallRules;
+        foreach (var package in AllPackages)
         {
-            Cog.Error($"Cannot install package which is not downloaded: '{packageVersion}'");
-            return false;
+            var files = CogworkPaths.GetProfileFilesDirectory(_lazy);
+            _ = installRules.InstallPackage(package.Value, files, cancellationToken);
         }
-
-        // TODO: Implement.
         return true;
     }
 

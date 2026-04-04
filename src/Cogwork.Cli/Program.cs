@@ -636,17 +636,7 @@ static class Program
                     return;
 
                 var profile = lazyProfile.LoadAsync().Result;
-                Parallel.ForEach(
-                    profile.AllPackages,
-                    x =>
-                    {
-                        var packageVersion = x.Value;
-                        if (packageVersion.IsDownloaded())
-                        {
-                            _ = packageVersion.ExtractAsync().Result;
-                        }
-                    }
-                );
+                _ = profile.InstallPackages().Result;
             });
         }
         AddOptionRecursive(mods, optionGameOverride);

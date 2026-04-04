@@ -369,7 +369,13 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
 public interface IModInstallRules
 {
+    string InstallRootDirectory { get; }
     bool Map(Package package, string directoryPath, string outputPath);
+    public Task<bool> InstallPackage(
+        PackageVersion packageVersion,
+        string profileFilesDirectory,
+        CancellationToken cancellationToken = default
+    );
 }
 
 public sealed class BepInExModInstallRules : IModInstallRules
@@ -381,16 +387,19 @@ public sealed class BepInExModInstallRules : IModInstallRules
         StringComparer.OrdinalIgnoreCase
     );
     const string defaultDir = "plugins";
+    public string InstallRootDirectory { get; } = "BepInEx";
+
+    static bool IsBepInExPackage(Package package) =>
+        package.Author == "BepInEx"
+        && package.Name.StartsWith("BepInExPack", StringComparison.InvariantCultureIgnoreCase);
 
     public bool Map(Package package, string directoryPath, string outputPath)
     {
         // TODO: Use proper detection of BepInEx package for a Thunderstore community.
-        if (
-            package.Author == "BepInEx"
-            && package.Name.StartsWith("BepInExPack", StringComparison.InvariantCultureIgnoreCase)
-        )
+        if (IsBepInExPackage(package))
         {
-            Directory.Move(directoryPath, outputPath);
+            FlattenUntilWinhttp(directoryPath, outputPath, foundWinhttpDll: false);
+            Directory.Delete(directoryPath, recursive: true);
             return true;
         }
 
@@ -398,6 +407,34 @@ public sealed class BepInExModInstallRules : IModInstallRules
         MapRecursive(package, directoryPath, outputPath);
         Directory.Delete(directoryPath, recursive: true);
         return true;
+    }
+
+    private static void FlattenUntilWinhttp(
+        string directoryPath,
+        string outputPath,
+        bool foundWinhttpDll
+    )
+    {
+        Directory.CreateDirectory(outputPath);
+
+        foreach (var fileDir in Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
+        {
+            var fileName = Path.GetFileName(fileDir);
+            File.Move(fileDir, Path.Combine(outputPath, fileName));
+
+            if (fileName == "winhttp.dll")
+                foundWinhttpDll = true;
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
+        {
+            var dirName = Path.GetFileName(dir);
+
+            if (foundWinhttpDll)
+                FlattenUntilWinhttp(dir, Path.Combine(outputPath, dirName), foundWinhttpDll);
+            else
+                FlattenUntilWinhttp(dir, outputPath, foundWinhttpDll);
+        }
     }
 
     private static void MapRecursive(Package package, string directoryPath, string outputPath)
@@ -462,6 +499,50 @@ public sealed class BepInExModInstallRules : IModInstallRules
         }
 
         Directory.Delete(sourceDirName);
+    }
+
+    public async Task<bool> InstallPackage(
+        PackageVersion packageVersion,
+        string profileFilesDirectory,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var path = await packageVersion.ExtractAsync(cancellationToken);
+        if (path is null)
+        {
+            Cog.Error($"Cannot install package which is not downloaded: '{packageVersion}'");
+            return false;
+        }
+
+        string installRoot;
+        if (IsBepInExPackage(packageVersion.Package))
+            installRoot = profileFilesDirectory;
+        else
+            installRoot = Path.Combine(profileFilesDirectory, "BepInEx");
+
+        Directory.CreateDirectory(installRoot);
+        CopyDirectory(path, installRoot);
+
+        return true;
+    }
+
+    static void CopyDirectory(string sourceDirName, string destDirName)
+    {
+        foreach (var file in Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
+        {
+            var fileName = Path.GetFileName(file);
+            // TODO: Do not overwrite without confirmation.
+            // This will overwrite config files if packages ship them.
+            File.Copy(file, Path.Combine(destDirName, fileName), overwrite: true);
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
+        {
+            var dirName = Path.GetFileName(dir);
+            var newDir = Path.Combine(destDirName, dirName);
+            Directory.CreateDirectory(newDir);
+            CopyDirectory(dir, newDir);
+        }
     }
 }
 

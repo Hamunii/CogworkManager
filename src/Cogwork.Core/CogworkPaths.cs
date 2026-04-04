@@ -36,6 +36,9 @@ public static class CogworkPaths
     public static string GetProfilesSubDirectory(Game game, string subDirectory) =>
         CombineAndCreate(GetProfilesDirectory(game), subDirectory);
 
+    public static string GetProfileFilesDirectory(LazyModList modList) =>
+        CombineAndCreate(GetProfilesDirectory(modList.Game), modList.Id, "files");
+
     static string CombineAndCreate(params ReadOnlySpan<string> paths)
     {
         var path = Path.Combine(paths);
