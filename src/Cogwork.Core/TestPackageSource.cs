@@ -7,11 +7,11 @@ namespace Cogwork.Core;
 internal class TestPackageSource : IPackageSourceService
 {
     public string PackageIndexDirectory =>
-        field ??= CogworkPaths.GetCacheSubDirectory(Game.Slug, "test");
+        field ??= CogworkPaths.GetCacheIndexSubDirectory(Game.Slug, "test");
 
     public string PackageIndexCacheLocation =>
         field ??= Path.Combine(
-            CogworkPaths.GetCacheSubDirectory(Game.Slug),
+            CogworkPaths.GetCacheIndexSubDirectory(Game.Slug),
             $"test-index-cache.json"
         );
 
@@ -33,7 +33,7 @@ internal class TestPackageSource : IPackageSourceService
     {
         Cog.Information("[Test] Fetching: " + Uri);
 
-        var totalBytes = 14_000_000;
+        var totalBytes = 1024 * 1024;
         await SimulateDownloadAsync(totalBytes, progress);
 
         using var fileStream = new FileStream(

@@ -12,8 +12,11 @@ public static class CogworkPaths
     public static string GetCacheSubDirectory(string subDirectory) =>
         CombineAndCreate(CacheDirectory, subDirectory);
 
-    public static string GetCacheSubDirectory(string subDirectory1, string subDirectory2) =>
-        CombineAndCreate(CacheDirectory, subDirectory1, subDirectory2);
+    public static string GetCacheIndexSubDirectory(string subDirectory) =>
+        CombineAndCreate(CacheDirectory, "index", subDirectory);
+
+    public static string GetCacheIndexSubDirectory(string subDirectory1, string subDirectory2) =>
+        CombineAndCreate(CacheDirectory, "index", subDirectory1, subDirectory2);
 
     public static string GetDataSubDirectory(string subDirectory) =>
         CombineAndCreate(DataDirectory, subDirectory);
@@ -33,7 +36,7 @@ public static class CogworkPaths
     public static string GetProfilesSubDirectory(Game game, string subDirectory) =>
         CombineAndCreate(GetProfilesDirectory(game), subDirectory);
 
-    static string CombineAndCreate(params string[] paths)
+    static string CombineAndCreate(params ReadOnlySpan<string> paths)
     {
         var path = Path.Combine(paths);
         _ = Directory.CreateDirectory(path);

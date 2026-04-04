@@ -1,17 +1,12 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using static Cogwork.Core.ModList;
 
 namespace Cogwork.Core;
 
 public interface ISaveWithJson;
-
-public interface ISaveWithJson<T> : ISaveWithJson
-{
-    public JsonTypeInfo<T> JsonTypeInfo { get; }
-}
 
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Metadata,
@@ -30,13 +25,15 @@ public partial class JsonGen : JsonSerializerContext { }
 public static class ISaveWithJsonExtensions
 {
     extension<T>(T self)
-        where T : ISaveWithJson<T>, new()
-    {
-        public void Save(string fileLocation) => Save(self, fileLocation, self.JsonTypeInfo);
-    }
-    extension<T>(T self)
         where T : ISaveWithJson, new()
     {
+        public void Save(string fileLocation)
+        {
+            var typeInfo = JsonGen.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>;
+            Debug.Assert(typeInfo is { });
+            Save(self, fileLocation, typeInfo);
+        }
+
         public void Save(string fileLocation, JsonTypeInfo<T> typeInfo)
         {
             var serialized = JsonSerializer.Serialize(self, typeInfo);
@@ -46,6 +43,13 @@ public static class ISaveWithJsonExtensions
 
         // I don't care and this doesn't even apply here
 #pragma warning disable CA1000 // Do not declare static members on generic types
+        public static T LoadSavedDataOrNew(string filePath)
+        {
+            var typeInfo = JsonGen.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>;
+            Debug.Assert(typeInfo is { });
+            return LoadSavedDataOrNew(filePath, typeInfo, out _);
+        }
+
         public static T LoadSavedDataOrNew(string filePath, JsonTypeInfo<T> typeInfo) =>
             LoadSavedDataOrNew(filePath, typeInfo, out _);
 

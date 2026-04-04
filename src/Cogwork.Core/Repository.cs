@@ -89,7 +89,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 {
     [JsonIgnore]
     public string PackageIndexDirectory =>
-        field ??= CogworkPaths.GetCacheSubDirectory(game.Slug, "thunderstore");
+        field ??= CogworkPaths.GetCacheIndexSubDirectory(game.Slug, "thunderstore");
 
     public string PackageInstallSubDirectory { get; } = "thunderstore";
 
@@ -99,7 +99,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
     public string PackageIndexCacheLocation =>
         field ??= Path.Combine(
-            CogworkPaths.GetCacheSubDirectory(game.Slug),
+            CogworkPaths.GetCacheIndexSubDirectory(game.Slug),
             $"thunderstore-index-cache.json"
         );
 

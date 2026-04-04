@@ -14,20 +14,12 @@ public readonly record struct ModListData(
     string? DisplayName,
     IEnumerable<ServiceUri>? Sources,
     IEnumerable<string>? PackageIds
-) : ISaveWithJson<ModListData>
-{
-    [JsonIgnore]
-    public JsonTypeInfo<ModListData> JsonTypeInfo => JsonGen.Default.ModListData;
-}
+) : ISaveWithJson;
 
 public readonly record struct ModListLockFile(
     IEnumerable<KeyValuePair<string, PackageVersionNumber>>? ResolvedAdded,
     IEnumerable<KeyValuePair<string, PackageVersionNumber>>? ResolvedDependencies
-) : ISaveWithJson<ModListLockFile>
-{
-    [JsonIgnore]
-    public JsonTypeInfo<ModListLockFile> JsonTypeInfo => JsonGen.Default.ModListLockFile;
-}
+) : ISaveWithJson;
 
 public sealed class LazyModList
 {
