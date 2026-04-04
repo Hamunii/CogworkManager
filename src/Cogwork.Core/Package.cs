@@ -27,7 +27,7 @@ public readonly record struct VisualPackageVersion
 
         if (split.MoveNext())
         {
-            Source = packageId[split.Current];
+            Source = packageId[split.Current.Start..];
         }
     }
 
@@ -333,6 +333,9 @@ public sealed record PackageVersion
     }
 
     public bool IsDownloaded() => Package.Source.Service.IsPackageDownloaded(this);
+
+    public Task<string?> ExtractAsync(CancellationToken cancellationToken = default) =>
+        Package.Source.Service.ExtractAsync(this, cancellationToken);
 
     void CollectDependencies(HashSet<PackageVersion> actualDependencies)
     {

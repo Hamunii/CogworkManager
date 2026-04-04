@@ -626,6 +626,28 @@ static class Program
                     AnsiConsole.MarkupLine("[green]Everything is already up-to-date[/]");
                 }
             });
+
+            // For testing mostly, functionality is temporary
+            Command modsSync = new("sync", "Sync mods on a profile");
+            mods.Subcommands.Add(modsSync);
+            modsSync.Validators.Add(result =>
+            {
+                if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
+                    return;
+
+                var profile = lazyProfile.LoadAsync().Result;
+                Parallel.ForEach(
+                    profile.AllPackages,
+                    x =>
+                    {
+                        var packageVersion = x.Value;
+                        if (packageVersion.IsDownloaded())
+                        {
+                            _ = packageVersion.ExtractAsync().Result;
+                        }
+                    }
+                );
+            });
         }
         AddOptionRecursive(mods, optionGameOverride);
         AddOptionRecursive(mods, optionProfileOverride);

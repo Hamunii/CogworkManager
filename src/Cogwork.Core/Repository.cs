@@ -75,6 +75,11 @@ public interface IPackageSourceService
 
     public bool IsPackageDownloaded(PackageVersion packageVersion);
 
+    public Task<string?> ExtractAsync(
+        PackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    );
+
     public Task<bool> DownloadPackageAsync(
         PackageVersion packageVersion,
         ProgressContext progress = default,
@@ -246,9 +251,14 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
     }
 
     public bool IsPackageDownloaded(PackageVersion packageVersion) =>
-        IsPackageDownloaded(packageVersion, out _);
+        IsPackageDownloaded(packageVersion, out _, out _, out _);
 
-    public bool IsPackageDownloaded(PackageVersion packageVersion, out string zipFileLocation)
+    bool IsPackageDownloaded(
+        PackageVersion packageVersion,
+        out string zipFileLocation,
+        out string directoryPath,
+        out bool zipExists
+    )
     {
         var package = packageVersion.Package;
         var version = packageVersion.Version.ToString();
@@ -258,7 +268,11 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         );
 
         zipFileLocation = Path.Combine(installPathRoot, $"{version}.zip");
-        return File.Exists(zipFileLocation);
+        directoryPath = Path.Combine(installPathRoot, version, "files");
+
+        var dirExists = Directory.Exists(directoryPath);
+        zipExists = File.Exists(zipFileLocation);
+        return dirExists || zipExists;
     }
 
     public async Task<bool> DownloadPackageAsync(
@@ -267,7 +281,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         CancellationToken cancellationToken = default
     )
     {
-        if (IsPackageDownloaded(packageVersion, out var zipFileLocation))
+        if (IsPackageDownloaded(packageVersion, out string? zipFileLocation, out _, out _))
         {
             Cog.Debug($"Package is already downloaded for '{packageVersion}'");
             return true;
@@ -307,6 +321,147 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
         Cog.Debug($"Download complete for: {downloadUrl}");
         return true;
+    }
+
+    public async Task<string?> ExtractAsync(
+        PackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (
+            !IsPackageDownloaded(
+                packageVersion,
+                out var zipPath,
+                out var directoryPath,
+                out var zipExists
+            )
+        )
+        {
+            Cog.Error($"Cannot extract package which is not downloaded: '{packageVersion}'");
+            return null;
+        }
+
+        if (zipExists is false)
+        {
+            // already extracted
+            return directoryPath;
+        }
+
+        var tempDirPath = directoryPath + ".temp";
+
+        if (Directory.Exists(directoryPath))
+            Directory.Delete(directoryPath, recursive: true);
+
+        if (Directory.Exists(tempDirPath))
+            Directory.Delete(tempDirPath, recursive: true);
+
+        {
+            using FileStream fileStream = File.Open(zipPath, FileMode.Open);
+            await ZipFile.ExtractToDirectoryAsync(fileStream, tempDirPath, cancellationToken);
+        }
+
+        Game.InstallRules.Map(packageVersion.Package, tempDirPath, directoryPath);
+
+        File.Delete(zipPath);
+        return directoryPath;
+    }
+}
+
+public interface IModInstallRules
+{
+    bool Map(Package package, string directoryPath, string outputPath);
+}
+
+public sealed class BepInExModInstallRules : IModInstallRules
+{
+    // https://github.com/ebkr/r2modmanPlus/wiki/Structuring-your-Thunderstore-package
+    static readonly HashSet<string> dirToDir = new(["config"], StringComparer.OrdinalIgnoreCase);
+    static readonly HashSet<string> dirToDirPlusPackageName = new(
+        ["core", "patchers", "plugins", "monomod"],
+        StringComparer.OrdinalIgnoreCase
+    );
+    const string defaultDir = "plugins";
+
+    public bool Map(Package package, string directoryPath, string outputPath)
+    {
+        // TODO: Use proper detection of BepInEx package for a Thunderstore community.
+        if (
+            package.Author == "BepInEx"
+            && package.Name.StartsWith("BepInExPack", StringComparison.InvariantCultureIgnoreCase)
+        )
+        {
+            Directory.Move(directoryPath, outputPath);
+            return true;
+        }
+
+        Directory.CreateDirectory(Path.Combine(outputPath, defaultDir, package.FullName));
+        MapRecursive(package, directoryPath, outputPath);
+        Directory.Delete(directoryPath, recursive: true);
+        return true;
+    }
+
+    private static void MapRecursive(Package package, string directoryPath, string outputPath)
+    {
+        foreach (var dirPath in Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
+        {
+            var dirName = Path.GetFileName(dirPath).ToLowerInvariant();
+
+            if (dirToDirPlusPackageName.Contains(dirName))
+            {
+                var mapped = Path.Combine(outputPath, dirName);
+                var mapped2 = Path.Combine(mapped, package.FullName);
+                Directory.CreateDirectory(mapped);
+                MoveOrMerge(dirPath, mapped2);
+                continue;
+            }
+
+            if (dirToDir.Contains(dirName))
+            {
+                var mapped = Path.Combine(outputPath, dirName);
+                MoveOrMerge(dirPath, mapped);
+                continue;
+            }
+
+            MapRecursive(package, dirPath, outputPath);
+        }
+
+        // Flatten the rest.
+        foreach (var fileDir in Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
+        {
+            var fileName = Path.GetFileName(fileDir);
+
+            string dest;
+            // Special cases
+            if (fileName.EndsWith(".mm.dll", StringComparison.OrdinalIgnoreCase))
+                dest = Path.Combine(outputPath, "monomod", package.FullName, fileName);
+            else
+                dest = Path.Combine(outputPath, defaultDir, package.FullName, fileName);
+
+            File.Move(fileDir, dest);
+        }
+    }
+
+    static void MoveOrMerge(string sourceDirName, string destDirName)
+    {
+        if (!Directory.Exists(destDirName))
+        {
+            Directory.Move(sourceDirName, destDirName);
+            return;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
+        {
+            var fileName = Path.GetFileName(file);
+            File.Move(file, Path.Combine(destDirName, fileName));
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
+        {
+            var dirName = Path.GetFileName(dir);
+            MoveOrMerge(dir, Path.Combine(destDirName, dirName));
+        }
+
+        Directory.Delete(sourceDirName);
     }
 }
 
@@ -541,29 +696,46 @@ public sealed class PackageSource
         public string GameConfigLocation =>
             field ??= Path.Combine(CogworkPaths.GetGamesSubDirectory(this), "config.json");
 
+        public IModInstallRules InstallRules { get; }
         public PackageSource? DefaultSource { get; }
 
-        internal Game(string name, string slug, PackageSource? defaultSource = null)
+        internal Game(
+            string name,
+            string slug,
+            IModInstallRules installRules,
+            PackageSource? defaultSource = null
+        )
         {
             Name = name;
             Slug = slug;
+            InstallRules = installRules;
             DefaultSource = defaultSource ?? new(new ThunderstoreCommunity(this));
         }
 
         public static Game Silksong { get; } =
-            new("Hollow Knight: Silksong", "hollow-knight-silksong")
+            new("Hollow Knight: Silksong", "hollow-knight-silksong", new BepInExModInstallRules())
             {
                 Platforms = new() { Steam = new() { Id = 1030300 } },
             };
 
         public static Game LethalCompany { get; } =
-            new("Lethal Company", "lethal-company") { Platforms = new() };
+            new("Lethal Company", "lethal-company", new BepInExModInstallRules())
+            {
+                Platforms = new(),
+            };
 
-        public static Game Repo { get; } = new("R.E.P.O.", "repo") { Platforms = new() };
+        public static Game Repo { get; } =
+            new("R.E.P.O.", "repo", new BepInExModInstallRules()) { Platforms = new() };
         public static Game Test { get; } =
-            new("Test", "test", new(new TestPackageSource())) { Platforms = new() };
+            new("Test", "test", new BepInExModInstallRules(), new(new TestPackageSource()))
+            {
+                Platforms = new(),
+            };
         public static Game Ror2 { get; } =
-            new("Risk of Rain 2", "risk-of-rain-2") { Platforms = new() };
+            new("Risk of Rain 2", "risk-of-rain-2", new BepInExModInstallRules())
+            {
+                Platforms = new(),
+            };
 
         public static List<Game> SupportedGames { get; } =
         [

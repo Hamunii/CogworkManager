@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -84,14 +85,22 @@ public sealed class LazyModList
         Id = profileId;
         AddedPackageIds = addedPackageIds ?? [];
 
+        Cog.Verbose("Resolved packages:");
+
         if (lockFile.ResolvedAdded is { } resolvedAdded)
         {
             ResolvedAdded = new(resolvedAdded);
+
+            foreach (var dep in ResolvedAdded.Select(x => new VisualPackageVersion(x)))
+                Cog.Verbose(dep.ToString());
         }
 
         if (lockFile.ResolvedDependencies is { } resolvedDependencies)
         {
             ResolvedDependencies = new(resolvedDependencies);
+
+            foreach (var dep in ResolvedDependencies.Select(x => new VisualPackageVersion(x)))
+                Cog.Verbose(dep.ToString());
         }
 
         lock (ModList.idToModListLock)
@@ -192,6 +201,23 @@ public sealed class ModList
             else
             {
                 LostPackageIds.Add(packageId);
+            }
+        }
+
+        if (_lazy.ResolvedDependencies is { } resolvedDependencies)
+        {
+            foreach (var package in resolvedDependencies)
+            {
+                if (
+                    Package.TryGetPackageVersion(
+                        _lazy.SourceIndex,
+                        new VisualPackageVersion(package).ToString(),
+                        out var packageVersion
+                    )
+                )
+                {
+                    Dependencies.Add(packageVersion.Package, packageVersion);
+                }
             }
         }
 
@@ -393,6 +419,22 @@ public sealed class ModList
             Dependencies[dependency.Key] = dependency.Key.Latest;
         }
         Add(Added.Keys.Select(x => x.Latest));
+    }
+
+    public async Task<bool> InstallPackage(
+        PackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var path = await packageVersion.ExtractAsync(cancellationToken);
+        if (path is null)
+        {
+            Cog.Error($"Cannot install package which is not downloaded: '{packageVersion}'");
+            return false;
+        }
+
+        // TODO: Implement.
+        return true;
     }
 
     public override string ToString()

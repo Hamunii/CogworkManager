@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Text;
 using Cogwork.Core.Extensions;
@@ -52,9 +53,14 @@ internal class TestPackageSource : IPackageSourceService
     }
 
     public bool IsPackageDownloaded(PackageVersion packageVersion) =>
-        IsPackageDownloaded(packageVersion, out _);
+        IsPackageDownloaded(packageVersion, out _, out _, out _);
 
-    public bool IsPackageDownloaded(PackageVersion packageVersion, out string zipFileLocation)
+    public bool IsPackageDownloaded(
+        PackageVersion packageVersion,
+        out string zipFileLocation,
+        out string directoryPath,
+        out bool zipExists
+    )
     {
         var package = packageVersion.Package;
         var version = packageVersion.Version.ToString();
@@ -64,7 +70,11 @@ internal class TestPackageSource : IPackageSourceService
         );
 
         zipFileLocation = Path.Combine(installPathRoot, $"{version}.zip");
-        return File.Exists(zipFileLocation);
+        directoryPath = Path.Combine(installPathRoot, version, "files");
+
+        var dirExists = Directory.Exists(directoryPath);
+        zipExists = File.Exists(zipFileLocation);
+        return dirExists || zipExists;
     }
 
     public async Task<bool> DownloadPackageAsync(
@@ -73,7 +83,7 @@ internal class TestPackageSource : IPackageSourceService
         CancellationToken cancellationToken = default
     )
     {
-        if (IsPackageDownloaded(packageVersion, out var zipFileLocation))
+        if (IsPackageDownloaded(packageVersion, out var zipFileLocation, out _, out _))
         {
             Cog.Debug($"[Test] Package is already downloaded for '{packageVersion}'");
             return true;
@@ -89,10 +99,7 @@ internal class TestPackageSource : IPackageSourceService
             FileAccess.Write,
             FileShare.None
         );
-        // using GZipStream gZip = new(fileStream, CompressionMode.Compress);
-        // using var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(jsonTestData));
-        // await memoryStream.CopyToAsync(gZip, cancellationToken);
-        // await gZip.CopyToAsync(fileStream, cancellationToken);
+
         using ZipArchive zip = new(fileStream, ZipArchiveMode.Create);
         {
             var entry = zip.CreateEntry("file.txt");
@@ -124,6 +131,45 @@ internal class TestPackageSource : IPackageSourceService
 
             progress.Progress?.Report(readBytes);
         }
+    }
+
+    public async Task<string?> ExtractAsync(
+        PackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (
+            !IsPackageDownloaded(
+                packageVersion,
+                out var zipPath,
+                out var directoryPath,
+                out var zipExists
+            )
+        )
+        {
+            Cog.Error($"Cannot extract package which is not downloaded: '{packageVersion}'");
+            return null;
+        }
+
+        if (zipExists is false)
+        {
+            // already extracted
+            return directoryPath;
+        }
+
+        var tempDirPath = directoryPath + ".temp";
+        File.Delete(directoryPath);
+        File.Delete(tempDirPath);
+
+        {
+            using FileStream fileStream = File.Open(zipPath, FileMode.Open);
+            await ZipFile.ExtractToDirectoryAsync(fileStream, tempDirPath, cancellationToken);
+        }
+
+        Game.InstallRules.Map(packageVersion.Package, tempDirPath, directoryPath);
+
+        File.Delete(zipPath);
+        return directoryPath;
     }
 
     static readonly string jsonTestData = """
