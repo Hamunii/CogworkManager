@@ -35,6 +35,242 @@ public readonly record struct VisualPackageVersion
         Source is { } ? $"{FullName}-{Version}-{Source}" : $"{FullName}-{Version}";
 }
 
+[JsonConverter(typeof(VersionRangeConverter))]
+public readonly record struct VersionRange
+{
+    [Flags]
+    public enum Kind
+    {
+        Default = 0,
+        MinExclusive = 1 << 1,
+        MaxExclusive = 1 << 2,
+    }
+
+    public PackageVersionNumber MinVersion { get; }
+    public PackageVersionNumber MaxVersion { get; }
+    public Kind RangeKind { get; }
+
+    public VersionRange(
+        PackageVersionNumber minVersion,
+        PackageVersionNumber maxVersion,
+        Kind rangeKind
+    )
+    {
+        RangeKind = rangeKind;
+        MinVersion = minVersion;
+        MaxVersion = maxVersion;
+
+        if ((rangeKind & Kind.MinExclusive) is not Kind.Default)
+            MinVersion = MinVersion.GetClosestHigherVersion();
+
+        if ((rangeKind & Kind.MaxExclusive) is not Kind.Default)
+            MaxVersion = MaxVersion.GetClosestLesserVersion();
+
+        Cog.Warning($"New VersionRange: {this}");
+    }
+
+    public readonly bool IsInRange(PackageVersionNumber versionNumber) =>
+        versionNumber.IsHigherThanOrEqual(MinVersion)
+        && versionNumber.IsLessThanOrEqual(MaxVersion);
+
+    // https://learn.microsoft.com/en-us/nuget/concepts/package-versioning?tabs=semver20sort#version-ranges
+    public static VersionRange ParseRange(scoped ReadOnlySpan<char> rangeSyntax)
+    {
+        var split = rangeSyntax.Split(',');
+
+        split.MoveNext();
+        var splitRange = rangeSyntax[split.Current];
+        bool isMinExclusive;
+        switch (splitRange[0])
+        {
+            case '[':
+                isMinExclusive = false;
+                break;
+            case '(':
+                isMinExclusive = true;
+                break;
+            default:
+                return new WildcardVersion(splitRange).ToVersionRange();
+        }
+
+        WildcardVersion wildRangeMin = new(splitRange[1..]);
+
+        if (!split.MoveNext())
+        {
+            throw new InvalidDataException("Incomplete version range syntax.");
+        }
+
+        splitRange = rangeSyntax[split.Current];
+        var isMaxExclusive = splitRange[^1] switch
+        {
+            ']' => false,
+            ')' => true,
+            _ => throw new InvalidDataException(
+                $"Missing closing bracket in version range syntax: '{rangeSyntax}'"
+            ),
+        };
+
+        WildcardVersion wildRangeMax = new(splitRange[..^1]);
+
+        var rangeMin = wildRangeMin.ToVersionRange().MinVersion;
+        var rangeMax = wildRangeMax.ToVersionRange().MaxVersion;
+
+        var rangeKind = Kind.Default;
+
+        if (isMinExclusive)
+            rangeKind |= Kind.MinExclusive;
+
+        if (isMaxExclusive)
+            rangeKind |= Kind.MaxExclusive;
+
+        VersionRange range = new(rangeMin, rangeMax, rangeKind);
+        return range;
+    }
+
+    public readonly bool TryResolveVersion(
+        Package package,
+        [NotNullWhen(true)] out PackageVersion? packageVersion
+    )
+    {
+        var versionRange = this;
+
+        packageVersion = package
+            .Versions.AsValueEnumerable()
+            .FirstOrDefault(x => versionRange.IsInRange(x.Version));
+
+        return packageVersion is { };
+    }
+
+    public override string ToString()
+    {
+        StringBuilder sb = new();
+
+        if ((RangeKind & Kind.MinExclusive) is not Kind.Default)
+        {
+            sb.Append('(');
+            var escapedMinVersion = MinVersion.GetClosestLesserVersion();
+            sb.Append(escapedMinVersion.ToStringWithWildcards());
+        }
+        else
+        {
+            sb.Append('[');
+            sb.Append(MinVersion.ToStringWithWildcards());
+        }
+
+        sb.Append(',');
+
+        if ((RangeKind & Kind.MaxExclusive) is not Kind.Default)
+        {
+            var escapedMaxVersion = MaxVersion.GetClosestHigherVersion();
+            sb.Append(escapedMaxVersion.ToStringWithWildcards());
+            sb.Append(')');
+        }
+        else
+        {
+            sb.Append(MaxVersion.ToStringWithWildcards());
+            sb.Append(']');
+        }
+
+        return sb.ToString();
+    }
+}
+
+public readonly record struct WildcardVersion
+{
+    public readonly record struct NumberOrWildcard(long? Number)
+    {
+        public static NumberOrWildcard Wildcard() => new();
+
+        [MemberNotNullWhen(false, nameof(Number))]
+        public bool IsWildcard() => Number is null;
+
+        public Range Expand() => Number is { } value ? new(value) : Range.Full();
+    }
+
+    public readonly record struct Range(long Min, long Max)
+    {
+        public Range(long value)
+            : this(value, value) { }
+
+        public static Range Full() => new(0, long.MaxValue);
+    }
+
+    public NumberOrWildcard Major { get; }
+    public NumberOrWildcard Minor { get; }
+    public NumberOrWildcard Patch { get; }
+
+    public WildcardVersion(NumberOrWildcard major, NumberOrWildcard minor, NumberOrWildcard patch)
+    {
+        Major = major;
+        if (major.IsWildcard())
+        {
+            Minor = NumberOrWildcard.Wildcard();
+            Patch = NumberOrWildcard.Wildcard();
+            return;
+        }
+
+        Minor = minor;
+        if (minor.IsWildcard())
+        {
+            Patch = NumberOrWildcard.Wildcard();
+            return;
+        }
+
+        Patch = patch;
+    }
+
+    public WildcardVersion(scoped ReadOnlySpan<char> version)
+    {
+        var split = version.Split('.');
+
+        if (
+            split.MoveNext()
+            && long.TryParse(version[split.Current], CultureInfo.InvariantCulture, out var major)
+        )
+            Major = new(major);
+        else
+        {
+            Major = NumberOrWildcard.Wildcard();
+            Minor = NumberOrWildcard.Wildcard();
+            Patch = NumberOrWildcard.Wildcard();
+            return;
+        }
+
+        if (
+            split.MoveNext()
+            && long.TryParse(version[split.Current], CultureInfo.InvariantCulture, out var minor)
+        )
+            Minor = new(minor);
+        else
+        {
+            Minor = NumberOrWildcard.Wildcard();
+            Patch = NumberOrWildcard.Wildcard();
+            return;
+        }
+
+        if (
+            split.MoveNext()
+            && long.TryParse(version[split.Current], CultureInfo.InvariantCulture, out var patch)
+        )
+            Patch = new(patch);
+        else
+        {
+            Patch = NumberOrWildcard.Wildcard();
+            return;
+        }
+    }
+
+    public VersionRange ToVersionRange()
+    {
+        var major = Major.Expand();
+        var minor = Minor.Expand();
+        var patch = Patch.Expand();
+        var min = new PackageVersionNumber(major.Min, minor.Min, patch.Min);
+        var max = new PackageVersionNumber(major.Max, minor.Max, patch.Max);
+        return new(min, max, VersionRange.Kind.Default);
+    }
+}
+
 public sealed record Package
 {
     public Author Author { get; }
@@ -412,16 +648,20 @@ public readonly record struct Author(string Name)
 [JsonConverter(typeof(PackageVersionNumberConverter))]
 public readonly record struct PackageVersionNumber
 {
-    public long Major { get; }
-    public long Minor { get; }
-    public long Patch { get; }
-    readonly string _version;
+    public long Major { get; init; }
+    public long Minor { get; init; }
+    public long Patch { get; init; }
 
-    public PackageVersionNumber(string version)
-        : this()
+    public PackageVersionNumber(long major, long minor, long patch)
     {
-        _version = version;
-        var split = version.AsSpan().Split('.');
+        Major = major;
+        Minor = minor;
+        Patch = patch;
+    }
+
+    public PackageVersionNumber(scoped ReadOnlySpan<char> version)
+    {
+        var split = version.Split('.');
         split.MoveNext();
         Major = long.Parse(version[split.Current], CultureInfo.InvariantCulture);
         split.MoveNext();
@@ -450,5 +690,52 @@ public readonly record struct PackageVersionNumber
         return false;
     }
 
-    public override string ToString() => _version;
+    public bool IsHigherThanOrEqual(PackageVersionNumber other)
+    {
+        if (IsHigherThan(other))
+            return true;
+
+        if (Patch >= other.Patch)
+            return true;
+
+        return false;
+    }
+
+    public bool IsLessThanOrEqual(PackageVersionNumber other) => !IsHigherThan(other);
+
+    public PackageVersionNumber GetClosestLesserVersion()
+    {
+        if (Patch > 1)
+            return this with { Patch = Patch - 1 };
+
+        if (Minor > 1)
+            return this with { Minor = Minor - 1, Patch = long.MaxValue };
+
+        if (Major > 1)
+            return this with { Major = Major - 1, Minor = long.MaxValue, Patch = long.MaxValue };
+
+        throw new InvalidDataException($"No valid lesser version for: {this}");
+    }
+
+    public PackageVersionNumber GetClosestHigherVersion()
+    {
+        if (Patch < long.MaxValue)
+            return this with { Patch = Patch + 1 };
+
+        if (Minor < long.MaxValue)
+            return this with { Minor = Minor + 1, Patch = 0 };
+
+        if (Major < long.MaxValue)
+            return this with { Major = Major + 1, Minor = 0, Patch = 0 };
+
+        throw new InvalidDataException($"No valid higher version for: {this}");
+    }
+
+    public override string ToString() => $"{Major}.{Minor}.{Patch}";
+
+    public string ToStringWithWildcards() =>
+        Patch is not long.MaxValue ? $"{Major}.{Minor}.{Patch}"
+        : Minor is not long.MaxValue ? $"{Major}.{Minor}.*"
+        : Major is not long.MaxValue ? $"{Major}.*"
+        : "*";
 }

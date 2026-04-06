@@ -24,3 +24,27 @@ public class PackageVersionNumberConverter : JsonConverter<PackageVersionNumber>
         writer.WriteStringValue(value.ToString());
     }
 }
+
+public class VersionRangeConverter : JsonConverter<VersionRange>
+{
+    public override VersionRange Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    )
+    {
+        var version = reader.GetString();
+        // Cog.Warning("Reading: " + version);
+        return VersionRange.ParseRange(version);
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        VersionRange value,
+        JsonSerializerOptions options
+    )
+    {
+        // Cog.Warning($"Writing: {value}");
+        writer.WriteStringValue(value.ToString());
+    }
+}
