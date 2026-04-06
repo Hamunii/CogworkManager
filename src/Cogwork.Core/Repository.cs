@@ -389,13 +389,17 @@ public sealed class BepInExModInstallRules : IModInstallRules
     const string defaultDir = "plugins";
     public string InstallRootDirectory { get; } = "BepInEx";
 
+    // TODO: Use proper detection of BepInEx package for a Thunderstore community.
     static bool IsBepInExPackage(Package package) =>
-        package.Author == "BepInEx"
-        && package.Name.StartsWith("BepInExPack", StringComparison.InvariantCultureIgnoreCase);
+        package.Name.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase)
+        && package.Author.Name
+            is "BepInEx" // Default
+                or "bbepis" // Risk of Rain 2
+                or " denikson" // Valheim
+    ;
 
     public bool Map(Package package, string directoryPath, string outputPath)
     {
-        // TODO: Use proper detection of BepInEx package for a Thunderstore community.
         if (IsBepInExPackage(package))
         {
             FlattenUntilWinhttp(directoryPath, outputPath, foundWinhttpDll: false);
@@ -470,7 +474,10 @@ public sealed class BepInExModInstallRules : IModInstallRules
             string dest;
             // Special cases
             if (fileName.EndsWith(".mm.dll", StringComparison.OrdinalIgnoreCase))
+            {
                 dest = Path.Combine(outputPath, "monomod", package.FullName, fileName);
+                Directory.CreateDirectory(dest);
+            }
             else
                 dest = Path.Combine(outputPath, defaultDir, package.FullName, fileName);
 
