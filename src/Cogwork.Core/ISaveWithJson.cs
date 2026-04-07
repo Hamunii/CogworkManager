@@ -18,6 +18,7 @@ public interface ISaveWithJson;
 [JsonSerializable(typeof(ModListData))]
 [JsonSerializable(typeof(ModListLockFile))]
 [JsonSerializable(typeof(PackageVersionNumber))]
+[JsonSerializable(typeof(InstalledPackages))]
 [JsonSerializable(typeof(List<Package>))]
 [JsonSerializable(typeof(string[]))]
 public partial class JsonGen : JsonSerializerContext { }
@@ -67,6 +68,13 @@ public static class ISaveWithJsonExtensions
         {
             data = LoadSavedData(filePath, typeInfo, out var existed);
             return existed;
+        }
+
+        public static T? LoadSavedData(string filePath)
+        {
+            var typeInfo = JsonGen.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>;
+            Debug.Assert(typeInfo is { });
+            return LoadSavedData(filePath, typeInfo, out _);
         }
 
         public static T? LoadSavedData(string filePath, JsonTypeInfo<T> typeInfo) =>

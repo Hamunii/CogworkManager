@@ -52,21 +52,20 @@ internal class TestPackageSource : IPackageSourceService
         return true;
     }
 
-    public bool IsPackageDownloaded(PackageVersion packageVersion) =>
+    public bool IsPackageDownloaded(VisualPackageVersion packageVersion) =>
         IsPackageDownloaded(packageVersion, out _, out _, out _);
 
     public bool IsPackageDownloaded(
-        PackageVersion packageVersion,
+        VisualPackageVersion packageVersion,
         out string zipFileLocation,
         out string directoryPath,
         out bool zipExists
     )
     {
-        var package = packageVersion.Package;
         var version = packageVersion.Version.ToString();
         var installPathRoot = CogworkPaths.GetPackagesSubDirectory(
             PackageInstallSubDirectory,
-            package.FullName
+            packageVersion.FullName
         );
 
         zipFileLocation = Path.Combine(installPathRoot, $"{version}.zip");
@@ -83,7 +82,14 @@ internal class TestPackageSource : IPackageSourceService
         CancellationToken cancellationToken = default
     )
     {
-        if (IsPackageDownloaded(packageVersion, out var zipFileLocation, out _, out _))
+        if (
+            IsPackageDownloaded(
+                (VisualPackageVersion)packageVersion,
+                out var zipFileLocation,
+                out _,
+                out _
+            )
+        )
         {
             Cog.Debug($"[Test] Package is already downloaded for '{packageVersion}'");
             return true;
@@ -134,7 +140,7 @@ internal class TestPackageSource : IPackageSourceService
     }
 
     public async Task<string?> ExtractAsync(
-        PackageVersion packageVersion,
+        VisualPackageVersion packageVersion,
         CancellationToken cancellationToken = default
     )
     {
@@ -158,15 +164,16 @@ internal class TestPackageSource : IPackageSourceService
         }
 
         var tempDirPath = directoryPath + ".temp";
-        File.Delete(directoryPath);
-        File.Delete(tempDirPath);
 
+        if (Directory.Exists(directoryPath))
+            Directory.Delete(directoryPath, recursive: true);
+
+        if (Directory.Exists(tempDirPath))
+            Directory.Delete(tempDirPath, recursive: true);
         {
             using FileStream fileStream = File.Open(zipPath, FileMode.Open);
-            await ZipFile.ExtractToDirectoryAsync(fileStream, tempDirPath, cancellationToken);
+            await ZipFile.ExtractToDirectoryAsync(fileStream, directoryPath, cancellationToken);
         }
-
-        Game.InstallRules.Map(packageVersion.Package, tempDirPath, directoryPath);
 
         File.Delete(zipPath);
         return directoryPath;

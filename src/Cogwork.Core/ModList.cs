@@ -9,6 +9,8 @@ using ZLinq;
 
 namespace Cogwork.Core;
 
+public readonly record struct InstalledPackages(UserPackage[]? UserPackages) : ISaveWithJson;
+
 public readonly record struct ServiceUri(Uri Uri);
 
 public readonly record struct ModListData(
@@ -152,6 +154,12 @@ public sealed class LazyModList
 
     public static string GetProfilePackageLockPath(Game game, string id) =>
         Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "lock.json");
+
+    public string ProfileInstalledPackagesFilePath =>
+        field ??= Path.Combine(
+            CogworkPaths.GetProfilesSubDirectoryNoCreate(Game, Id),
+            "installed.json"
+        );
 }
 
 public sealed class ModList
@@ -421,14 +429,110 @@ public sealed class ModList
         Add(Added.Keys.Select(x => x.Latest));
     }
 
-    public async Task<bool> InstallPackages(CancellationToken cancellationToken = default)
+    public Task<(PackageVersion packageVersion, bool isDownloaded)[]> DownloadPackagesAsync(
+        Func<PackageVersion, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
+    )
     {
+        return Task.WhenAll(
+            AllPackages.Select(async package =>
+            {
+                var progress = progressFactory?.Invoke(package.Value) ?? default;
+                return (
+                    package.Value,
+                    await package.Key.Source.Service.DownloadPackageAsync(
+                        package.Value,
+                        progress,
+                        cancellationToken
+                    )
+                );
+            })
+        );
+    }
+
+    public async Task<bool> InstallPackagesAsync(CancellationToken cancellationToken = default)
+    {
+        Cog.Debug($"Installing all packages");
+
+        var userPackages = InstalledPackages
+            .LoadSavedData(_lazy.ProfileInstalledPackagesFilePath)
+            .UserPackages;
+
+        // TODO: Packages are identified by FullName for installation.
+        // This is not necessarily unique if another package source is used.
+        // Maybe do something about it sometime.
+        Dictionary<string, VisualPackageVersion> isInstalled =
+            userPackages
+                ?.Where(x => x.IsInstalled)
+                .Select(x => x.PackageVersion)
+                .ToDictionary(x => x.FullName) ?? [];
+
         var installRules = _lazy.Game.InstallRules;
-        foreach (var package in AllPackages)
-        {
-            var files = CogworkPaths.GetProfileFilesDirectory(_lazy);
-            _ = installRules.InstallPackage(package.Value, files, cancellationToken);
-        }
+        var files = CogworkPaths.GetProfileFilesDirectory(_lazy);
+
+        var packages = await Task.WhenAll(
+            AllPackages.Select(async package =>
+            {
+                var visualPackageVersion = (VisualPackageVersion)package.Value;
+
+                if (
+                    !isInstalled.TryGetValue(
+                        visualPackageVersion.FullName,
+                        out var installedVisualPackageVersion
+                    )
+                )
+                {
+                    Cog.Debug($"Installing package: '{visualPackageVersion}'");
+                    return new UserPackage(
+                        visualPackageVersion,
+                        await installRules.InstallPackageAsync(
+                            visualPackageVersion,
+                            files,
+                            cancellationToken
+                        )
+                    );
+                }
+
+                if (installedVisualPackageVersion != visualPackageVersion)
+                {
+                    Cog.Debug(
+                        $"Uninstalling old package version: '{installedVisualPackageVersion}'"
+                    );
+                    if (
+                        !await installRules.UninstallPackageAsync(
+                            installedVisualPackageVersion,
+                            files,
+                            cancellationToken
+                        )
+                    )
+                    {
+                        Cog.Debug(
+                            $"Failed to uninstall package: '{installedVisualPackageVersion}'"
+                        );
+                        return new UserPackage(visualPackageVersion, false);
+                    }
+
+                    Cog.Debug($"Installing new package version: '{visualPackageVersion}'");
+                    return new UserPackage(
+                        visualPackageVersion,
+                        await installRules.InstallPackageAsync(
+                            visualPackageVersion,
+                            files,
+                            cancellationToken
+                        )
+                    );
+                }
+                else
+                {
+                    Cog.Debug($"Package is installed already: '{visualPackageVersion}'");
+                    return new UserPackage(visualPackageVersion, true);
+                }
+            })
+        );
+
+        var installed = new InstalledPackages(packages);
+        installed.Save(_lazy.ProfileInstalledPackagesFilePath);
+
         return true;
     }
 

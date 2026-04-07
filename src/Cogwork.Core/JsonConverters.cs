@@ -3,6 +3,30 @@ using System.Text.Json.Serialization;
 
 namespace Cogwork.Core;
 
+public class VisualPackageVersionConverter : JsonConverter<VisualPackageVersion>
+{
+    public override VisualPackageVersion Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    )
+    {
+        var packageId = reader.GetString();
+        return new(
+            packageId! // I don't care
+        );
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        VisualPackageVersion value,
+        JsonSerializerOptions options
+    )
+    {
+        writer.WriteStringValue(value.ToString());
+    }
+}
+
 public class PackageVersionNumberConverter : JsonConverter<PackageVersionNumber>
 {
     public override PackageVersionNumber Read(

@@ -5,6 +5,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.IO.Abstractions;
+using System.IO.Abstractions.TestingHelpers;
 using System.IO.Compression;
 using System.Net;
 using System.Reflection;
@@ -73,10 +75,10 @@ public interface IPackageSourceService
 
     public Task<bool> FetchIndexToCacheAsync(ProgressContext progress = default);
 
-    public bool IsPackageDownloaded(PackageVersion packageVersion);
+    public bool IsPackageDownloaded(VisualPackageVersion packageVersion);
 
     public Task<string?> ExtractAsync(
-        PackageVersion packageVersion,
+        VisualPackageVersion packageVersion,
         CancellationToken cancellationToken = default
     );
 
@@ -250,21 +252,20 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         return true;
     }
 
-    public bool IsPackageDownloaded(PackageVersion packageVersion) =>
+    public bool IsPackageDownloaded(VisualPackageVersion packageVersion) =>
         IsPackageDownloaded(packageVersion, out _, out _, out _);
 
     bool IsPackageDownloaded(
-        PackageVersion packageVersion,
+        VisualPackageVersion packageVersion,
         out string zipFileLocation,
         out string directoryPath,
         out bool zipExists
     )
     {
-        var package = packageVersion.Package;
         var version = packageVersion.Version.ToString();
         var installPathRoot = CogworkPaths.GetPackagesSubDirectory(
             PackageInstallSubDirectory,
-            package.FullName
+            packageVersion.FullName
         );
 
         zipFileLocation = Path.Combine(installPathRoot, $"{version}.zip");
@@ -281,7 +282,14 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         CancellationToken cancellationToken = default
     )
     {
-        if (IsPackageDownloaded(packageVersion, out string? zipFileLocation, out _, out _))
+        if (
+            IsPackageDownloaded(
+                (VisualPackageVersion)packageVersion,
+                out string? zipFileLocation,
+                out _,
+                out _
+            )
+        )
         {
             Cog.Debug($"Package is already downloaded for '{packageVersion}'");
             return true;
@@ -324,7 +332,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
     }
 
     public async Task<string?> ExtractAsync(
-        PackageVersion packageVersion,
+        VisualPackageVersion packageVersion,
         CancellationToken cancellationToken = default
     )
     {
@@ -354,13 +362,10 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
         if (Directory.Exists(tempDirPath))
             Directory.Delete(tempDirPath, recursive: true);
-
         {
             using FileStream fileStream = File.Open(zipPath, FileMode.Open);
-            await ZipFile.ExtractToDirectoryAsync(fileStream, tempDirPath, cancellationToken);
+            await ZipFile.ExtractToDirectoryAsync(fileStream, directoryPath, cancellationToken);
         }
-
-        Game.InstallRules.Map(packageVersion.Package, tempDirPath, directoryPath);
 
         File.Delete(zipPath);
         return directoryPath;
@@ -369,16 +374,24 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
 public interface IModInstallRules
 {
-    string InstallRootDirectory { get; }
-    bool Map(Package package, string directoryPath, string outputPath);
-    public Task<bool> InstallPackage(
-        PackageVersion packageVersion,
+    static abstract string InstallRootDirectory { get; }
+    bool Map(VisualPackageVersion packageVersion, string directoryPath, string outputPath);
+    public Task<bool> InstallPackageAsync(
+        VisualPackageVersion packageVersion,
         string profileFilesDirectory,
         CancellationToken cancellationToken = default
     );
+
+    public Task<bool> UninstallPackageAsync(
+        VisualPackageVersion packageVersion,
+        string profileFilesDirectory,
+        CancellationToken cancellationToken = default
+    );
+
+    public static FileSystem RealFileSystem { get; } = new FileSystem();
 }
 
-public sealed class BepInExModInstallRules : IModInstallRules
+public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInstallRules
 {
     // https://github.com/ebkr/r2modmanPlus/wiki/Structuring-your-Thunderstore-package
     static readonly HashSet<string> dirToDir = new(["config"], StringComparer.OrdinalIgnoreCase);
@@ -387,10 +400,10 @@ public sealed class BepInExModInstallRules : IModInstallRules
         StringComparer.OrdinalIgnoreCase
     );
     const string defaultDir = "plugins";
-    public string InstallRootDirectory { get; } = "BepInEx";
+    public static string InstallRootDirectory { get; } = "BepInEx";
 
     // TODO: Use proper detection of BepInEx package for a Thunderstore community.
-    static bool IsBepInExPackage(Package package) =>
+    static bool IsBepInExPackage(VisualPackageVersion package) =>
         package.Name.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase)
         && package.Author.Name
             is "BepInEx" // Default
@@ -398,39 +411,38 @@ public sealed class BepInExModInstallRules : IModInstallRules
                 or " denikson" // Valheim
     ;
 
-    public bool Map(Package package, string directoryPath, string outputPath)
+    public BepInExModInstallRules()
+        : this(IModInstallRules.RealFileSystem) { }
+
+    public bool Map(VisualPackageVersion packageVersion, string directoryPath, string outputPath)
     {
-        if (IsBepInExPackage(package))
+        if (IsBepInExPackage(packageVersion))
         {
             FlattenUntilWinhttp(directoryPath, outputPath, foundWinhttpDll: false);
-            Directory.Delete(directoryPath, recursive: true);
+            Fs.Directory.Delete(directoryPath, recursive: true);
             return true;
         }
 
-        Directory.CreateDirectory(Path.Combine(outputPath, defaultDir, package.FullName));
-        MapRecursive(package, directoryPath, outputPath);
-        Directory.Delete(directoryPath, recursive: true);
+        Fs.Directory.CreateDirectory(Path.Combine(outputPath, defaultDir, packageVersion.FullName));
+        MapRecursive(packageVersion, directoryPath, outputPath);
+        Fs.Directory.Delete(directoryPath, recursive: true);
         return true;
     }
 
-    private static void FlattenUntilWinhttp(
-        string directoryPath,
-        string outputPath,
-        bool foundWinhttpDll
-    )
+    private void FlattenUntilWinhttp(string directoryPath, string outputPath, bool foundWinhttpDll)
     {
-        Directory.CreateDirectory(outputPath);
+        Fs.Directory.CreateDirectory(outputPath);
 
-        foreach (var fileDir in Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
+        foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
         {
             var fileName = Path.GetFileName(fileDir);
-            File.Move(fileDir, Path.Combine(outputPath, fileName));
+            Fs.File.Move(fileDir, Path.Combine(outputPath, fileName));
 
             if (fileName == "winhttp.dll")
                 foundWinhttpDll = true;
         }
 
-        foreach (var dir in Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
+        foreach (var dir in Fs.Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
         {
             var dirName = Path.GetFileName(dir);
 
@@ -441,9 +453,11 @@ public sealed class BepInExModInstallRules : IModInstallRules
         }
     }
 
-    private static void MapRecursive(Package package, string directoryPath, string outputPath)
+    private void MapRecursive(VisualPackageVersion package, string directoryPath, string outputPath)
     {
-        foreach (var dirPath in Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
+        foreach (
+            var dirPath in Fs.Directory.EnumerateDirectories(directoryPath).AsValueEnumerable()
+        )
         {
             var dirName = Path.GetFileName(dirPath).ToLowerInvariant();
 
@@ -451,15 +465,15 @@ public sealed class BepInExModInstallRules : IModInstallRules
             {
                 var mapped = Path.Combine(outputPath, dirName);
                 var mapped2 = Path.Combine(mapped, package.FullName);
-                Directory.CreateDirectory(mapped);
-                MoveOrMerge(dirPath, mapped2);
+                Fs.Directory.CreateDirectory(mapped);
+                MoveOrMergeOverwrite(dirPath, mapped2);
                 continue;
             }
 
             if (dirToDir.Contains(dirName))
             {
                 var mapped = Path.Combine(outputPath, dirName);
-                MoveOrMerge(dirPath, mapped);
+                MoveOrMergeOverwrite(dirPath, mapped);
                 continue;
             }
 
@@ -467,7 +481,7 @@ public sealed class BepInExModInstallRules : IModInstallRules
         }
 
         // Flatten the rest.
-        foreach (var fileDir in Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
+        foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
         {
             var fileName = Path.GetFileName(fileDir);
 
@@ -476,40 +490,49 @@ public sealed class BepInExModInstallRules : IModInstallRules
             if (fileName.EndsWith(".mm.dll", StringComparison.OrdinalIgnoreCase))
             {
                 dest = Path.Combine(outputPath, "monomod", package.FullName, fileName);
-                Directory.CreateDirectory(dest);
+                Fs.Directory.CreateDirectory(dest);
             }
             else
                 dest = Path.Combine(outputPath, defaultDir, package.FullName, fileName);
 
-            File.Move(fileDir, dest);
+            if (Fs.File.Exists(dest))
+            {
+                Fs.File.Delete(dest);
+            }
+            Fs.File.Move(fileDir, dest);
         }
     }
 
-    static void MoveOrMerge(string sourceDirName, string destDirName)
+    void MoveOrMergeOverwrite(string sourceDirName, string destDirName)
     {
-        if (!Directory.Exists(destDirName))
+        if (!Fs.Directory.Exists(destDirName))
         {
-            Directory.Move(sourceDirName, destDirName);
+            Fs.Directory.Move(sourceDirName, destDirName);
             return;
         }
 
-        foreach (var file in Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
+        foreach (var file in Fs.Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
         {
             var fileName = Path.GetFileName(file);
-            File.Move(file, Path.Combine(destDirName, fileName));
+            var dest = Path.Combine(destDirName, fileName);
+            if (Fs.File.Exists(dest))
+            {
+                Fs.File.Delete(dest);
+            }
+            Fs.File.Move(file, dest);
         }
 
-        foreach (var dir in Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
+        foreach (var dir in Fs.Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
         {
             var dirName = Path.GetFileName(dir);
-            MoveOrMerge(dir, Path.Combine(destDirName, dirName));
+            MoveOrMergeOverwrite(dir, Path.Combine(destDirName, dirName));
         }
 
-        Directory.Delete(sourceDirName);
+        Fs.Directory.Delete(sourceDirName);
     }
 
-    public async Task<bool> InstallPackage(
-        PackageVersion packageVersion,
+    public async Task<bool> InstallPackageAsync(
+        VisualPackageVersion packageVersion,
         string profileFilesDirectory,
         CancellationToken cancellationToken = default
     )
@@ -521,34 +544,100 @@ public sealed class BepInExModInstallRules : IModInstallRules
             return false;
         }
 
-        string installRoot;
-        if (IsBepInExPackage(packageVersion.Package))
-            installRoot = profileFilesDirectory;
-        else
-            installRoot = Path.Combine(profileFilesDirectory, "BepInEx");
-
+        string installRoot = GetInstallRoot(packageVersion, profileFilesDirectory);
         Directory.CreateDirectory(installRoot);
-        CopyDirectory(path, installRoot);
+        var pathCopy = path + ".temp";
+
+        Fs.Directory.CreateDirectory(pathCopy);
+        CopyDirectory(path, pathCopy);
+        Map(packageVersion, pathCopy, installRoot);
 
         return true;
     }
 
-    static void CopyDirectory(string sourceDirName, string destDirName)
+    private static string GetInstallRoot(
+        VisualPackageVersion packageVersion,
+        string profileFilesDirectory
+    )
     {
-        foreach (var file in Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
+        if (IsBepInExPackage(packageVersion))
+        {
+            return profileFilesDirectory;
+        }
+
+        return Path.Combine(profileFilesDirectory, "BepInEx");
+    }
+
+    public async Task<bool> UninstallPackageAsync(
+        VisualPackageVersion packageVersion,
+        string profileFilesDirectory,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var path = await packageVersion.ExtractAsync(cancellationToken);
+        if (path is null)
+        {
+            Cog.Error($"Cannot uninstall package which is not downloaded: '{packageVersion}'");
+            return false;
+        }
+
+        // We Map the extracted directory for our modloader to the actual final directory,
+        // except in a fake filesystem to avoid actually moving our files.
+        var fakeFs = new MockFileSystem(
+            IModInstallRules
+                .RealFileSystem.Directory.GetFiles(path, "*", SearchOption.AllDirectories)
+                .ToDictionary(
+                    keySelector: x => x,
+                    elementSelector: x => new MockFileData(string.Empty)
+                )
+        );
+
+        var fakeInstallRules = new BepInExModInstallRules(fakeFs);
+        string installRoot = GetInstallRoot(packageVersion, profileFilesDirectory);
+
+        fakeInstallRules.Map(packageVersion, path, installRoot);
+
+        // Then we just delete the fake mapped files from our real filesystem.
+        DeleteDirectoryContentsBasedOnSource(fakeFs, installRoot);
+
+        return true;
+    }
+
+    void CopyDirectory(string sourceDirName, string destDirName)
+    {
+        foreach (var file in Fs.Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
         {
             var fileName = Path.GetFileName(file);
             // TODO: Do not overwrite without confirmation.
             // This will overwrite config files if packages ship them.
-            File.Copy(file, Path.Combine(destDirName, fileName), overwrite: true);
+            Fs.File.Copy(file, Path.Combine(destDirName, fileName), overwrite: true);
         }
 
-        foreach (var dir in Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
+        foreach (var dir in Fs.Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
         {
             var dirName = Path.GetFileName(dir);
             var newDir = Path.Combine(destDirName, dirName);
-            Directory.CreateDirectory(newDir);
+            Fs.Directory.CreateDirectory(newDir);
             CopyDirectory(dir, newDir);
+        }
+    }
+
+    static void DeleteDirectoryContentsBasedOnSource(IFileSystem sourceFs, string dir)
+    {
+        foreach (var file in sourceFs.Directory.EnumerateFiles(dir).AsValueEnumerable())
+        {
+            // TODO: Do not delete config files without confirmation.
+            File.Delete(file);
+        }
+
+        foreach (var subDir in sourceFs.Directory.EnumerateDirectories(dir).AsValueEnumerable())
+        {
+            DeleteDirectoryContentsBasedOnSource(sourceFs, subDir);
+        }
+
+        if (Directory.GetFileSystemEntries(dir).Length == 0)
+        {
+            Directory.Delete(dir);
         }
     }
 }
@@ -784,6 +873,7 @@ public sealed class PackageSource
         public string GameConfigLocation =>
             field ??= Path.Combine(CogworkPaths.GetGamesSubDirectory(this), "config.json");
 
+        [JsonIgnore]
         public IModInstallRules InstallRules { get; }
         public PackageSource? DefaultSource { get; }
 
