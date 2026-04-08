@@ -374,8 +374,12 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
 public interface IModInstallRules
 {
+    public static FileSystem RealFileSystem { get; } = new FileSystem();
+
     static abstract string InstallRootDirectory { get; }
+
     bool Map(VisualPackageVersion packageVersion, string directoryPath, string outputPath);
+
     public Task<bool> InstallPackageAsync(
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
@@ -388,7 +392,9 @@ public interface IModInstallRules
         CancellationToken cancellationToken = default
     );
 
-    public static FileSystem RealFileSystem { get; } = new FileSystem();
+    public void CopyModLoaderFilesToGame(string modLoaderFilesPath, string gameRootPath);
+
+    public List<string> GetLaunchArguments(LazyModList modList);
 }
 
 public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInstallRules
@@ -414,11 +420,20 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     public BepInExModInstallRules()
         : this(IModInstallRules.RealFileSystem) { }
 
+    public void CopyModLoaderFilesToGame(string modLoaderFilesPath, string gameRootPath)
+    {
+        foreach (var fileDir in Fs.Directory.GetFiles(modLoaderFilesPath).AsValueEnumerable())
+        {
+            var fileName = Path.GetFileName(fileDir);
+            Fs.File.Copy(fileDir, Path.Combine(gameRootPath, fileName), true);
+        }
+    }
+
     public bool Map(VisualPackageVersion packageVersion, string directoryPath, string outputPath)
     {
         if (IsBepInExPackage(packageVersion))
         {
-            FlattenUntilWinhttp(directoryPath, outputPath, foundWinhttpDll: false);
+            IgnoreUntilWinhttpThenMap(directoryPath, outputPath, foundWinhttpDll: false);
             Fs.Directory.Delete(directoryPath, recursive: true);
             return true;
         }
@@ -429,17 +444,38 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         return true;
     }
 
-    private void FlattenUntilWinhttp(string directoryPath, string outputPath, bool foundWinhttpDll)
+    private void IgnoreUntilWinhttpThenMap(
+        string directoryPath,
+        string outputPath,
+        bool foundWinhttpDll
+    )
     {
         Fs.Directory.CreateDirectory(outputPath);
 
-        foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
+        if (!foundWinhttpDll)
         {
-            var fileName = Path.GetFileName(fileDir);
-            Fs.File.Move(fileDir, Path.Combine(outputPath, fileName));
+            foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
+            {
+                if (Path.GetFileName(fileDir) == "winhttp.dll")
+                {
+                    foundWinhttpDll = true;
+                    break;
+                }
+            }
+        }
 
-            if (fileName == "winhttp.dll")
-                foundWinhttpDll = true;
+        if (foundWinhttpDll)
+        {
+            foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
+            {
+                var fileName = Path.GetFileName(fileDir);
+                var dest = Path.Combine(outputPath, fileName);
+                if (Fs.File.Exists(dest))
+                {
+                    Fs.File.Delete(dest);
+                }
+                Fs.File.Move(fileDir, dest);
+            }
         }
 
         foreach (var dir in Fs.Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
@@ -447,9 +483,9 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
             var dirName = Path.GetFileName(dir);
 
             if (foundWinhttpDll)
-                FlattenUntilWinhttp(dir, Path.Combine(outputPath, dirName), foundWinhttpDll);
+                IgnoreUntilWinhttpThenMap(dir, Path.Combine(outputPath, dirName), foundWinhttpDll);
             else
-                FlattenUntilWinhttp(dir, outputPath, foundWinhttpDll);
+                IgnoreUntilWinhttpThenMap(dir, outputPath, foundWinhttpDll);
         }
     }
 
@@ -639,6 +675,63 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         {
             Directory.Delete(dir);
         }
+    }
+
+    public List<string> GetLaunchArguments(LazyModList modList)
+    {
+        var isWindowsApp = !modList.IsLinuxNative();
+
+        var profileFiles = CogworkPaths.GetProfileFilesDirectory(modList);
+        var gamePath = modList.GetGamePathOrThrow();
+        var executables = Directory
+            .GetFiles(gamePath)
+            .AsValueEnumerable()
+            .Where(x =>
+            {
+                var ext = Path.GetExtension(x);
+
+                if (isWindowsApp)
+                {
+                    if (ext is ".exe" && Path.GetFileName(x) is not "UnityCrashHandler64.exe")
+                        return true;
+
+                    return false;
+                }
+
+                if (ext is ".x86_64" or ".x86")
+                    return true;
+
+                if (Path.GetFileName(x) == Path.GetFileName(gamePath))
+                    return true;
+
+                return false;
+            })
+            .ToArray();
+
+        if (executables.Length > 1)
+        {
+            throw new FileNotFoundException(
+                $"Too many executable candidates: '{string.Join("', '", executables)}'"
+            );
+        }
+        else if (executables.Length == 0)
+        {
+            throw new FileNotFoundException($"No exes found at '{gamePath}'");
+        }
+
+        var gameExecutable = executables[0];
+
+        List<string> args = [];
+
+        if (!isWindowsApp)
+        {
+            args.Add(Path.Combine(profileFiles, "run_bepinex.sh"));
+        }
+        args.Add(gameExecutable);
+        args.Add("--doorstop-target-assembly");
+        args.Add(Path.Combine(profileFiles, "BepInEx", "core", "BepInEx.Preloader.dll"));
+
+        return args;
     }
 }
 
@@ -845,6 +938,8 @@ public sealed class PackageSource
                 }
             }
 
+            public string? PreferredPath { get; set; }
+
             public void ConnectGame(Game game)
             {
                 var activeProfileId = ActiveProfileId;
@@ -899,7 +994,7 @@ public sealed class PackageSource
         public static Game LethalCompany { get; } =
             new("Lethal Company", "lethal-company", new BepInExModInstallRules())
             {
-                Platforms = new(),
+                Platforms = new() { Steam = new() { Id = 1966720 } },
             };
 
         public static Game Repo { get; } =

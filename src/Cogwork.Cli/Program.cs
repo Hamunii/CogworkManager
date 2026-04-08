@@ -11,6 +11,8 @@ using FuzzySharp.Extractor;
 using FuzzySharp.SimilarityRatio;
 using FuzzySharp.SimilarityRatio.Scorer.Composite;
 using FuzzySharp.SimilarityRatio.Scorer.StrategySensitive;
+using Gameloop.Vdf;
+using Gameloop.Vdf.Linq;
 using Spectre.Console;
 using ZLinq;
 
@@ -42,6 +44,16 @@ static class Program
     static readonly Option<bool> optionExactMatching = new("--exact-matching", "-E")
     {
         Description = "Only an exact match is picked implicitly",
+    };
+
+    static readonly Option<bool> optionDirectLaunch = new("--direct", "-d")
+    {
+        Description = "Launch game executable directly instead of via store app",
+    };
+
+    static readonly Option<bool> optionAttachedLaunch = new("--attached", "-a")
+    {
+        Description = "Keep game instance attached to the current process. Requires --direct",
     };
 
     static async Task<int> Main(string[] args)
@@ -658,10 +670,145 @@ static class Program
         AddOptionRecursive(source, optionGameOverride);
         AddOptionRecursive(source, optionProfileOverride);
 
+        Command launch = new("launch", "Launch current game with active mod profile");
+        launch.Options.Add(optionDirectLaunch);
+        launch.Options.Add(optionAttachedLaunch);
+        rootCommand.Subcommands.Add(launch);
+        {
+            launch.Validators.Add(result =>
+            {
+                if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
+                    return;
+
+                var error = lazyProfile.PrepareModLoader(game);
+                if (error is { })
+                {
+                    result.AddError(error);
+                    return;
+                }
+
+                if (result.GetValue(optionAttachedLaunch) && !result.GetValue(optionDirectLaunch))
+                {
+                    result.AddError(
+                        $"Option '{optionAttachedLaunch.Name}' requires '{optionDirectLaunch.Name}'"
+                    );
+                    return;
+                }
+            });
+
+            launch.SetAction(
+                async Task<int> (result, ct) =>
+                {
+                    if (!TryGetActiveGameAndProfile(null, out var game, out var lazyProfile))
+                        return 1;
+
+                    var steamExePath = GetExecutablePath("steam");
+                    if (steamExePath is not { } s)
+                    {
+                        AnsiConsole.WriteLine("Steam not found");
+                        return 1;
+                    }
+                    if (game.Platforms.Steam is not { } steam)
+                    {
+                        AnsiConsole.WriteLine($"Game '{game.Name}' is not on steam.");
+                        return 1;
+                    }
+
+                    var args = game.InstallRules.GetLaunchArguments(lazyProfile);
+                    bool waitForProcess = false;
+
+                    ProcessStartInfo startInfo;
+                    if (result.GetValue(optionDirectLaunch))
+                    {
+                        if (result.GetValue(optionAttachedLaunch))
+                        {
+                            waitForProcess = true;
+                            startInfo = new(args[0], args.Skip(1))
+                            {
+                                WorkingDirectory = lazyProfile.GetGamePathOrThrow(),
+                            };
+                        }
+                        else
+                        {
+                            var setsid = GetExecutablePath("setsid");
+                            if (setsid is null)
+                            {
+                                AnsiConsole.WriteLine("setsid not found");
+                                return 1;
+                            }
+
+                            startInfo = new(setsid, args)
+                            {
+                                WorkingDirectory = lazyProfile.GetGamePathOrThrow(),
+                                RedirectStandardInput = true,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true,
+                            };
+                        }
+                    }
+                    else
+                    {
+                        startInfo = new(steamExePath);
+                        startInfo.ArgumentList.Add("-applaunch");
+                        startInfo.ArgumentList.Add(steam.Id.ToString(CultureInfo.InvariantCulture));
+
+                        foreach (var arg in args)
+                        {
+                            startInfo.ArgumentList.Add(arg);
+                        }
+                    }
+
+                    if (lazyProfile.IsProton())
+                    {
+                        startInfo.EnvironmentVariables.Add("WINEDLLOVERRIDES", "winhttp=n,b");
+                    }
+
+                    AnsiConsole.MarkupLine("[green]Launching game[/]");
+
+                    var process = System.Diagnostics.Process.Start(startInfo);
+                    if (process is null)
+                    {
+                        AnsiConsole.WriteLine("Game process could not be started.");
+                        return 1;
+                    }
+                    if (waitForProcess)
+                    {
+                        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+                        {
+                            process.Kill();
+                        };
+
+                        await process.WaitForExitAsync(ct);
+                    }
+
+                    return 0;
+                }
+            );
+        }
+        AddOptionRecursive(source, optionGameOverride);
+        AddOptionRecursive(source, optionProfileOverride);
+
         rootCommand.Add(optionNoInteractive);
 
         var result = rootCommand.Parse(args);
         return await result.InvokeAsync();
+    }
+
+    public static string? GetExecutablePath(string exeName)
+    {
+        var paths = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator) ?? [];
+
+        foreach (var path in paths)
+        {
+            var fullPath = Path.Combine(path, exeName);
+
+            if (!File.Exists(fullPath))
+                continue;
+
+            return exeName;
+        }
+
+        return null;
     }
 
     private static void PrintGameAndProfile(bool hideModListHelp = false)
@@ -723,31 +870,31 @@ static class Program
     }
 
     private static bool TryGetActiveGameAndProfile(
-        CommandResult result,
+        CommandResult? result,
         [NotNullWhen(true)] out Game? game,
         [NotNullWhen(true)] out LazyModList? profile
     )
     {
         profile = default;
 
-        if (!result.TryGetActiveGame(out game))
+        if (!TryGetActiveGame(result, out game))
             return false;
 
-        if (!result.TryGetActiveProfile(game, out profile))
+        if (!TryGetActiveProfile(result, game, out profile))
             return false;
 
         return true;
     }
 
     private static bool TryGetActiveGame(
-        this SymbolResult result,
+        this SymbolResult? result,
         [NotNullWhen(true)] out Game? game
     )
     {
         if (Game.GlobalConfig.ActiveGame is not { } activeGame)
         {
             game = default;
-            result.AddError("An active game is not selected. Use 'cogman game select <game>'.");
+            result?.AddError("An active game is not selected. Use 'cogman game select <game>'.");
             return false;
         }
 
@@ -756,7 +903,7 @@ static class Program
     }
 
     private static bool TryGetActiveProfile(
-        this SymbolResult result,
+        this SymbolResult? result,
         Game game,
         [NotNullWhen(true)] out LazyModList? profile
     )
@@ -764,7 +911,7 @@ static class Program
         if (game.Config.ActiveProfile is not { } activeProfile)
         {
             profile = default;
-            result.AddError(
+            result?.AddError(
                 "An active profile is not selected. Use 'cogman profile select <profile?>'."
             );
             return false;

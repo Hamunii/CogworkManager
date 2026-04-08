@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Cogwork.Core.Extensions;
+using Gameloop.Vdf;
+using Gameloop.Vdf.Linq;
 using ZLinq;
 
 namespace Cogwork.Core;
@@ -15,6 +17,7 @@ public readonly record struct ServiceUri(Uri Uri);
 
 public readonly record struct ModListData(
     string? DisplayName,
+    string? OverrideGamePath,
     IEnumerable<ServiceUri>? Sources,
     IEnumerable<string>? PackageIds
 ) : ISaveWithJson;
@@ -35,6 +38,8 @@ public sealed class LazyModList
     }
     public required PackageSourceIndex SourceIndex { get; init; }
     public required Game Game { get; init; }
+    public string? GamePath => OverrideGamePath ?? Game.Config.PreferredPath;
+    public required string? OverrideGamePath { get; set; }
     public IEnumerable<string> AddedPackageIds { get; private set; }
     public Dictionary<string, PackageVersionNumber>? ResolvedAdded
     {
@@ -160,6 +165,82 @@ public sealed class LazyModList
             CogworkPaths.GetProfilesSubDirectoryNoCreate(Game, Id),
             "installed.json"
         );
+
+    public string GetGamePathOrThrow()
+    {
+        string? gamePath = GamePath;
+        if (gamePath is null || !Directory.Exists(gamePath))
+        {
+            throw new InvalidDataException($"Game path does not exist: '{gamePath}'");
+        }
+        return gamePath;
+    }
+
+    /// <returns>Null if success, otherwise error message.</returns>
+    public string? PrepareModLoader(Game game)
+    {
+        string? gamePath = GamePath;
+        if (gamePath is null || !Directory.Exists(gamePath))
+        {
+            var userDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (game.Platforms.Steam is not { } steam)
+            {
+                return $"Game '{game.Name}' is not on steam.";
+            }
+            var steamapps = Path.Combine(userDir, ".steam", "root", "steamapps");
+            if (!Directory.Exists(steamapps))
+            {
+                return $"Directory doesn't exist: '{steamapps}'";
+            }
+
+            var gameInfoAcf = Path.Combine(steamapps, $"appmanifest_{steam.Id}.acf");
+            if (!File.Exists(gameInfoAcf))
+            {
+                return $"File doesn't exist: '{gameInfoAcf}'";
+            }
+
+            var appmanifest = VdfConvert.Deserialize(File.ReadAllText(gameInfoAcf));
+            var installDir = appmanifest.Value["installdir"]?.Value<string>();
+            if (installDir is null)
+            {
+                return $"Steam install directory not found for: '{game.Name}'";
+            }
+
+            gamePath = Path.Combine(steamapps, "common", installDir);
+            if (!Directory.Exists(gamePath))
+            {
+                return $"Steam directory does not exist: '{gamePath}'";
+            }
+
+            game.Config.PreferredPath = gamePath;
+            game.Config.Save(game.GameConfigLocation);
+        }
+
+        Cog.Debug($"Copying modloader files to: '{gamePath}'");
+        var profileFiles = CogworkPaths.GetProfileFilesDirectory(this);
+        game.InstallRules.CopyModLoaderFilesToGame(profileFiles, gamePath);
+        return null;
+    }
+
+    public bool IsLinuxNative() => RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsProton();
+
+    public bool IsProton()
+    {
+        if (!Directory.Exists(GamePath))
+        {
+            throw new InvalidProgramException($"Game path doesn't exist: '{GamePath}'");
+        }
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return false;
+
+        if (File.Exists(Path.Combine(GamePath, ".forceproton")))
+            return true;
+
+        return Directory
+            .GetFiles(GamePath)
+            .Any(x => x.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+    }
 }
 
 public sealed class ModList
@@ -242,6 +323,7 @@ public sealed class ModList
         {
             Game = game,
             DisplayName = name,
+            OverrideGamePath = null,
             SourceIndex = game.DefaultSource is { } ? new(game.DefaultSource) : new(),
         };
 
@@ -287,6 +369,7 @@ public sealed class ModList
         {
             Game = game,
             DisplayName = data.DisplayName ?? profileId,
+            OverrideGamePath = data.OverrideGamePath,
             SourceIndex =
                 data.Sources is { } ? new(data.Sources.Select(x => x.Uri))
                 : game.DefaultSource is { } ? new(game.DefaultSource)
