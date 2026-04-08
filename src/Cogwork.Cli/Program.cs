@@ -720,13 +720,43 @@ static class Program
                     ProcessStartInfo startInfo;
                     if (result.GetValue(optionDirectLaunch))
                     {
-                        if (result.GetValue(optionAttachedLaunch))
+                        var isProton = lazyProfile.IsProton();
+                        string? umuPath = null;
+                        if (isProton)
+                        {
+                            umuPath = GetExecutablePath("umu-run");
+                            if (umuPath is null)
+                            {
+                                AnsiConsole.MarkupLine(
+                                    """
+                                    [red]umu-launcher must be installed to launch Windows games![/]
+                                    [yellow bold]TO FIX:[/]
+                                    [white]1. Download [/][blue]https://github.com/Open-Wine-Components/umu-launcher[/]
+                                    [white]2. Extract it and add 'umu-run' to your PATH[/]
+                                    """
+                                );
+                                return 1;
+                            }
+                        }
+
+                        var attached = result.GetValue(optionAttachedLaunch);
+                        if (isProton && !attached)
+                        {
+                            attached = true;
+                            AnsiConsole.MarkupLine(
+                                "[yellow]Force-attaching (--attached) process because umu-run is used[/]"
+                            );
+                        }
+                        if (attached)
                         {
                             waitForProcess = true;
-                            startInfo = new(args[0], args.Skip(1))
-                            {
-                                WorkingDirectory = lazyProfile.GetGamePathOrThrow(),
-                            };
+
+                            if (isProton)
+                                startInfo = new(umuPath!, args);
+                            else
+                                startInfo = new(args[0], args.Skip(1));
+
+                            startInfo.WorkingDirectory = lazyProfile.GetGamePathOrThrow();
                         }
                         else
                         {
@@ -764,6 +794,10 @@ static class Program
                     }
 
                     AnsiConsole.MarkupLine("[green]Launching game[/]");
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"[white]args: {startInfo.FileName} \"{string.Join("\" \"", startInfo.ArgumentList)}\"[/]"
+                    );
 
                     var process = System.Diagnostics.Process.Start(startInfo);
                     if (process is null)
