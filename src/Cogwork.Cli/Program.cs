@@ -160,7 +160,6 @@ static class Program
 
         Command profile = new("profile", "Manage mod profiles");
         profile.Aliases.Add("p");
-        profile.Options.Add(optionGameOverride);
         rootCommand.Subcommands.Add(profile);
         {
             Command profileSelect = new(
@@ -280,15 +279,14 @@ static class Program
             }
         }
 
-        Command mods = new("mods", "Manage mods on a mod profile");
+        Command mods = new("mods", "Manage mods on a mod profile") { Hidden = true };
         mods.Aliases.Add("m");
-        mods.Options.Add(optionGameOverride);
-        mods.Options.Add(optionProfileOverride);
         rootCommand.Subcommands.Add(mods);
         {
             Command modsAdd = new("add", "Add mods to a profile");
             modsAdd.Aliases.Add("a");
             mods.Subcommands.Add(modsAdd);
+            rootCommand.Subcommands.Add(modsAdd);
             Argument<string> modsAddArgument = new("package")
             {
                 Description = "Names of packages separated by space",
@@ -357,6 +355,7 @@ static class Program
             Command modsRemove = new("remove", "Remove mods from a profile");
             modsRemove.Aliases.Add("r");
             mods.Subcommands.Add(modsRemove);
+            rootCommand.Subcommands.Add(modsRemove);
             Argument<string> modsRemoveArgument = new("packages?")
             {
                 Description = "Limit selection of packages to remove by name separated by spaces",
@@ -437,6 +436,7 @@ static class Program
             Command modsList = new("list", "List mods on a profile");
             modsList.Aliases.Add("l");
             mods.Subcommands.Add(modsList);
+            rootCommand.Subcommands.Add(modsList);
             modsList.Validators.Add(result =>
             {
                 if (!TryGetActiveGameAndProfile(result, out _, out var lazyProfile))
@@ -482,6 +482,7 @@ static class Program
             Command modsUpdate = new("update", "Update mods on a profile");
             modsUpdate.Aliases.Add("u");
             mods.Subcommands.Add(modsUpdate);
+            rootCommand.Subcommands.Add(modsUpdate);
             modsUpdate.Validators.Add(result =>
             {
                 if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
@@ -633,8 +634,9 @@ static class Program
             });
 
             // For testing mostly, functionality is temporary
-            Command modsSync = new("sync", "Sync mods on a profile");
+            Command modsSync = new("sync", "Sync mods on a profile") { Hidden = true };
             mods.Subcommands.Add(modsSync);
+            rootCommand.Subcommands.Add(modsSync);
             modsSync.Validators.Add(result =>
             {
                 _ = SyncProfilePackages(result).Result;
@@ -643,8 +645,6 @@ static class Program
 
         Command source = new("sources", "Manage package sources");
         source.Aliases.Add("so");
-        source.Options.Add(optionGameOverride);
-        source.Options.Add(optionProfileOverride);
         rootCommand.Subcommands.Add(source);
         {
             Command sourceAdd = new("add", "Add package source");
@@ -657,8 +657,7 @@ static class Program
         }
 
         Command launch = new("launch", "Launch current game with active mod profile");
-        launch.Options.Add(optionGameOverride);
-        launch.Options.Add(optionProfileOverride);
+        launch.Aliases.Add("la");
         launch.Options.Add(optionDirectLaunch);
         launch.Options.Add(optionAttachedLaunch);
         launch.Options.Add(optionDry);
@@ -850,6 +849,8 @@ static class Program
         }
 
         rootCommand.Add(optionNoInteractive);
+        rootCommand.Add(optionGameOverride);
+        rootCommand.Add(optionProfileOverride);
 
         var result = rootCommand.Parse(args);
         return await result.InvokeAsync();
