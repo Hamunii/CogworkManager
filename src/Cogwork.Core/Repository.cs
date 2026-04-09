@@ -799,7 +799,7 @@ public sealed class PackageSourceIndex
                 split.MoveNext();
 
                 var slug = span[split.Current];
-                Cog.Debug($"slug from uri: {slug} | {uri.AbsolutePath} | {uri}");
+                Cog.Verbose($"slug from uri: {slug} | {uri.AbsolutePath} | {uri}");
 
                 var nameToGame = Game.NameToGame.GetAlternateLookup<ReadOnlySpan<char>>();
                 if (nameToGame.TryGetValue(slug, out var game))

@@ -56,6 +56,11 @@ static class Program
         Description = "Keep game instance attached to the current process. Requires --direct",
     };
 
+    static readonly Option<bool> optionDry = new("--dry")
+    {
+        Description = "Get output of a command without performing any task with consequences",
+    };
+
     static async Task<int> Main(string[] args)
     {
         try
@@ -97,6 +102,8 @@ static class Program
 
     static async Task<int> Initialize(string[] argsFull)
     {
+        Cog.Information($"CLI arguments: \"{string.Join("\", \"", argsFull)}\"");
+
         // I don't know how the fuck I'm supposed to do this with System.CommandLine
         var args = argsFull.AsValueEnumerable().TakeWhile(x => x is not "--").ToArray();
         var passthroughArgs = argsFull.AsValueEnumerable().Skip(args.Length + 1).ToArray();
@@ -650,6 +657,7 @@ static class Program
         Command launch = new("launch", "Launch current game with active mod profile");
         launch.Options.Add(optionDirectLaunch);
         launch.Options.Add(optionAttachedLaunch);
+        launch.Options.Add(optionDry);
         rootCommand.Subcommands.Add(launch);
         {
             launch.Validators.Add(result =>
@@ -657,7 +665,10 @@ static class Program
                 if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
                     return;
 
-                _ = SyncProfilePackages(result).Result;
+                if (!result.GetValue(optionDry))
+                {
+                    _ = SyncProfilePackages(result).Result;
+                }
 
                 var error = lazyProfile.PrepareModLoader(game);
                 if (error is { })
@@ -807,6 +818,12 @@ static class Program
                         $"[blue]Launch arguments:[/] {startInfo.FileName} \"{string.Join("\" \"", startInfo.ArgumentList)}\""
                     );
 
+                    if (result.GetValue(optionDry))
+                    {
+                        WriteDryRunMessage();
+                        return 0;
+                    }
+
                     var process = System.Diagnostics.Process.Start(startInfo);
                     if (process is null)
                     {
@@ -834,6 +851,11 @@ static class Program
 
         var result = rootCommand.Parse(args);
         return await result.InvokeAsync();
+    }
+
+    static void WriteDryRunMessage()
+    {
+        AnsiConsole.WriteLine("Dry run complete.");
     }
 
     static async Task<bool> SyncProfilePackages(CommandResult result)
