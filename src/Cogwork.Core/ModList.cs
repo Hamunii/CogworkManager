@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -377,6 +378,16 @@ public sealed class ModList
         };
 
         return modList;
+    }
+
+    public static bool TryGetFromId(
+        Game game,
+        string profileId,
+        [NotNullWhen(true)] out LazyModList? modList
+    )
+    {
+        modList = GetFromId(game, profileId);
+        return modList is { };
     }
 
     /// <summary>

@@ -1056,10 +1056,9 @@ public sealed class PackageSource
 
             foreach (var profileDir in profilesDir.EnumerateDirectories())
             {
-                var profile = ModList.GetFromId(this, profileDir.Name);
-                if (profile is { } p)
+                if (ModList.TryGetFromId(this, profileDir.Name, out var profile))
                 {
-                    yield return p;
+                    yield return profile;
                 }
             }
         }

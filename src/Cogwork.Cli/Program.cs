@@ -73,14 +73,14 @@ static class Program
     /// Gets assumed boolean value or null and returns true,
     /// or adds an error and returns false if configuration is invalid.
     /// </summary>
-    public static bool Assume(this SymbolResult result, out bool? assumption)
+    public static bool Assume(this SymbolResult? result, out bool? assumption)
     {
-        var yes = result.GetValue(optionAssumeYes);
-        var no = result.GetValue(optionAssumeNo);
+        var yes = result?.GetValue(optionAssumeYes) ?? false;
+        var no = result?.GetValue(optionAssumeNo) ?? false;
 
         if (yes && no)
         {
-            result.AddError($"Options --assume-yes and --assume-no are mutually exclusive");
+            result?.AddError($"Options --assume-yes and --assume-no are mutually exclusive");
             assumption = null;
             return false;
         }
@@ -95,8 +95,12 @@ static class Program
         return true;
     }
 
-    static async Task<int> Initialize(string[] args)
+    static async Task<int> Initialize(string[] argsFull)
     {
+        // I don't know how the fuck I'm supposed to do this with System.CommandLine
+        var args = argsFull.AsValueEnumerable().TakeWhile(x => x is not "--").ToArray();
+        var passthroughArgs = argsFull.AsValueEnumerable().Skip(args.Length + 1).ToArray();
+
         RootCommand rootCommand = new("Cogwork Manager CLI - mod package manager");
 
         Command game = new("game", "Select active game to mod or list available games");
@@ -170,13 +174,7 @@ static class Program
                     (Action<CommandResult>)(
                         result =>
                         {
-                            Game? game;
-                            if (result.GetValue(optionGameOverride) is { } overrideGame)
-                            {
-                                if (!result.TryGetGame(overrideGame, out game))
-                                    return;
-                            }
-                            else if (!TryGetActiveGame(result, out game))
+                            if (!TryGetActiveGame(result, out Game? game))
                                 return;
 
                             AnsiConsole.MarkupLineInterpolated(
@@ -189,20 +187,9 @@ static class Program
 
                             if (result.GetValue(profileSelectArgument) is { } argument)
                             {
-                                selected = profiles.FirstOrDefault(x =>
-                                    x.DisambiguatedDisplayName == argument
-                                );
-                                if (selected == default)
+                                if (!TryGetModList(result, argument, profiles, out selected))
                                 {
-                                    var names = profiles
-                                        .Select(x => x.DisambiguatedDisplayName)
-                                        .ToArray();
-                                    if (!TryVeryFuzzySearch(result, argument, names, out var name))
-                                        return;
-
-                                    selected = profiles.First(x =>
-                                        x.DisambiguatedDisplayName == name
-                                    );
+                                    return;
                                 }
                             }
                             else
@@ -240,12 +227,7 @@ static class Program
                 profileList.Validators.Add(result =>
                 {
                     Game? game;
-                    if (result.GetValue(optionGameOverride) is { } overrideGame)
-                    {
-                        if (!result.TryGetGame(overrideGame, out game))
-                            return;
-                    }
-                    else if (!TryGetActiveGame(result, out game))
+                    if (!TryGetActiveGame(result, out game))
                         return;
 
                     AnsiConsole.MarkupLineInterpolated(
@@ -714,6 +696,8 @@ static class Program
                         return 1;
                     }
 
+                    AnsiConsole.MarkupLine("[green]Launching game[/]");
+
                     var args = game.InstallRules.GetLaunchArguments(lazyProfile);
                     bool waitForProcess = false;
 
@@ -778,7 +762,25 @@ static class Program
                     }
                     else
                     {
-                        startInfo = new(steamExePath);
+                        var setsid = GetExecutablePath("setsid");
+                        if (setsid is null)
+                        {
+                            AnsiConsole.WriteLine("setsid not found");
+                            return 1;
+                        }
+
+                        AnsiConsole.MarkupLineInterpolated(
+                            CultureInfo.InvariantCulture,
+                            $"[green]Note: Steam may take a moment to start[/]"
+                        );
+
+                        startInfo = new(setsid, [steamExePath])
+                        {
+                            WorkingDirectory = lazyProfile.GetGamePathOrThrow(),
+                            RedirectStandardInput = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                        };
                         startInfo.ArgumentList.Add("-applaunch");
                         startInfo.ArgumentList.Add(steam.Id.ToString(CultureInfo.InvariantCulture));
 
@@ -790,13 +792,22 @@ static class Program
 
                     if (lazyProfile.IsProton())
                     {
-                        startInfo.EnvironmentVariables.Add("WINEDLLOVERRIDES", "winhttp=n,b");
+                        var kvp = ("WINEDLLOVERRIDES", "winhttp=n,b");
+                        startInfo.EnvironmentVariables.Add(kvp.Item1, kvp.Item2);
+                        AnsiConsole.MarkupLineInterpolated(
+                            CultureInfo.InvariantCulture,
+                            $"[blue]Set environment variable:[/] {kvp.Item1}=\"{kvp.Item2}\""
+                        );
                     }
 
-                    AnsiConsole.MarkupLine("[green]Launching game[/]");
+                    foreach (var arg in passthroughArgs)
+                    {
+                        startInfo.ArgumentList.Add(arg);
+                    }
+
                     AnsiConsole.MarkupLineInterpolated(
                         CultureInfo.InvariantCulture,
-                        $"[white]args: {startInfo.FileName} \"{string.Join("\" \"", startInfo.ArgumentList)}\"[/]"
+                        $"[blue]Launch arguments:[/] {startInfo.FileName} \"{string.Join("\" \"", startInfo.ArgumentList)}\""
                     );
 
                     var process = System.Diagnostics.Process.Start(startInfo);
@@ -819,13 +830,34 @@ static class Program
                 }
             );
         }
-        AddOptionRecursive(source, optionGameOverride);
-        AddOptionRecursive(source, optionProfileOverride);
+        AddOptionRecursive(launch, optionGameOverride);
+        AddOptionRecursive(launch, optionProfileOverride);
 
         rootCommand.Add(optionNoInteractive);
 
         var result = rootCommand.Parse(args);
         return await result.InvokeAsync();
+    }
+
+    private static bool TryGetModList(
+        SymbolResult? result,
+        string argument,
+        LazyModList[] profiles,
+        [NotNullWhen(true)] out LazyModList? selected
+    )
+    {
+        selected = profiles.FirstOrDefault(x => x.DisambiguatedDisplayName == argument);
+        if (selected == default)
+        {
+            var names = profiles.Select(x => x.DisambiguatedDisplayName).ToArray();
+
+            if (!TryVeryFuzzySearch(result, argument, names, out var name))
+                return false;
+
+            selected = profiles.First(x => x.DisambiguatedDisplayName == name);
+        }
+
+        return true;
     }
 
     public static string? GetExecutablePath(string exeName)
@@ -925,6 +957,15 @@ static class Program
         [NotNullWhen(true)] out Game? game
     )
     {
+        if (result?.GetValue(optionGameOverride) is { } overrideGame)
+        {
+            if (!result.TryGetGame(overrideGame, out game))
+            {
+                result.AddError($"Overridden game '{overrideGame}' is not found.");
+                return false;
+            }
+            return true;
+        }
         if (Game.GlobalConfig.ActiveGame is not { } activeGame)
         {
             game = default;
@@ -942,6 +983,18 @@ static class Program
         [NotNullWhen(true)] out LazyModList? profile
     )
     {
+        if (result?.GetValue(optionProfileOverride) is { } overrideProfile)
+        {
+            var profiles = game.GetProfiles().Select(x => x.profile).ToArray();
+
+            if (!TryGetModList(result, overrideProfile, profiles, out profile))
+            {
+                result.AddError($"Overridden profile '{overrideProfile}' is not found.");
+                return false;
+            }
+
+            return true;
+        }
         if (game.Config.ActiveProfile is not { } activeProfile)
         {
             profile = default;
@@ -1064,13 +1117,13 @@ static class Program
     }
 
     private static bool TryVeryFuzzySearch(
-        SymbolResult result,
+        SymbolResult? result,
         string toSelect,
         IEnumerable<string> searchList,
         [NotNullWhen(true)] out string? selected
     )
     {
-        if (!result.Assume(out var assumption))
+        if (!Assume(result, out var assumption))
         {
             selected = default;
             return false;
@@ -1167,7 +1220,7 @@ static class Program
     }
 
     private static bool SelectFuzzySearch(
-        SymbolResult result,
+        SymbolResult? result,
         string toSelect,
         [NotNullWhen(true)] out string? selectedValue,
         bool? assumption,
@@ -1176,15 +1229,15 @@ static class Program
         int score
     )
     {
-        var noInteractive = result.GetValue(optionNoInteractive);
-        var exactMatching = result.GetValue(optionExactMatching);
+        var noInteractive = result?.GetValue(optionNoInteractive) ?? false;
+        var exactMatching = result?.GetValue(optionExactMatching) ?? false;
         selectedValue = default;
 
         string selected;
 
         if (best.Count == 0)
         {
-            result.AddError("Match not found: " + toSelect);
+            result?.AddError("Match not found: " + toSelect);
             return false;
         }
         else if (best.Count > 1)
@@ -1200,7 +1253,7 @@ static class Program
                         $"[yellow]- {match}[/]"
                     );
                 }
-                result.AddError("Ambiguous match.");
+                result?.AddError("Ambiguous match.");
                 return false;
             }
             var choice = AnsiConsole.Prompt(
@@ -1220,7 +1273,7 @@ static class Program
             {
                 if (noInteractive && assumption is null)
                 {
-                    result.AddError($"Match not found: {toSelect}\nBest match: {selected}");
+                    result?.AddError($"Match not found: {toSelect}\nBest match: {selected}");
                     return false;
                 }
 
