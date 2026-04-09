@@ -4,7 +4,8 @@ namespace Cogwork.Core.Extensions;
 
 public readonly record struct ProgressContext(
     IProgress<double>? Progress,
-    Action<IProgress<double>, long?>? OnContentLengthKnown
+    Action<IProgress<double>, long?>? OnContentLengthKnown,
+    Func<IProgress<double>>? ProgressFactory = null
 );
 
 public static class HttpClientExtensions
@@ -37,6 +38,7 @@ public static class HttpClientExtensions
         // passed or when the content length is unknown
         if (progress is null || contentLength is null)
         {
+            Cog.Debug($"Download has no progress tracking: {requestUri}");
             await download.CopyToAsync(destination, cancellationToken);
             return response.StatusCode;
         }

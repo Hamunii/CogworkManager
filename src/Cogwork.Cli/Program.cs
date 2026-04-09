@@ -626,12 +626,7 @@ static class Program
             mods.Subcommands.Add(modsSync);
             modsSync.Validators.Add(result =>
             {
-                if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
-                    return;
-
-                var profile = lazyProfile.LoadAsync().Result;
-                _ = profile.DownloadPackagesAsync().Result;
-                _ = profile.InstallPackagesAsync().Result;
+                _ = SyncProfilePackages(result).Result;
             });
         }
         AddOptionRecursive(mods, optionGameOverride);
@@ -661,6 +656,8 @@ static class Program
             {
                 if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
                     return;
+
+                _ = SyncProfilePackages(result).Result;
 
                 var error = lazyProfile.PrepareModLoader(game);
                 if (error is { })
@@ -837,6 +834,69 @@ static class Program
 
         var result = rootCommand.Parse(args);
         return await result.InvokeAsync();
+    }
+
+    static async Task<bool> SyncProfilePackages(CommandResult result)
+    {
+        if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
+            return false;
+
+        var progress = AnsiConsole.Progress();
+        await progress
+            .Columns(
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new DownloadedColumn(),
+                new TransferSpeedColumn(),
+                new RemainingTimeColumn()
+            )
+            .StartAsync(async ctx =>
+            {
+                bool doneAnything = false;
+
+                var profile = await lazyProfile.LoadAsync(packageSource =>
+                    new(
+                        ctx.AddTask($"Fetching {packageSource}", maxValue: 0).IsIndeterminate(),
+                        (task, contentLength) =>
+                        {
+                            doneAnything = true;
+                            if (contentLength is null || task is not ProgressTask pTask)
+                                return;
+
+                            pTask.IsIndeterminate(false).MaxValue = (double)contentLength;
+                        }
+                    )
+                );
+
+                _ = await profile.DownloadPackagesAsync(packageVersion =>
+                {
+                    return new(
+                        null,
+                        (task, contentLength) =>
+                        {
+                            if (contentLength is null || task is not ProgressTask pTask)
+                                return;
+
+                            pTask.IsIndeterminate(false).MaxValue = (double)contentLength;
+                        },
+                        () =>
+                        {
+                            doneAnything = true;
+                            return ctx.AddTask(packageVersion.ToString(), maxValue: 0)
+                                .IsIndeterminate();
+                        }
+                    );
+                });
+
+                _ = profile.InstallPackagesAsync().Result;
+
+                if (!doneAnything)
+                {
+                    progress.AutoClear = true;
+                }
+            });
+
+        return true;
     }
 
     private static bool TryGetModList(

@@ -523,7 +523,11 @@ public sealed class ModList
         Add(Added.Keys.Select(x => x.Latest));
     }
 
-    public Task<(PackageVersion packageVersion, bool isDownloaded)[]> DownloadPackagesAsync(
+    public Task<(
+        PackageVersion packageVersion,
+        bool wasDownloaded,
+        bool isDownloaded
+    )[]> DownloadPackagesAsync(
         Func<PackageVersion, ProgressContext>? progressFactory = null,
         CancellationToken cancellationToken = default
     )
@@ -532,8 +536,21 @@ public sealed class ModList
             AllPackages.Select(async package =>
             {
                 var progress = progressFactory?.Invoke(package.Value) ?? default;
+                var isDownloaded = package.Value.IsDownloaded();
+                if (!isDownloaded)
+                {
+                    if (
+                        progress.Progress is null
+                        && progress.ProgressFactory is { } progressFactory
+                    )
+                    {
+                        progress = progress with { Progress = progressFactory() };
+                    }
+                }
+
                 return (
                     package.Value,
+                    isDownloaded,
                     await package.Key.Source.Service.DownloadPackageAsync(
                         package.Value,
                         progress,
