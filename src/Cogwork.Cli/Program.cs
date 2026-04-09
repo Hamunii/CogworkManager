@@ -23,10 +23,12 @@ static class Program
     static readonly Option<string> optionGameOverride = new("--game", "-g")
     {
         Description = "Override the active game to work on",
+        Recursive = true,
     };
     static readonly Option<string> optionProfileOverride = new("--profile", "-p")
     {
         Description = "Override the active mod profile to work on",
+        Recursive = true,
     };
     static readonly Option<bool> optionAssumeYes = new("--assume-yes", "-y")
     {
@@ -158,6 +160,7 @@ static class Program
 
         Command profile = new("profile", "Manage mod profiles");
         profile.Aliases.Add("p");
+        profile.Options.Add(optionGameOverride);
         rootCommand.Subcommands.Add(profile);
         {
             Command profileSelect = new(
@@ -276,10 +279,11 @@ static class Program
                 });
             }
         }
-        AddOptionRecursive(profile, optionGameOverride);
 
         Command mods = new("mods", "Manage mods on a mod profile");
         mods.Aliases.Add("m");
+        mods.Options.Add(optionGameOverride);
+        mods.Options.Add(optionProfileOverride);
         rootCommand.Subcommands.Add(mods);
         {
             Command modsAdd = new("add", "Add mods to a profile");
@@ -636,11 +640,11 @@ static class Program
                 _ = SyncProfilePackages(result).Result;
             });
         }
-        AddOptionRecursive(mods, optionGameOverride);
-        AddOptionRecursive(mods, optionProfileOverride);
 
         Command source = new("sources", "Manage package sources");
         source.Aliases.Add("so");
+        source.Options.Add(optionGameOverride);
+        source.Options.Add(optionProfileOverride);
         rootCommand.Subcommands.Add(source);
         {
             Command sourceAdd = new("add", "Add package source");
@@ -651,10 +655,10 @@ static class Program
             sourceRemove.Aliases.Add("r");
             source.Subcommands.Add(sourceRemove);
         }
-        AddOptionRecursive(source, optionGameOverride);
-        AddOptionRecursive(source, optionProfileOverride);
 
         Command launch = new("launch", "Launch current game with active mod profile");
+        launch.Options.Add(optionGameOverride);
+        launch.Options.Add(optionProfileOverride);
         launch.Options.Add(optionDirectLaunch);
         launch.Options.Add(optionAttachedLaunch);
         launch.Options.Add(optionDry);
@@ -844,8 +848,6 @@ static class Program
                 }
             );
         }
-        AddOptionRecursive(launch, optionGameOverride);
-        AddOptionRecursive(launch, optionProfileOverride);
 
         rootCommand.Add(optionNoInteractive);
 
@@ -999,21 +1001,6 @@ static class Program
             }
 
             AnsiConsole.WriteLine();
-        }
-    }
-
-    private static void AddOptionRecursive(Command command, Option option)
-    {
-        if (command.Options.Contains(option))
-        {
-            return;
-        }
-
-        command.Options.Add(option);
-
-        foreach (var child in command.Subcommands)
-        {
-            AddOptionRecursive(child, option);
         }
     }
 
