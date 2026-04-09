@@ -61,6 +61,6 @@ This library is heavily WIP still so everything about the implementation may cha
 
 ### Cogwork.Cli
 
-Aka "cogman". It's a CLI tool that focused a lot on the user experience to try and make it easy-ish to use even for people who are not used to CLI tools.
+Aka "cogman". It's a CLI tool that focuses a lot on the user experience to try and make it easy-ish to use even for people who are not used to CLI tools.
 
-The goal of cogman is to be a fully-featured mod package manager so you don't need to open a GUI app for managing mods. As of right now, it's not there. It can't actually even install mods yet, though that feature is surely coming soon.
+The goal of cogman is to be a fully-featured mod package manager so you don't need to open a GUI app for managing mods. As of right now, it's not quite there.
