@@ -4,10 +4,10 @@ namespace Cogwork.Core;
 
 public static class CogworkPaths
 {
-    const string appId = "Hamunii.Cogwork";
+    internal const string AppId = "Hamunii.Cogwork";
 
-    public static string CacheDirectory => CombineAndCreate(BaseDirectory.CacheHome, appId);
-    public static string DataDirectory => CombineAndCreate(BaseDirectory.DataHome, appId);
+    public static string CacheDirectory => CombineAndCreate(BaseDirectory.CacheHome, AppId);
+    public static string DataDirectory => CombineAndCreate(BaseDirectory.DataHome, AppId);
 
     public static string GetCacheSubDirectory(string subDirectory) =>
         CombineAndCreate(CacheDirectory, subDirectory);
@@ -39,7 +39,7 @@ public static class CogworkPaths
     public static string GetProfileFilesDirectory(LazyModList modList) =>
         CombineAndCreate(GetProfilesDirectory(modList.Game), modList.Id, "files");
 
-    static string CombineAndCreate(params ReadOnlySpan<string> paths)
+    public static string CombineAndCreate(params ReadOnlySpan<string> paths)
     {
         var path = Path.Combine(paths);
         _ = Directory.CreateDirectory(path);

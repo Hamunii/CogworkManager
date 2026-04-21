@@ -10,6 +10,7 @@ using System.IO.Abstractions.TestingHelpers;
 using System.IO.Compression;
 using System.Net;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Cogwork.Core.Extensions;
@@ -21,6 +22,19 @@ namespace Cogwork.Core;
 
 public static class CogworkCoreLogger
 {
+#pragma warning disable IDE0052 // Private member can be removed as the value assigned to it is never read
+    static readonly Finalizer finalizer = new();
+#pragma warning restore
+
+    sealed class Finalizer
+    {
+        ~Finalizer()
+        {
+            LogMutex.ReleaseMutex();
+            LogMutex.Dispose();
+        }
+    }
+
     static CogworkCoreLogger()
     {
         var assembly = typeof(CogworkCoreLogger).Assembly;
@@ -29,15 +43,30 @@ public static class CogworkCoreLogger
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
             .InformationalVersion;
 
-        Cog.Debug($"=============================");
-        Cog.Debug($"{name} {version} initialized.");
-    }
+        string mutexId = $@"Global\Hamunii.Cogwork.Logger";
+        int numId = 0;
+        bool createdNew = false;
+        while (true)
+        {
+            Mutex mutex = new(true, mutexId + numId, out createdNew);
+            if (!createdNew)
+            {
+                mutex.Dispose();
+                numId++;
+            }
+            else
+            {
+                LogMutex = mutex;
+                break;
+            }
+        }
 
-    static string LogFileLocation =>
-        Path.Combine(CogworkPaths.GetCacheSubDirectory("logs"), "log-.txt");
+        LogFileLocation = Path.Combine(
+            CogworkPaths.GetCacheSubDirectory("logs"),
+            $"instance-{numId}-date-.log"
+        );
 
-    public static Logger Cog { get; } =
-        new LoggerConfiguration()
+        Cog = new LoggerConfiguration()
             .MinimumLevel.Debug()
             .WriteTo.Console(
 #if DEBUG
@@ -55,11 +84,19 @@ public static class CogworkCoreLogger
                 buffered: false
             )
             .CreateLogger();
+
+        Cog.Debug($"=============================");
+        Cog.Debug($"{name} {version} initialized.");
+    }
+
+    public static Logger Cog { get; }
+    static string LogFileLocation { get; }
+    static Mutex LogMutex { get; }
 }
 
 public interface IPackageSourceService
 {
-    public string PackageIndexDirectory { get; }
+    public string PackageIndexBaseDirectory { get; }
     public string PackageIndexCacheLocation { get; }
 
     /// <summary>
@@ -90,13 +127,68 @@ public interface IPackageSourceService
 
     // Apparently one should preferably keep a singleton of HttpClient.
     internal static HttpClient SharedClient { get; } = new();
+
+    public readonly record struct PerformedOrNot<T>(
+        [property: MemberNotNullWhen(true, nameof(PerformedOrNot<>.Value))] bool Performed,
+        T? Value = default
+    );
+
+    /// <summary>
+    /// Performs a task if it's not actively being
+    /// performed by another thread or application instance,
+    /// otherwise waits until the preexisting task is finished.
+    /// </summary>
+    public static async Task<PerformedOrNot<T>> DoTaskOrWaitForCompletionAsync<T>(
+        string lockDirectory,
+        ProgressContext progress,
+        Func<ProgressContext, Task<T>> doTask
+    )
+    {
+        if (!Directory.Exists(lockDirectory))
+        {
+            Directory.CreateDirectory(lockDirectory);
+        }
+
+        bool waitedForLock = false;
+        while (true)
+        {
+            try
+            {
+                using FileStream lockFile = new(
+                    Path.Combine(lockDirectory, ".lock"),
+                    FileMode.OpenOrCreate,
+                    FileAccess.Read,
+                    FileShare.None
+                );
+
+                if (waitedForLock)
+                {
+                    Cog.Warning($"Got lock for '{lockDirectory}'");
+                    return new(false);
+                }
+                return new(true, await doTask(progress));
+            }
+            catch (IOException)
+            {
+                if (!waitedForLock)
+                {
+                    waitedForLock = true;
+                    Cog.Warning($"Awaiting lock for '{lockDirectory}' instead of fetching");
+                }
+                await Task.Delay(100);
+            }
+        }
+    }
 }
 
 public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 {
     [JsonIgnore]
-    public string PackageIndexDirectory =>
+    public string PackageIndexBaseDirectory =>
         field ??= CogworkPaths.GetCacheIndexSubDirectory(game.Slug, "thunderstore");
+
+    public string PackageIndexIndexDirectory =>
+        field ??= CogworkPaths.CombineAndCreate(PackageIndexBaseDirectory, "index");
 
     public string PackageInstallSubDirectory { get; } = "thunderstore";
 
@@ -105,22 +197,34 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
     public Game Game => game;
 
     public string PackageIndexCacheLocation =>
-        field ??= Path.Combine(
-            CogworkPaths.GetCacheIndexSubDirectory(game.Slug),
-            $"thunderstore-index-cache.json"
-        );
+        field ??= Path.Combine(PackageIndexBaseDirectory, $"index-cache.json");
 
     readonly Lock _totalBytesLock = new();
     readonly Lock _totalContentLengthLock = new();
 
     public bool IsIncompleteIndexCache() =>
         Directory
-            .EnumerateFiles(PackageIndexDirectory)
+            .EnumerateFiles(PackageIndexIndexDirectory)
             .Any(x => x.EndsWith(".todo", StringComparison.Ordinal));
 
-    public string PackageIndexLocation(string hash) => Path.Combine(PackageIndexDirectory, hash);
+    public string PackageIndexLocation(string hash) =>
+        Path.Combine(PackageIndexIndexDirectory, hash);
 
     public async Task<bool> FetchIndexToCacheAsync(ProgressContext progress = default)
+    {
+        var result = await IPackageSourceService.DoTaskOrWaitForCompletionAsync(
+            PackageIndexBaseDirectory,
+            progress,
+            DoIndexFetchLogicAsync
+        );
+
+        if (!result.Performed)
+            return true;
+
+        return result.Value;
+    }
+
+    async Task<bool> DoIndexFetchLogicAsync(ProgressContext progress)
     {
         var url = $"https://thunderstore.io/c/{game.Slug}/api/v1/package-listing-index/";
 
@@ -158,7 +262,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         }
 
         Cog.Debug(
-            $"Downloading {newPackageIndexUrls.Length} package indexes to {PackageIndexDirectory}"
+            $"Downloading {newPackageIndexUrls.Length} package indexes to {PackageIndexIndexDirectory}"
         );
 
         var progresses = new double[newPackageIndexUrls.Length];
@@ -217,16 +321,16 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                     }
                     i++;
                     var status = await client.DownloadAsync(x.url, zipFileStream, progressContext);
-                    Cog.Debug($"Downloaded package {x.fileName}");
+                    Cog.Debug($"Downloaded index {x.fileName}");
                     return status;
                 }
             )
             .ToArray();
 
-        Task.WaitAll(tasks);
+        var statuses = await Task.WhenAll(tasks);
 
         int j = 0;
-        foreach (var status in tasks.Select((x) => x.Result))
+        foreach (var status in statuses)
         {
             if (!status.IsSuccess)
             {
@@ -241,13 +345,14 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         var allUpToDateFiles = allPackageIndexUrls.Select(x => x.fileName).ToArray();
         foreach (
             var outdated in Directory
-                .EnumerateFiles(PackageIndexDirectory)
+                .EnumerateFiles(PackageIndexIndexDirectory)
                 .Where(x => !allUpToDateFiles.Contains(Path.GetFileName(x)))
         )
         {
             Cog.Debug($"Deleting outdated cache file '{outdated}'");
             File.Delete(outdated);
         }
+
         Cog.Information("Fetched successfully.");
         return true;
     }
@@ -1144,7 +1249,7 @@ public sealed class PackageSource
             }
         }
 
-        if (!TryParsePackageIndexFile(Service.PackageIndexDirectory, out var packages))
+        if (!TryParsePackageIndexFile(Service.PackageIndexBaseDirectory, out var packages))
         {
             Cog.Error("Package index parsing failed");
             return false;
@@ -1163,10 +1268,12 @@ public sealed class PackageSource
     }
 
     internal bool TryParsePackageIndexFile(
-        string packageIndexPath,
+        string packageIndexBasePath,
         [NotNullWhen(true)] out List<Package>? packages
     )
     {
+        var packageIndexPath = Path.Combine(packageIndexBasePath, "index");
+
         if (!Directory.Exists(packageIndexPath))
         {
             Cog.Error($"Package index directory '{packageIndexPath}' must exist.");
@@ -1182,9 +1289,14 @@ public sealed class PackageSource
             {
                 try
                 {
-                    using var fileStream = File.OpenRead(indexFile);
+                    using var fileStream = new FileStream(
+                        indexFile,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read
+                    );
                     using GZipStream zipStream = new(fileStream, CompressionMode.Decompress);
-                    if (!TryParsePackageIndex(zipStream, out var packages1))
+                    if (!TryParsePackageIndex(indexFile, zipStream, out var packages1))
                     {
                         state.Break();
                         return;
@@ -1213,7 +1325,11 @@ public sealed class PackageSource
         return true;
     }
 
-    internal bool TryParsePackageIndex(Stream data, [NotNullWhen(true)] out List<Package>? packages)
+    internal bool TryParsePackageIndex(
+        string fileName,
+        Stream data,
+        [NotNullWhen(true)] out List<Package>? packages
+    )
     {
         try
         {
@@ -1256,7 +1372,14 @@ public sealed class PackageSource
         }
         catch (JsonException ex)
         {
-            Cog.Error("Error reading package index file: " + ex.ToString());
+            byte[] buffer = new byte[100];
+            var res = data.Read(buffer);
+            var beginning = Encoding.UTF8.GetString(buffer);
+            Cog.Error(
+                $"Error reading package index file '{fileName}' with contents beginning with: '{beginning}'\n"
+                    + "And error: "
+                    + ex.ToString()
+            );
             packages = default;
             return false;
         }

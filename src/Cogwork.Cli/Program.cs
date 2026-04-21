@@ -656,6 +656,25 @@ static class Program
             source.Subcommands.Add(sourceRemove);
         }
 
+        Command wasteTime = new("waste-time", "Waste time until close program") { Hidden = true };
+        wasteTime.SetAction(result =>
+        {
+            string mutexId = $@"Global\Hamunii.Cogwork.WasteTime";
+            using Mutex mutex = new(true, mutexId, out var createdNew);
+            if (!createdNew)
+            {
+                Cog.Warning($"Waiting for mutex '{mutexId}'");
+                mutex.WaitOne();
+                Cog.Warning($"Got mutex");
+                mutex.ReleaseMutex();
+                return;
+            }
+            Cog.Warning($"Created and owning mutex");
+            Thread.Sleep(TimeSpan.FromSeconds(30));
+            mutex.ReleaseMutex();
+        });
+        rootCommand.Subcommands.Add(wasteTime);
+
         Command launch = new("launch", "Launch current game with active mod profile");
         launch.Aliases.Add("la");
         launch.Options.Add(optionDirectLaunch);

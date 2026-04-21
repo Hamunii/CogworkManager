@@ -7,7 +7,7 @@ namespace Cogwork.Core;
 
 internal class TestPackageSource : IPackageSourceService
 {
-    public string PackageIndexDirectory =>
+    public string PackageIndexBaseDirectory =>
         field ??= CogworkPaths.GetCacheIndexSubDirectory(Game.Slug, "test");
 
     public string PackageIndexCacheLocation =>
@@ -24,11 +24,11 @@ internal class TestPackageSource : IPackageSourceService
 
     public bool IsIncompleteIndexCache() =>
         Directory
-            .EnumerateFiles(PackageIndexDirectory)
+            .EnumerateFiles(PackageIndexBaseDirectory)
             .Any(x => x.EndsWith(".todo", StringComparison.Ordinal));
 
     public string PackageIndexLocation(int index) =>
-        Path.Combine(PackageIndexDirectory, $"{index}.json.zip");
+        Path.Combine(PackageIndexBaseDirectory, $"{index}.json.zip");
 
     public async Task<bool> FetchIndexToCacheAsync(ProgressContext progress = default)
     {
