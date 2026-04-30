@@ -786,7 +786,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     {
         var isWindowsApp = !modList.IsLinuxNative();
 
-        var profileFiles = CogworkPaths.GetProfileFilesDirectory(modList);
+        var profileFiles = modList.ProfileFilesDirectory;
         var gamePath = modList.GetGamePathOrThrow();
         var executables = Directory
             .GetFiles(gamePath)

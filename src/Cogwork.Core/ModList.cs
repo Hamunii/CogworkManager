@@ -80,6 +80,13 @@ public sealed class LazyModList
         private set;
     }
     public string ProfileSaveDataPath => field ??= ModList.GetProfileFileLocation(Game, Id);
+    public string ProfileFilesDirectory =>
+        field ??= CogworkPaths.CombineAndCreate(
+            CogworkPaths.GetProfilesDirectory(Game),
+            Id,
+            "files"
+        );
+
     ModList? _modList;
     bool _isResolvedAddedDirty;
     bool _isResolvedDependenciesDirty;
@@ -218,8 +225,7 @@ public sealed class LazyModList
         }
 
         Cog.Debug($"Copying modloader files to: '{gamePath}'");
-        var profileFiles = CogworkPaths.GetProfileFilesDirectory(this);
-        game.InstallRules.CopyModLoaderFilesToGame(profileFiles, gamePath);
+        game.InstallRules.CopyModLoaderFilesToGame(ProfileFilesDirectory, gamePath);
         return null;
     }
 
@@ -455,26 +461,40 @@ public sealed class ModList
         return updated;
     }
 
-    public void Remove(IEnumerable<Package> packages)
+    public (PackageVersion[] uninstalled, PackageVersion[] failedToUninstall) Remove(
+        IEnumerable<Package> packages
+    )
     {
+        List<(PackageVersion packageVersion, bool isUninstalled)> toUninstall = new(
+            packages.Count()
+        );
+
         foreach (var package in packages)
         {
-            if (Added.Remove(package, out var packageVersion))
+            if (!Added.Remove(package, out var packageVersion))
             {
-                // Add this version temporarily to deps so version can't get downgraded on rebuild
-                Dependencies.Add(package, packageVersion);
+                continue;
             }
-        }
-        DirtyRebuildDependencies();
-    }
 
-    public void Remove(Package package)
-    {
-        if (Added.Remove(package, out var packageVersion))
-        {
+            // Add this version temporarily to deps so version can't get downgraded on rebuild
             Dependencies.Add(package, packageVersion);
+
+            var isUninstalled = _lazy
+                .Game.InstallRules.UninstallPackageAsync(
+                    (VisualPackageVersion)packageVersion,
+                    _lazy.ProfileFilesDirectory
+                )
+                .Result;
+
+            toUninstall.Add((packageVersion, isUninstalled));
         }
+
         DirtyRebuildDependencies();
+
+        return (
+            [.. toUninstall.Where(x => x.isUninstalled).Select(x => x.packageVersion)],
+            [.. toUninstall.Where(x => !x.isUninstalled).Select(x => x.packageVersion)]
+        );
     }
 
     void DirtyRebuildDependencies()
@@ -579,7 +599,7 @@ public sealed class ModList
                 .ToDictionary(x => x.FullName) ?? [];
 
         var installRules = _lazy.Game.InstallRules;
-        var files = CogworkPaths.GetProfileFilesDirectory(_lazy);
+        var files = _lazy.ProfileFilesDirectory;
 
         var packages = await Task.WhenAll(
             AllPackages.Select(async package =>

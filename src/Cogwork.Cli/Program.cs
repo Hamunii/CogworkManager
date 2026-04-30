@@ -423,12 +423,25 @@ static class Program
                         .AddChoices(removable)
                 );
 
-                profile.Remove(packagesToRemove);
+                // Funnily enough, we must ensure all packages are downloaded first so we
+                // know which files to remove when removing the package from a profile.
+                _ = profile.DownloadPackagesAsync().Result;
+
+                var (removed, failedToRemove) = profile.Remove(packagesToRemove);
 
                 AnsiConsole.WriteLine("Removed:");
-                foreach (var item in packagesToRemove)
+                foreach (var item in removed)
                 {
-                    AnsiConsole.WriteLine($"- {item.ToStringSimpleWithSource()}");
+                    AnsiConsole.WriteLine($"- {item}");
+                }
+
+                if (failedToRemove.Length > 0)
+                {
+                    AnsiConsole.WriteLine("\nFailed to Remove:");
+                    foreach (var item in failedToRemove)
+                    {
+                        AnsiConsole.WriteLine($"- {item}");
+                    }
                 }
                 return;
             });
