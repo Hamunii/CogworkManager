@@ -129,7 +129,19 @@ public sealed class LazyModList
     )
     {
         await SourceIndex.FetchAllPackagesAsync(progressFactory);
+        return InitModList();
+    }
 
+    public async Task<ModList> LoadManualAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
+    {
+        await SourceIndex.FetchAllPackagesManualAsync(progressFactory);
+        return InitModList();
+    }
+
+    private ModList InitModList()
+    {
         if (_modList is { })
             return _modList;
 

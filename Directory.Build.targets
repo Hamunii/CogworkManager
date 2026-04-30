@@ -15,6 +15,6 @@
     <PackageReference Include="ZLinq" Version="1.5.5" />
     <PackageReference Include="TestableIO.System.IO.Abstractions.TestingHelpers" Version="22.1.0" />
     <PackageReference Include="Gameloop.Vdf" Version="0.6.2" />
-    <!-- <PackageReference Include="Microsoft.AspNet.WebApi.Client" Version="6.0.0" /> -->
+    <PackageReference Include="MemoryPack" Version="1.21.4" />
   </ItemGroup>
 </Project>

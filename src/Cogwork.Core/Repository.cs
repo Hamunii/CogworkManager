@@ -1,5 +1,6 @@
 global using static Cogwork.Core.CogworkCoreLogger;
 global using static Cogwork.Core.PackageSource;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -8,12 +9,15 @@ using System.Globalization;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using System.IO.Compression;
+using System.IO.Pipelines;
 using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Cogwork.Core.Extensions;
+using MemoryPack;
+using MemoryPack.Compression;
 using Serilog;
 using Serilog.Core;
 using ZLinq;
@@ -342,6 +346,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
             j++;
         }
 
+        bool anyOutdated = false;
         var allUpToDateFiles = allPackageIndexUrls.Select(x => x.fileName).ToArray();
         foreach (
             var outdated in Directory
@@ -349,8 +354,18 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
                 .Where(x => !allUpToDateFiles.Contains(Path.GetFileName(x)))
         )
         {
+            anyOutdated = true;
             Cog.Debug($"Deleting outdated cache file '{outdated}'");
             File.Delete(outdated);
+        }
+
+        if (anyOutdated || newPackageIndexUrls.Length > 0)
+        {
+            var optimizedPath = Path.Combine(PackageIndexBaseDirectory, "optimized");
+            if (Directory.Exists(optimizedPath))
+            {
+                Directory.Delete(optimizedPath, recursive: true);
+            }
         }
 
         Cog.Information("Fetched successfully.");
@@ -959,14 +974,28 @@ public sealed class PackageSourceIndex
         Func<PackageSource, ProgressContext>? progressFactory = null
     )
     {
-        Cog.Information($"Package sources count: {PackageSources.Count}");
+        Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
             .Select(x => x.FetchPackageIndexAutomaticAsync(progressFactory))
             .ToArray();
 #if DEBUG
         await Task.Delay(100);
 #endif
-        Task.WaitAll(fetchTasks);
+        await Task.WhenAll(fetchTasks);
+    }
+
+    public async Task FetchAllPackagesManualAsync(
+        Func<PackageSource, ProgressContext>? progressFactory = null
+    )
+    {
+        Cog.Debug($"Package sources count: {PackageSources.Count}");
+        var fetchTasks = PackageSources
+            .Select(x => x.FetchPackageIndexManualAsync(progressFactory))
+            .ToArray();
+#if DEBUG
+        await Task.Delay(100);
+#endif
+        await Task.WhenAll(fetchTasks);
     }
 }
 
@@ -1184,8 +1213,8 @@ public sealed class PackageSource
 
     public static PackageSourceIndex Silksong { get; } = new(ThunderstoreSilksong);
 
-    public static double SecondsUntilAutomaticIndexRefreshAllowed { get; } = 60d * 5d;
-    public static double SecondsUntilManualIndexRefreshAllowed { get; } = 10d;
+    public static TimeSpan TimeUntilAutomaticIndexRefresh { get; } = TimeSpan.FromMinutes(20);
+    public static TimeSpan TimeUntilManualIndexRefreshAllowed { get; } = TimeSpan.FromSeconds(10);
 
     internal PackageSourceCache SourceCache =>
         field ??= PackageSourceCache.LoadSavedDataOrNew(
@@ -1209,18 +1238,18 @@ public sealed class PackageSource
         Func<PackageSource, ProgressContext>? progressFactory = null
     )
     {
-        _ = await FetchPackageIndexAsync(SecondsUntilAutomaticIndexRefreshAllowed, progressFactory);
+        _ = await FetchPackageIndexAsync(TimeUntilAutomaticIndexRefresh, progressFactory);
     }
 
     public async Task FetchPackageIndexManualAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null
     )
     {
-        _ = await FetchPackageIndexAsync(SecondsUntilManualIndexRefreshAllowed, progressFactory);
+        _ = await FetchPackageIndexAsync(TimeUntilManualIndexRefreshAllowed, progressFactory);
     }
 
     private async Task<bool> FetchPackageIndexAsync(
-        double secondsUntilIndexRefreshAllowed,
+        TimeSpan timeUntilIndexRefreshAllowed,
         Func<PackageSource, ProgressContext>? progressFactory
     )
     {
@@ -1232,7 +1261,7 @@ public sealed class PackageSource
         if (dateNow < lastFetch)
             fetchAgain = true;
 
-        if (dateNow > lastFetch.AddSeconds(secondsUntilIndexRefreshAllowed))
+        if (dateNow > lastFetch.Add(timeUntilIndexRefreshAllowed))
             fetchAgain = true;
 
         if (fetchAgain || Service.IsIncompleteIndexCache())
@@ -1250,7 +1279,7 @@ public sealed class PackageSource
         {
             Cog.Information(
                 $"Using cached package index for '{Service.Uri}', last fetch was "
-                    + $"less than {secondsUntilIndexRefreshAllowed} seconds ago."
+                    + $"less than {timeUntilIndexRefreshAllowed} ago."
             );
 
             if (isImported)
@@ -1259,7 +1288,8 @@ public sealed class PackageSource
             }
         }
 
-        if (!TryParsePackageIndexFile(Service.PackageIndexBaseDirectory, out var packages))
+        var packages = await ParsePackageIndexAsync(Service.PackageIndexBaseDirectory);
+        if (packages is null)
         {
             Cog.Error("Package index parsing failed");
             return false;
@@ -1277,19 +1307,68 @@ public sealed class PackageSource
         return Packages;
     }
 
-    internal bool TryParsePackageIndexFile(
-        string packageIndexBasePath,
-        [NotNullWhen(true)] out List<Package>? packages
-    )
+    Lock _lock = new();
+
+    internal async Task<List<Package>?> ParsePackageIndexAsync(string packageIndexBasePath)
     {
+        var optimizedPath = Path.Combine(packageIndexBasePath, "optimized");
+
+        if (Directory.Exists(optimizedPath))
+        {
+            Cog.Debug($"Deserializing fast index '{optimizedPath}'...");
+
+            List<Package> allPackages2 = [];
+
+            var result2 = Parallel.ForEach(
+                Directory.EnumerateFiles(optimizedPath),
+                (indexFile, state) =>
+                {
+                    try
+                    {
+                        using var decompressor = new BrotliDecompressor();
+                        byte[] bytes = File.ReadAllBytes(indexFile);
+                        var decompressed = decompressor.Decompress(bytes);
+
+                        var packages = ParsePackageIndexMemoryPackAsync(indexFile, decompressed);
+
+                        if (packages is null)
+                        {
+                            state.Break();
+                            return;
+                        }
+
+                        lock (allPackages2)
+                        {
+                            allPackages2.AddRange(packages.Values);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Cog.Error(indexFile + ": " + ex.ToString());
+                        return;
+                    }
+                }
+            );
+
+            if (!result2.IsCompleted)
+            {
+                return default;
+            }
+
+            Cog.Debug($"Deserialized fast index");
+
+            return allPackages2;
+        }
+
         var packageIndexPath = Path.Combine(packageIndexBasePath, "index");
 
         if (!Directory.Exists(packageIndexPath))
         {
             Cog.Error($"Package index directory '{packageIndexPath}' must exist.");
-            packages = default;
-            return false;
+            return default;
         }
+
+        Cog.Debug($"Loading JSON index '{packageIndexPath}'...");
 
         List<Package> allPackages = [];
 
@@ -1306,7 +1385,7 @@ public sealed class PackageSource
                         FileShare.Read
                     );
                     using GZipStream zipStream = new(fileStream, CompressionMode.Decompress);
-                    if (!TryParsePackageIndex(indexFile, zipStream, out var packages1))
+                    if (!TryParsePackageIndexJson(indexFile, zipStream, out var packages1))
                     {
                         state.Break();
                         return;
@@ -1327,15 +1406,60 @@ public sealed class PackageSource
 
         if (!result.IsCompleted)
         {
-            packages = default;
-            return false;
+            return default;
         }
 
-        packages = allPackages;
-        return true;
+        Cog.Debug($"Loaded JSON index");
+
+        Cog.Debug($"Serializing fast index to '{optimizedPath}'");
+        Directory.CreateDirectory(optimizedPath);
+
+        int i = 0;
+        await Task.WhenAll(
+            allPackages
+                .Chunk(2000)
+                .Select(chunk => CompressAndWriteChunk(optimizedPath, i++, chunk))
+        );
+
+        Cog.Debug("Serialized fast index");
+
+        return allPackages;
     }
 
-    internal bool TryParsePackageIndex(
+    private static async Task CompressAndWriteChunk(string optimizedPath, int i, Package[] chunk)
+    {
+        var list = new PackageList();
+        list.Values.AddRange(chunk);
+        using var compressor = new BrotliCompressor();
+        MemoryPackSerializer.Serialize(compressor, list);
+        using var fileStream = File.OpenWrite(Path.Combine(optimizedPath, $"{i}.bin"));
+        await compressor.CopyToAsync(fileStream);
+    }
+
+    internal PackageList? ParsePackageIndexMemoryPackAsync(
+        string fileName,
+        ReadOnlySequence<byte> bytes
+    )
+    {
+        try
+        {
+            var packages = MemoryPackSerializer.Deserialize<PackageList>(bytes);
+            if (packages is null)
+            {
+                Cog.Error($"Package index file '{fileName}' deserialization returned null");
+                return default;
+            }
+            ProcessPackages(packages.Values);
+            return packages;
+        }
+        catch (Exception ex)
+        {
+            Cog.Error($"Error reading package index file '{fileName}': {ex}");
+            return default;
+        }
+    }
+
+    internal bool TryParsePackageIndexJson(
         string fileName,
         Stream data,
         [NotNullWhen(true)] out List<Package>? packages
@@ -1346,44 +1470,17 @@ public sealed class PackageSource
             packages = JsonSerializer.Deserialize(data, JsonGen.Default.ListPackage);
             if (packages is null)
             {
-                Cog.Error("Package index file json deserialization returned null");
+                Cog.Error($"Package index file '{fileName}' deserialization returned null");
                 return false;
             }
-            for (int i = 0; i < packages.Count; i++)
-            {
-                Package package = packages[i];
-                package.Source = this;
-
-                if (
-                    !nameToPackage
-                        .GetAlternateLookup<ReadOnlySpan<char>>()
-                        .TryAdd(package.FullName, package)
-                )
-                {
-                    // If we are here, we just created a whole lot of
-                    // duplicate package instances. We connect the instances:
-                    if (
-                        Package.TryGetPackage(
-                            SourceIndex,
-                            package.FullName,
-                            out var oldPackage,
-                            false,
-                            out _,
-                            out _
-                        )
-                    )
-                    {
-                        oldPackage.Versions = package.Versions;
-                        packages[i] = oldPackage;
-                    }
-                }
-            }
+            ProcessPackages(packages);
             return true;
         }
         catch (JsonException ex)
         {
             byte[] buffer = new byte[100];
-            var res = data.Read(buffer);
+            data.Position = 0;
+            _ = data.Read(buffer);
             var beginning = Encoding.UTF8.GetString(buffer);
             Cog.Error(
                 $"Error reading package index file '{fileName}' with contents beginning with: '{beginning}'\n"
@@ -1392,6 +1489,39 @@ public sealed class PackageSource
             );
             packages = default;
             return false;
+        }
+    }
+
+    private void ProcessPackages(List<Package> packages)
+    {
+        for (int i = 0; i < packages.Count; i++)
+        {
+            Package package = packages[i];
+            package.Source = this;
+
+            if (
+                !nameToPackage
+                    .GetAlternateLookup<ReadOnlySpan<char>>()
+                    .TryAdd(package.FullName, package)
+            )
+            {
+                // If we are here, we just created a whole lot of
+                // duplicate package instances. We connect the instances:
+                if (
+                    Package.TryGetPackage(
+                        SourceIndex,
+                        package.FullName,
+                        out var oldPackage,
+                        false,
+                        out _,
+                        out _
+                    )
+                )
+                {
+                    oldPackage.Versions = package.Versions;
+                    packages[i] = oldPackage;
+                }
+            }
         }
     }
 

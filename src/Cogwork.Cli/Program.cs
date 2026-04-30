@@ -514,7 +514,7 @@ static class Program
                     {
                         bool fetchedAny = false;
 
-                        var profile = await lazyProfile.LoadAsync(packageSource =>
+                        var profile = await lazyProfile.LoadManualAsync(packageSource =>
                             new(
                                 ctx.AddTask($"Fetching {packageSource}", maxValue: 0)
                                     .IsIndeterminate(),
@@ -1196,14 +1196,22 @@ static class Program
         var exactMatching = result.GetValue(optionExactMatching);
 
         List<string> best = [];
+        // It'd be kinda nice to have this, but it's way too slow. About 2 seconds for Lethal Company.
+        // var score = FilterBestResults(
+        //     FuzzySharp.Process.ExtractTop(
+        //         toSelect,
+        //         searchList,
+        //         processor: s => s,
+        //         cutoff: 60,
+        //         scorer: ScorerCache.Get<WeightedRatioScorer>()
+        //     ),
+        //     ref best
+        // );
+
         var score = FilterBestResults(
-            FuzzySharp.Process.ExtractTop(
-                toSelect,
-                searchList,
-                processor: s => s,
-                cutoff: 60,
-                scorer: ScorerCache.Get<WeightedRatioScorer>()
-            ),
+            searchList
+                .Where(x => x.Contains(toSelect, StringComparison.InvariantCultureIgnoreCase))
+                .Select(x => (value: x, score: 100 - (x.Length - toSelect.Length))),
             ref best
         );
 
@@ -1425,6 +1433,23 @@ static class Program
                 Cog.Debug($"{result.Score} (dropped): {result.Index} {result.Value}");
             }
         }
+
+        return bestScore;
+    }
+
+    private static int FilterBestResults(
+        IEnumerable<(string value, int score)> res,
+        ref List<string> best
+    )
+    {
+        Cog.Debug($"Filtering started");
+        res = res.OrderByDescending(x => x.score);
+        best.AddRange(res.Select(x => x.value));
+
+        int bestScore = -100;
+        var first = res.FirstOrDefault();
+        if (first is { })
+            bestScore = first.score;
 
         return bestScore;
     }
