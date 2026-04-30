@@ -501,7 +501,29 @@ public sealed class ModList
             toUninstall.Add((packageVersion, isUninstalled));
         }
 
+        var dependenciesBefore = Dependencies.ToDictionary();
         DirtyRebuildDependencies();
+
+        foreach (
+            var dependency in dependenciesBefore.Where(x =>
+                !(
+                    Dependencies.TryGetValue(x.Key, out var packageVersion)
+                    && packageVersion == x.Value
+                )
+            )
+        )
+        {
+            var packageVersion = dependency.Value;
+
+            var isUninstalled = _lazy
+                .Game.InstallRules.UninstallPackageAsync(
+                    (VisualPackageVersion)packageVersion,
+                    _lazy.ProfileFilesDirectory
+                )
+                .Result;
+
+            toUninstall.Add((packageVersion, isUninstalled));
+        }
 
         return (
             [.. toUninstall.Where(x => x.isUninstalled).Select(x => x.packageVersion)],

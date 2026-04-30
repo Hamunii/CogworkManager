@@ -792,18 +792,27 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     {
         foreach (var file in sourceFs.Directory.EnumerateFiles(dir).AsValueEnumerable())
         {
-            // TODO: Do not delete config files without confirmation.
-            File.Delete(file);
+            if (File.Exists(file))
+            {
+                // TODO: Do not delete config files without confirmation.
+                File.Delete(file);
+            }
         }
 
         foreach (var subDir in sourceFs.Directory.EnumerateDirectories(dir).AsValueEnumerable())
         {
-            DeleteDirectoryContentsBasedOnSource(sourceFs, subDir);
+            if (Directory.Exists(subDir))
+            {
+                DeleteDirectoryContentsBasedOnSource(sourceFs, subDir);
+            }
         }
 
         if (Directory.GetFileSystemEntries(dir).Length == 0)
         {
-            Directory.Delete(dir);
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir);
+            }
         }
     }
 
