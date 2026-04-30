@@ -738,6 +738,16 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         fakeInstallRules.Map(packageVersion, path, installRoot);
 
+        // We don't want users' config files to be deleted if a package ships
+        // config files and the package is uninstalled. It's possible the user
+        // might want to install the package again and we'd like to keep its configs
+        // like any other package which doesn't ship its config file.
+        var configDir = Path.Combine(profileFilesDirectory, "BepInEx", "config");
+        if (fakeFs.Directory.Exists(configDir))
+        {
+            fakeFs.Directory.Delete(configDir, recursive: true);
+        }
+
         // Then we just delete the fake mapped files from our real filesystem.
         DeleteDirectoryContentsBasedOnSource(fakeFs, installRoot);
 
