@@ -1032,7 +1032,7 @@ static class Program
 
             if (!hideModListHelp)
             {
-                AnsiConsole.Markup(" [gray]?: cogman mods (add | remove | list)[/]");
+                AnsiConsole.Markup(" [gray]?: cogman (add | remove | list)[/]");
             }
 
             AnsiConsole.WriteLine();
