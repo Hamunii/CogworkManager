@@ -425,7 +425,9 @@ static class Program
 
                 // Funnily enough, we must ensure all packages are downloaded first so we
                 // know which files to remove when removing the package from a profile.
-                _ = profile.DownloadPackagesAsync().Result;
+                // _ = profile.DownloadPackagesAsync().Result;
+                // Except! We should just not allow the user to uninstall package versions
+                // which are used in any mod profiles.
 
                 var (removed, failedToRemove) = profile.Remove(packagesToRemove);
 
