@@ -1015,14 +1015,6 @@ public sealed class PackageSource
         public DateTime LastFetch { get; set; }
     }
 
-    public static PackageSource ThunderstoreSilksong { get; } =
-        new(new ThunderstoreCommunity(Game.Silksong));
-
-    public static PackageSourceIndex Silksong { get; } = new(ThunderstoreSilksong);
-
-    public static TimeSpan TimeUntilAutomaticIndexRefresh { get; } = TimeSpan.FromMinutes(20);
-    public static TimeSpan TimeUntilManualIndexRefreshAllowed { get; } = TimeSpan.FromSeconds(10);
-
     internal PackageSourceCache SourceCache =>
         field ??= PackageSourceCache.LoadSavedDataOrNew(
             Service.PackageIndexCacheLocation,
@@ -1045,17 +1037,17 @@ public sealed class PackageSource
         Func<PackageSource, ProgressContext>? progressFactory = null
     )
     {
-        _ = await FetchPackageIndexAsync(TimeUntilAutomaticIndexRefresh, progressFactory);
+        _ = await FetchPackageIndexAsync(TimeSpan.FromMinutes(20), progressFactory);
     }
 
     public async Task FetchPackageIndexManualAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null
     )
     {
-        _ = await FetchPackageIndexAsync(TimeUntilManualIndexRefreshAllowed, progressFactory);
+        _ = await FetchPackageIndexAsync(TimeSpan.FromSeconds(10), progressFactory);
     }
 
-    private async Task<bool> FetchPackageIndexAsync(
+    public async Task<bool> FetchPackageIndexAsync(
         TimeSpan timeUntilIndexRefreshAllowed,
         Func<PackageSource, ProgressContext>? progressFactory
     )
@@ -1113,8 +1105,6 @@ public sealed class PackageSource
         await FetchPackageIndexAutomaticAsync(progressFactory);
         return Packages;
     }
-
-    Lock _lock = new();
 
     internal async Task<List<Package>?> ParsePackageIndexAsync(string packageIndexBasePath)
     {
