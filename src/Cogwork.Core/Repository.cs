@@ -100,21 +100,9 @@ public static class CogworkCoreLogger
 
 public interface IPackageSourceService
 {
-    public string PackageIndexBaseDirectory { get; }
-    public string PackageIndexCacheLocation { get; }
-
-    /// <summary>
-    /// A subdirectory where all packages from this source are installed to.<br/>
-    /// Packages are not installed into profiles directly.
-    /// </summary>
-    public string PackageInstallSubDirectory { get; }
     public Uri Uri { get; }
     public string Id { get; }
     public Game Game { get; }
-
-    public bool IsIncompleteIndexCache();
-
-    public Task<bool> FetchIndexToCacheAsync(ProgressContext progress = default);
 
     public bool IsPackageDownloaded(VisualPackageVersion packageVersion);
 
@@ -185,7 +173,7 @@ public interface IPackageSourceService
     }
 }
 
-public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
+public sealed class ThunderstoreCommunity(Game game) : PackageSource, IPackageSourceService
 {
     [JsonIgnore]
     public string PackageIndexBaseDirectory =>
@@ -196,15 +184,22 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
     public string PackageInstallSubDirectory { get; } = "thunderstore";
 
-    public Uri Uri { get; } = new($"https://thunderstore.io/c/{game.Slug}/");
-    public string Id => field ??= Uri.ToString();
-    public Game Game => game;
+    public override Uri Uri { get; } = new($"https://thunderstore.io/c/{game.Slug}/");
+    public override string Id => field ??= Uri.ToString();
+    public override Game Game => game;
 
     public string PackageIndexCacheLocation =>
         field ??= Path.Combine(PackageIndexBaseDirectory, $"index-cache.json");
 
+    internal PackageSourceCache SourceCache =>
+        field ??= PackageSourceCache.LoadSavedDataOrNew(
+            PackageIndexCacheLocation,
+            JsonGen.Default.PackageSourceCache
+        );
+
     readonly Lock _totalBytesLock = new();
     readonly Lock _totalContentLengthLock = new();
+    bool isImported;
 
     public bool IsIncompleteIndexCache() =>
         Directory
@@ -213,6 +208,57 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
 
     public string PackageIndexLocation(string hash) =>
         Path.Combine(PackageIndexIndexDirectory, hash);
+
+    public override async Task<bool> FetchPackageIndexAsync(
+        TimeSpan timeUntilIndexRefreshAllowed,
+        Func<PackageSource, ProgressContext>? progressFactory
+    )
+    {
+        var dateNow = DateTime.Now;
+        var lastFetch = SourceCache.LastFetch;
+
+        bool fetchAgain = false;
+
+        if (dateNow < lastFetch)
+            fetchAgain = true;
+
+        if (dateNow > lastFetch.Add(timeUntilIndexRefreshAllowed))
+            fetchAgain = true;
+
+        if (fetchAgain || IsIncompleteIndexCache())
+        {
+            var progress = progressFactory?.Invoke(this) ?? default;
+
+            var successfulFetch = await FetchIndexToCacheAsync(progress);
+            if (!successfulFetch)
+                return false;
+
+            SourceCache.LastFetch = dateNow;
+            SourceCache.Save(PackageIndexCacheLocation, JsonGen.Default.PackageSourceCache);
+        }
+        else
+        {
+            Cog.Information(
+                $"Using cached package index for '{Service.Uri}', last fetch was "
+                    + $"less than {timeUntilIndexRefreshAllowed} ago."
+            );
+
+            if (isImported)
+            {
+                return true;
+            }
+        }
+
+        var packages = await ParsePackageIndexAsync(PackageIndexBaseDirectory);
+        if (packages is null)
+        {
+            Cog.Error("Package index parsing failed");
+            return false;
+        }
+        Packages = packages;
+        isImported = true;
+        return true;
+    }
 
     public async Task<bool> FetchIndexToCacheAsync(ProgressContext progress = default)
     {
@@ -372,7 +418,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         return true;
     }
 
-    public bool IsPackageDownloaded(VisualPackageVersion packageVersion) =>
+    public override bool IsPackageDownloaded(VisualPackageVersion packageVersion) =>
         IsPackageDownloaded(packageVersion, out _, out _, out _);
 
     bool IsPackageDownloaded(
@@ -396,7 +442,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         return dirExists || zipExists;
     }
 
-    public async Task<bool> DownloadPackageAsync(
+    public override async Task<bool> DownloadPackageAsync(
         PackageVersion packageVersion,
         ProgressContext progress = default,
         CancellationToken cancellationToken = default
@@ -451,7 +497,7 @@ public sealed class ThunderstoreCommunity(Game game) : IPackageSourceService
         return true;
     }
 
-    public async Task<string?> ExtractAsync(
+    public override async Task<string?> ExtractAsync(
         VisualPackageVersion packageVersion,
         CancellationToken cancellationToken = default
     )
@@ -920,12 +966,12 @@ public sealed class PackageSourceIndex
     {
         source = default;
 
-        switch (uri.Scheme)
-        {
-            case "test":
-                source = new(new TestPackageSource());
-                return true;
-        }
+        // switch (uri.Scheme)
+        // {
+        //     case "test":
+        //         source = new(new TestPackageSource());
+        //         return true;
+        // }
 
         switch (uri.Authority)
         {
@@ -943,7 +989,7 @@ public sealed class PackageSourceIndex
                 var nameToGame = Game.NameToGame.GetAlternateLookup<ReadOnlySpan<char>>();
                 if (nameToGame.TryGetValue(slug, out var game))
                 {
-                    source = new(new ThunderstoreCommunity(game));
+                    source = new ThunderstoreCommunity(game);
                     return true;
                 }
 
@@ -1008,30 +1054,21 @@ public sealed class PackageSourceIndex
     }
 }
 
-public sealed class PackageSource
+public abstract class PackageSource : IPackageSourceService
 {
     public sealed class PackageSourceCache : ISaveWithJson
     {
         public DateTime LastFetch { get; set; }
     }
 
-    internal PackageSourceCache SourceCache =>
-        field ??= PackageSourceCache.LoadSavedDataOrNew(
-            Service.PackageIndexCacheLocation,
-            JsonGen.Default.PackageSourceCache
-        );
-
     public PackageSourceIndex SourceIndex { get; internal set; } = null!;
-    public IPackageSourceService Service { get; private set; }
-    private List<Package> Packages { get; set; } = [];
+    public IPackageSourceService Service => this;
+    protected List<Package> Packages { get; set; } = [];
+    public abstract Uri Uri { get; }
+    public abstract string Id { get; }
+    public abstract Game Game { get; }
 
     internal ConcurrentDictionary<string, Package> nameToPackage = [];
-    bool isImported;
-
-    public PackageSource(IPackageSourceService service)
-    {
-        Service = service;
-    }
 
     public async Task FetchPackageIndexAutomaticAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null
@@ -1047,56 +1084,10 @@ public sealed class PackageSource
         _ = await FetchPackageIndexAsync(TimeSpan.FromSeconds(10), progressFactory);
     }
 
-    public async Task<bool> FetchPackageIndexAsync(
+    public abstract Task<bool> FetchPackageIndexAsync(
         TimeSpan timeUntilIndexRefreshAllowed,
         Func<PackageSource, ProgressContext>? progressFactory
-    )
-    {
-        var dateNow = DateTime.Now;
-        var lastFetch = SourceCache.LastFetch;
-
-        bool fetchAgain = false;
-
-        if (dateNow < lastFetch)
-            fetchAgain = true;
-
-        if (dateNow > lastFetch.Add(timeUntilIndexRefreshAllowed))
-            fetchAgain = true;
-
-        if (fetchAgain || Service.IsIncompleteIndexCache())
-        {
-            var progress = progressFactory?.Invoke(this) ?? default;
-
-            var successfulFetch = await Service.FetchIndexToCacheAsync(progress);
-            if (!successfulFetch)
-                return false;
-
-            SourceCache.LastFetch = dateNow;
-            SourceCache.Save(Service.PackageIndexCacheLocation, JsonGen.Default.PackageSourceCache);
-        }
-        else
-        {
-            Cog.Information(
-                $"Using cached package index for '{Service.Uri}', last fetch was "
-                    + $"less than {timeUntilIndexRefreshAllowed} ago."
-            );
-
-            if (isImported)
-            {
-                return true;
-            }
-        }
-
-        var packages = await ParsePackageIndexAsync(Service.PackageIndexBaseDirectory);
-        if (packages is null)
-        {
-            Cog.Error("Package index parsing failed");
-            return false;
-        }
-        Packages = packages;
-        isImported = true;
-        return true;
-    }
+    );
 
     public async Task<List<Package>> GetPackagesAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null
@@ -1327,4 +1318,15 @@ public sealed class PackageSource
         var url = Service.Uri;
         return url.ToString();
     }
+
+    public abstract bool IsPackageDownloaded(VisualPackageVersion packageVersion);
+    public abstract Task<string?> ExtractAsync(
+        VisualPackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    );
+    public abstract Task<bool> DownloadPackageAsync(
+        PackageVersion packageVersion,
+        ProgressContext progress = default,
+        CancellationToken cancellationToken = default
+    );
 }

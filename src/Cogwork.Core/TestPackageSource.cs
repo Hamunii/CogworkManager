@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+/* using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Text;
 using Cogwork.Core.Extensions;
@@ -256,3 +256,4 @@ internal class TestPackageSource : IPackageSourceService
         }]
         """;
 }
+ */

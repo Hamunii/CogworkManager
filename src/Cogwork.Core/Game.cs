@@ -121,7 +121,7 @@ public sealed class Game
         Name = name;
         Slug = slug;
         InstallRules = installRules;
-        DefaultSource = defaultSource ?? new(new ThunderstoreCommunity(this));
+        DefaultSource = defaultSource ?? new ThunderstoreCommunity(this);
     }
 
     public static Game Silksong { get; } =
@@ -138,11 +138,12 @@ public sealed class Game
 
     public static Game Repo { get; } =
         new("R.E.P.O.", "repo", new BepInExModInstallRules()) { Platforms = new() };
-    public static Game Test { get; } =
-        new("Test", "test", new BepInExModInstallRules(), new(new TestPackageSource()))
-        {
-            Platforms = new(),
-        };
+
+    // public static Game Test { get; } =
+    //     new("Test", "test", new BepInExModInstallRules(), new TestPackageSource())
+    //     {
+    //         Platforms = new(),
+    //     };
     public static Game Ror2 { get; } =
         new("Risk of Rain 2", "risk-of-rain-2", new BepInExModInstallRules()) { Platforms = new() };
 
@@ -153,7 +154,7 @@ public sealed class Game
         Repo,
         Ror2,
 #if DEBUG
-        Test,
+        // Test,
 #endif
     ];
 
