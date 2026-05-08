@@ -72,3 +72,23 @@ public class VersionRangeConverter : JsonConverter<VersionRange>
         writer.WriteStringValue(value.ToString());
     }
 }
+
+public class AuthorConverter : JsonConverter<Author>
+{
+    public override Author Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    )
+    {
+        var authorName = reader.GetString();
+        return new(
+            authorName! // I don't care
+        );
+    }
+
+    public override void Write(Utf8JsonWriter writer, Author value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value.Name);
+    }
+}

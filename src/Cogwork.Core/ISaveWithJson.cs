@@ -20,6 +20,7 @@ public interface ISaveWithJson;
 [JsonSerializable(typeof(PackageVersionNumber))]
 [JsonSerializable(typeof(InstalledPackages))]
 [JsonSerializable(typeof(List<Package>))]
+[JsonSerializable(typeof(Author))]
 [JsonSerializable(typeof(string[]))]
 public partial class JsonGen : JsonSerializerContext { }
 

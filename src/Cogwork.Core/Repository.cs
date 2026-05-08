@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,6 +11,261 @@ using Cogwork.Core.Extensions;
 using ZLinq;
 
 namespace Cogwork.Core;
+
+public sealed class LocalPackageSource : PackageSource
+{
+    public static LocalPackageSource Instance { get; } = new();
+
+    public override Uri Uri { get; } = new("cogman:sources/local");
+
+    public override string Id => field ??= Uri.ToString();
+
+    public string PackageIndexPath { get; } =
+        Path.Combine(CogworkPaths.GetPackagesSubDirectory("local"), "local-index.json");
+
+    public override bool IsPackageDownloaded(
+        VisualPackageVersion packageVersion,
+        out string zipFileLocation,
+        out string directoryPath,
+        out bool zipExists
+    )
+    {
+        // For local packages, it might be best if only one version is allowed?
+        // This might prevent accidentally using outdated versions, which might
+        // also not even match the actual packages uploaded to e.g. Thunderstore.
+        // var version = packageVersion.Version.ToString();
+        var version = "latest";
+
+        return IsPackageDownloaded(
+            packageVersion,
+            withVersionName: version,
+            out zipFileLocation,
+            out directoryPath,
+            out zipExists
+        );
+    }
+
+    public static bool IsPackageDownloaded(
+        VisualPackageVersion packageVersion,
+        string withVersionName,
+        out string zipFileLocation,
+        out string directoryPath,
+        out bool zipExists
+    )
+    {
+        var version = withVersionName;
+
+        var installPathRoot = CogworkPaths.GetPackagesSubDirectory(
+            "local",
+            packageVersion.FullName
+        );
+
+        zipFileLocation = Path.Combine(installPathRoot, $"{version}.zip");
+        directoryPath = Path.Combine(installPathRoot, version, "files");
+
+        var dirExists = Directory.Exists(directoryPath);
+        zipExists = File.Exists(zipFileLocation);
+        return dirExists || zipExists;
+    }
+
+    public override Task<bool> DownloadPackageAsync(
+        PackageVersion packageVersion,
+        ProgressContext progress = default,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (!IsPackageDownloaded((VisualPackageVersion)packageVersion))
+        {
+            Cog.Error(
+                $"Attempting to download local package '{packageVersion}' which is not found."
+            );
+            return Task.FromResult(false);
+        }
+
+        return Task.FromResult(true);
+    }
+
+    public override async Task<string?> ExtractAsync(
+        VisualPackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        // TODO: For now, the package must be uninstalled from all profiles it has been installed to.
+        // This is because the package installation is the source of truth for which files belong to
+        // the package.
+        // It would be more optimal if each profile tracked each file added by each installed package.
+        // The following code is rather horrible, and I want to get rid of it.
+        if (
+            IsPackageDownloaded(
+                packageVersion,
+                withVersionName: "next",
+                out var zipPathTemp,
+                out var directoryPathTemp,
+                out var zipExistsTemp
+            )
+        )
+        {
+            foreach (var game in Game.SupportedGames)
+            {
+                foreach (var profile in game.EnumerateProfiles())
+                {
+                    var localPackage = profile
+                        .GetResolved()
+                        .FirstOrDefault(x => x.FullName == packageVersion.FullName);
+
+                    if (!IsLocalSource(localPackage.Source))
+                        continue;
+
+                    var userPackages = InstalledPackages
+                        .LoadSavedData(profile.ProfileInstalledPackagesFilePath)
+                        .UserPackages;
+
+                    var isUninstalled = await profile.Game.InstallRules.UninstallPackageAsync(
+                        packageVersion,
+                        profile.ProfileFilesDirectory,
+                        cancellationToken
+                    );
+
+                    if (isUninstalled)
+                    {
+                        if (userPackages is { })
+                        {
+                            var installed = new InstalledPackages(
+                                userPackages
+                                    .Where(x =>
+                                        x.PackageVersion.FullName != packageVersion.FullName
+                                    )
+                                    .Append(new UserPackage(packageVersion, IsInstalled: false))
+                                    .ToArray()
+                            );
+                            installed.Save(profile.ProfileInstalledPackagesFilePath);
+                        }
+
+                        Cog.Debug(
+                            $"Uninstalled local old version of '{packageVersion}'"
+                                + $" for profile '{profile.DisplayName}' for game '{game.Slug}'"
+                        );
+                    }
+                    else
+                    {
+                        Cog.Error(
+                            $"Failed to uninstall local package '{packageVersion}'"
+                                + $" for profile '{profile.DisplayName}' for game '{game.Slug}'"
+                        );
+                    }
+                }
+            }
+
+            _ = IsPackageDownloaded(
+                packageVersion,
+                out var zipPathFinal,
+                out var directoryPathFinal,
+                out var zipExistsFinal
+            );
+
+            if (Directory.Exists(directoryPathFinal))
+            {
+                Directory.Delete(directoryPathFinal, recursive: true);
+                Directory.Move(directoryPathTemp, directoryPathFinal);
+            }
+
+            if (Directory.Exists(directoryPathTemp))
+            {
+                Directory.Delete(directoryPathTemp, recursive: true);
+            }
+
+            if (zipExistsTemp)
+            {
+                if (zipExistsFinal)
+                    File.Delete(zipPathFinal);
+
+                File.Move(zipPathTemp, zipPathFinal);
+            }
+        }
+        return await base.ExtractAsync(packageVersion, cancellationToken);
+    }
+
+    bool IsLocalSource(string? source)
+    {
+        return source == Id;
+    }
+
+    public override async Task<bool> FetchPackageIndexAsync(
+        TimeSpan timeUntilIndexRefreshAllowed,
+        Func<PackageSource, ProgressContext>? progressFactory
+    )
+    {
+        if (!File.Exists(PackageIndexPath))
+        {
+            Packages ??= [];
+            Cog.Debug("Fetched local package index (which has not been created yet)");
+            return true;
+        }
+
+        var packages = JsonSerializer.Deserialize(PackageIndexPath, JsonGen.Default.ListPackage);
+        if (packages is null)
+        {
+            Packages ??= [];
+            Cog.Error($"Package index file '{PackageIndexPath}' deserialization returned null");
+            return false;
+        }
+        ProcessPackages(packages);
+        Packages = packages;
+
+        Cog.Debug("Fetched local package index");
+        return true;
+    }
+
+    public void ImportPackage(string path)
+    {
+        Cog.Information($"Importing local package at '{path}'");
+
+        var manifest = Path.Combine(path, "manifest.json");
+        if (!File.Exists(manifest))
+        {
+            throw new FileNotFoundException($"Manifest not found: '{manifest}'");
+        }
+
+        using var manifestStream = File.OpenRead(manifest);
+        var packageVersion =
+            JsonSerializer.Deserialize(manifestStream, JsonGen.Default.PackageVersion)
+            ?? throw new InvalidDataException(
+                $"Package index file '{manifest}' deserialization returned null"
+            );
+
+        _ = FetchPackageIndexAsync(TimeSpan.FromSeconds(0), default).Result;
+
+        var package = new Package(packageVersion.Author, packageVersion.Name, [packageVersion]);
+        ProcessPackage(package);
+
+        if (
+            IsPackageDownloaded(
+                (VisualPackageVersion)packageVersion,
+                withVersionName: "next",
+                out var zipFileLocation,
+                out var directoryPath,
+                out var zipExists
+            )
+        )
+        {
+            if (zipExists)
+            {
+                File.Delete(zipFileLocation);
+            }
+
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
+        }
+
+        Utils.CopyDirectory(path, directoryPath, recursive: true);
+
+        Packages = [.. nameToPackage.Select(x => x.Value)];
+        var localPackageIndex = JsonSerializer.Serialize(Packages, JsonGen.Default.ListPackage);
+        File.WriteAllText(PackageIndexPath, localPackageIndex);
+    }
+}
 
 public sealed class ThunderstoreCommunity(Game game) : PackageSource
 {
@@ -244,10 +500,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         return true;
     }
 
-    public override bool IsPackageDownloaded(VisualPackageVersion packageVersion) =>
-        IsPackageDownloaded(packageVersion, out _, out _, out _);
-
-    bool IsPackageDownloaded(
+    public override bool IsPackageDownloaded(
         VisualPackageVersion packageVersion,
         out string zipFileLocation,
         out string directoryPath,
@@ -321,46 +574,6 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
 
         Cog.Debug($"Download complete for: {downloadUrl}");
         return true;
-    }
-
-    public override async Task<string?> ExtractAsync(
-        VisualPackageVersion packageVersion,
-        CancellationToken cancellationToken = default
-    )
-    {
-        if (
-            !IsPackageDownloaded(
-                packageVersion,
-                out var zipPath,
-                out var directoryPath,
-                out var zipExists
-            )
-        )
-        {
-            Cog.Error($"Cannot extract package which is not downloaded: '{packageVersion}'");
-            return null;
-        }
-
-        if (zipExists is false)
-        {
-            // already extracted
-            return directoryPath;
-        }
-
-        var tempDirPath = directoryPath + ".temp";
-
-        if (Directory.Exists(directoryPath))
-            Directory.Delete(directoryPath, recursive: true);
-
-        if (Directory.Exists(tempDirPath))
-            Directory.Delete(tempDirPath, recursive: true);
-        {
-            using FileStream fileStream = File.Open(zipPath, FileMode.Open);
-            await ZipFile.ExtractToDirectoryAsync(fileStream, directoryPath, cancellationToken);
-        }
-
-        File.Delete(zipPath);
-        return directoryPath;
     }
 }
 
@@ -494,37 +707,18 @@ public abstract class PackageSource
         }
     }
 
-    private void ProcessPackages(List<Package> packages)
+    protected void ProcessPackages(List<Package> packages)
     {
-        for (int i = 0; i < packages.Count; i++)
+        foreach (var package in packages)
         {
-            Package package = packages[i];
-            package.Source = this;
-
-            if (
-                !nameToPackage
-                    .GetAlternateLookup<ReadOnlySpan<char>>()
-                    .TryAdd(package.FullName, package)
-            )
-            {
-                // If we are here, we just created a whole lot of
-                // duplicate package instances. We connect the instances:
-                if (
-                    Package.TryGetPackage(
-                        SourceIndex,
-                        package.FullName,
-                        out var oldPackage,
-                        false,
-                        out _,
-                        out _
-                    )
-                )
-                {
-                    oldPackage.Versions = package.Versions;
-                    packages[i] = oldPackage;
-                }
-            }
+            ProcessPackage(package);
         }
+    }
+
+    protected void ProcessPackage(Package package)
+    {
+        package.Source = this;
+        nameToPackage[package.FullName] = package;
     }
 
     public override string ToString()
@@ -533,14 +727,59 @@ public abstract class PackageSource
         return url.ToString();
     }
 
-    public abstract bool IsPackageDownloaded(VisualPackageVersion packageVersion);
-    public abstract Task<string?> ExtractAsync(
+    public bool IsPackageDownloaded(VisualPackageVersion packageVersion) =>
+        IsPackageDownloaded(packageVersion, out _, out _, out _);
+
+    public abstract bool IsPackageDownloaded(
         VisualPackageVersion packageVersion,
-        CancellationToken cancellationToken = default
+        out string zipFileLocation,
+        out string directoryPath,
+        out bool zipExists
     );
+
     public abstract Task<bool> DownloadPackageAsync(
         PackageVersion packageVersion,
         ProgressContext progress = default,
         CancellationToken cancellationToken = default
     );
+
+    public virtual async Task<string?> ExtractAsync(
+        VisualPackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (
+            !IsPackageDownloaded(
+                packageVersion,
+                out var zipPath,
+                out var directoryPath,
+                out var zipExists
+            )
+        )
+        {
+            Cog.Error($"Cannot extract package which is not downloaded: '{packageVersion}'");
+            return null;
+        }
+
+        if (zipExists is false)
+        {
+            // already extracted
+            return directoryPath;
+        }
+
+        var tempDirPath = directoryPath + ".temp";
+
+        if (Directory.Exists(directoryPath))
+            Directory.Delete(directoryPath, recursive: true);
+
+        if (Directory.Exists(tempDirPath))
+            Directory.Delete(tempDirPath, recursive: true);
+        {
+            using FileStream fileStream = File.Open(zipPath, FileMode.Open);
+            await ZipFile.ExtractToDirectoryAsync(fileStream, directoryPath, cancellationToken);
+        }
+
+        File.Delete(zipPath);
+        return directoryPath;
+    }
 }

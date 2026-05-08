@@ -1,10 +1,6 @@
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Cogwork.Core.Extensions;
 using Gameloop.Vdf;
 using Gameloop.Vdf.Linq;
@@ -79,6 +75,12 @@ public sealed class LazyModList
         }
         private set;
     }
+
+    public IEnumerable<VisualPackageVersion> GetResolved() =>
+        (ResolvedAdded ?? [])
+            .Concat(ResolvedDependencies ?? [])
+            .Select(x => new VisualPackageVersion(x));
+
     public string ProfileSaveDataPath => field ??= ModList.GetProfileFileLocation(Game, Id);
     public string ProfileFilesDirectory =>
         field ??= CogworkPaths.CombineAndCreate(

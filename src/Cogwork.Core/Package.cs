@@ -365,12 +365,14 @@ sealed partial class PackageList
 
 public sealed partial record Package
 {
+    [JsonInclude]
+    [JsonPropertyName("owner")]
     public Author Author { get; }
 
+    [JsonInclude]
+    [JsonPropertyName("name")]
     public string Name { get; }
 
-    [JsonInclude]
-    [JsonPropertyName("full_name")]
     public string FullName { get; }
 
     [JsonInclude]
@@ -381,21 +383,16 @@ public sealed partial record Package
 
     public PackageSource Source { get; internal set; } = null!;
 
-    public Package(string fullName, PackageVersion[] versions)
+    public Package(Author author, string name, PackageVersion[] versions)
     {
-        FullName = fullName;
+        Author = author;
+        Name = name;
+        FullName = $"{author.Name}-{name}";
         Versions = versions;
         foreach (var version in versions)
         {
             version.Package = this;
         }
-
-        var fullNameSpan = fullName.AsSpan();
-        var enumerator = fullNameSpan.Split('-');
-        enumerator.MoveNext();
-        Author = fullNameSpan[enumerator.Current].ToString();
-        enumerator.MoveNext();
-        Name = fullNameSpan[enumerator.Current].ToString();
     }
 
     public static bool TryGetPackageWithNoVersion(
@@ -649,8 +646,23 @@ public sealed partial record PackageVersion
     [JsonPropertyName("dependencies")]
     public string[] DependencyStrings { get; }
 
-    public PackageVersion(string versionString, string[] dependencyStrings)
+    [JsonInclude]
+    [JsonPropertyName("namespace")]
+    public Author Author { get; }
+
+    [JsonInclude]
+    [JsonPropertyName("name")]
+    public string Name { get; }
+
+    public PackageVersion(
+        Author author,
+        string name,
+        string versionString,
+        string[] dependencyStrings
+    )
     {
+        Author = author;
+        Name = name;
         VersionString = versionString;
         try
         {
@@ -730,6 +742,7 @@ public sealed partial record PackageVersion
     }
 }
 
+[JsonConverter(typeof(AuthorConverter))]
 public readonly partial record struct Author(string Name)
 {
     public static implicit operator string(Author author) => author.Name;

@@ -53,12 +53,19 @@ public sealed class PackageSourceIndex
     {
         source = default;
 
-        // switch (uri.Scheme)
-        // {
-        //     case "test":
-        //         source = new(new TestPackageSource());
-        //         return true;
-        // }
+        switch (uri.Scheme)
+        {
+            case "cogman":
+                if (uri.AbsolutePath == "sources/local")
+                {
+                    source = LocalPackageSource.Instance;
+                    return true;
+                }
+                break;
+            // case "test":
+            //     source = new(new TestPackageSource());
+            //     return true;
+        }
 
         switch (uri.Authority)
         {
