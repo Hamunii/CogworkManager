@@ -24,7 +24,6 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
 
     public override Uri Uri { get; } = new($"https://thunderstore.io/c/{game.Slug}/");
     public override string Id => field ??= Uri.ToString();
-    public override Game Game => game;
 
     public string PackageIndexCacheLocation =>
         field ??= Path.Combine(PackageIndexBaseDirectory, $"index-cache.json");
@@ -377,7 +376,6 @@ public abstract class PackageSource
     protected List<Package> Packages { get; set; } = [];
     public abstract Uri Uri { get; }
     public abstract string Id { get; }
-    public abstract Game Game { get; }
 
     internal ConcurrentDictionary<string, Package> nameToPackage = [];
 
