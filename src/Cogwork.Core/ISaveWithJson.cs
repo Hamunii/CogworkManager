@@ -14,7 +14,7 @@ public interface ISaveWithJson;
 )]
 [JsonSerializable(typeof(Game.GameConfig))]
 [JsonSerializable(typeof(Game.GlobalConfig))]
-[JsonSerializable(typeof(PackageSourceCache))]
+[JsonSerializable(typeof(PackageSource.PackageSourceCache))]
 [JsonSerializable(typeof(ModListData))]
 [JsonSerializable(typeof(ModListLockFile))]
 [JsonSerializable(typeof(PackageVersionNumber))]
