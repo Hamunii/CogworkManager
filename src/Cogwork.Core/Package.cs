@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
-using MemoryPack;
 using ZLinq;
 
 namespace Cogwork.Core;
@@ -359,19 +358,15 @@ public readonly record struct WildcardVersion
     }
 }
 
-[MemoryPackable]
 sealed partial class PackageList
 {
     public List<Package> Values { get; set; } = [];
 }
 
-[MemoryPackable]
 public sealed partial record Package
 {
-    [MemoryPackIgnore]
     public Author Author { get; }
 
-    [MemoryPackIgnore]
     public string Name { get; }
 
     [JsonInclude]
@@ -382,10 +377,8 @@ public sealed partial record Package
     [JsonPropertyName("versions")]
     public PackageVersion[] Versions { get; internal set; }
 
-    [MemoryPackIgnore]
     public PackageVersion Latest => Versions[0];
 
-    [MemoryPackIgnore]
     public PackageSource Source { get; internal set; } = null!;
 
     public Package(string fullName, PackageVersion[] versions)
@@ -584,10 +577,8 @@ public sealed partial record Package
     }
 }
 
-[MemoryPackable]
 public sealed partial record PackageVersion
 {
-    [MemoryPackIgnore]
     public PackageVersion[] MarkedDependencies =>
         field ??= [
             .. DependencyStrings
@@ -636,7 +627,6 @@ public sealed partial record PackageVersion
                 .Where(x => x is { })!,
         ];
 
-    [MemoryPackIgnore]
     public PackageVersion[] AllDependencies
     {
         get
@@ -647,14 +637,12 @@ public sealed partial record PackageVersion
         }
     }
 
-    [MemoryPackIgnore]
     public PackageVersionNumber Version { get; set; }
 
     [JsonInclude]
     [JsonPropertyName("version_number")]
     public string VersionString { get; }
 
-    [MemoryPackIgnore]
     public Package Package { get; internal set; } = null!;
 
     [JsonInclude]
@@ -742,7 +730,6 @@ public sealed partial record PackageVersion
     }
 }
 
-[MemoryPackable]
 public readonly partial record struct Author(string Name)
 {
     public static implicit operator string(Author author) => author.Name;

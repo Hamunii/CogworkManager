@@ -16,8 +16,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Cogwork.Core.Extensions;
-using MemoryPack;
-using MemoryPack.Compression;
 using Serilog;
 using Serilog.Core;
 using ZLinq;
@@ -392,7 +390,6 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource, IPackageSo
             j++;
         }
 
-        bool anyOutdated = false;
         var allUpToDateFiles = allPackageIndexUrls.Select(x => x.fileName).ToArray();
         foreach (
             var outdated in Directory
@@ -400,18 +397,8 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource, IPackageSo
                 .Where(x => !allUpToDateFiles.Contains(Path.GetFileName(x)))
         )
         {
-            anyOutdated = true;
             Cog.Debug($"Deleting outdated cache file '{outdated}'");
             File.Delete(outdated);
-        }
-
-        if (anyOutdated || newPackageIndexUrls.Length > 0)
-        {
-            var optimizedPath = Path.Combine(PackageIndexBaseDirectory, "optimized");
-            if (Directory.Exists(optimizedPath))
-            {
-                Directory.Delete(optimizedPath, recursive: true);
-            }
         }
 
         Cog.Information("Fetched successfully.");
@@ -717,55 +704,6 @@ public abstract class PackageSource : IPackageSourceService
 
     internal async Task<List<Package>?> ParsePackageIndexAsync(string packageIndexBasePath)
     {
-        var optimizedPath = Path.Combine(packageIndexBasePath, "optimized");
-
-        if (Directory.Exists(optimizedPath))
-        {
-            Cog.Debug($"Deserializing fast index '{optimizedPath}'...");
-
-            List<Package> allPackages2 = [];
-
-            var result2 = Parallel.ForEach(
-                Directory.EnumerateFiles(optimizedPath),
-                (indexFile, state) =>
-                {
-                    try
-                    {
-                        using var decompressor = new BrotliDecompressor();
-                        byte[] bytes = File.ReadAllBytes(indexFile);
-                        var decompressed = decompressor.Decompress(bytes);
-
-                        var packages = ParsePackageIndexMemoryPackAsync(indexFile, decompressed);
-
-                        if (packages is null)
-                        {
-                            state.Break();
-                            return;
-                        }
-
-                        lock (allPackages2)
-                        {
-                            allPackages2.AddRange(packages.Values);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Cog.Error(indexFile + ": " + ex.ToString());
-                        return;
-                    }
-                }
-            );
-
-            if (!result2.IsCompleted)
-            {
-                return default;
-            }
-
-            Cog.Debug($"Deserialized fast index");
-
-            return allPackages2;
-        }
-
         var packageIndexPath = Path.Combine(packageIndexBasePath, "index");
 
         if (!Directory.Exists(packageIndexPath))
@@ -816,53 +754,7 @@ public abstract class PackageSource : IPackageSourceService
         }
 
         Cog.Debug($"Loaded JSON index");
-
-        Cog.Debug($"Serializing fast index to '{optimizedPath}'");
-        Directory.CreateDirectory(optimizedPath);
-
-        int i = 0;
-        await Task.WhenAll(
-            allPackages
-                .Chunk(2000)
-                .Select(chunk => CompressAndWriteChunk(optimizedPath, i++, chunk))
-        );
-
-        Cog.Debug("Serialized fast index");
-
         return allPackages;
-    }
-
-    private static async Task CompressAndWriteChunk(string optimizedPath, int i, Package[] chunk)
-    {
-        var list = new PackageList();
-        list.Values.AddRange(chunk);
-        using var compressor = new BrotliCompressor();
-        MemoryPackSerializer.Serialize(compressor, list);
-        using var fileStream = File.OpenWrite(Path.Combine(optimizedPath, $"{i}.bin"));
-        await compressor.CopyToAsync(fileStream);
-    }
-
-    internal PackageList? ParsePackageIndexMemoryPackAsync(
-        string fileName,
-        ReadOnlySequence<byte> bytes
-    )
-    {
-        try
-        {
-            var packages = MemoryPackSerializer.Deserialize<PackageList>(bytes);
-            if (packages is null)
-            {
-                Cog.Error($"Package index file '{fileName}' deserialization returned null");
-                return default;
-            }
-            ProcessPackages(packages.Values);
-            return packages;
-        }
-        catch (Exception ex)
-        {
-            Cog.Error($"Error reading package index file '{fileName}': {ex}");
-            return default;
-        }
     }
 
     internal bool TryParsePackageIndexJson(
