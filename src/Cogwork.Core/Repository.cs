@@ -96,82 +96,7 @@ public static class CogworkCoreLogger
     static Mutex LogMutex { get; }
 }
 
-public interface IPackageSourceService
-{
-    public Uri Uri { get; }
-    public string Id { get; }
-    public Game Game { get; }
-
-    public bool IsPackageDownloaded(VisualPackageVersion packageVersion);
-
-    public Task<string?> ExtractAsync(
-        VisualPackageVersion packageVersion,
-        CancellationToken cancellationToken = default
-    );
-
-    public Task<bool> DownloadPackageAsync(
-        PackageVersion packageVersion,
-        ProgressContext progress = default,
-        CancellationToken cancellationToken = default
-    );
-
-    // Apparently one should preferably keep a singleton of HttpClient.
-    internal static HttpClient SharedClient { get; } = new();
-
-    public readonly record struct PerformedOrNot<T>(
-        [property: MemberNotNullWhen(true, nameof(PerformedOrNot<>.Value))] bool Performed,
-        T? Value = default
-    );
-
-    /// <summary>
-    /// Performs a task if it's not actively being
-    /// performed by another thread or application instance,
-    /// otherwise waits until the preexisting task is finished.
-    /// </summary>
-    public static async Task<PerformedOrNot<T>> DoTaskOrWaitForCompletionAsync<T>(
-        string lockDirectory,
-        ProgressContext progress,
-        Func<ProgressContext, Task<T>> doTask
-    )
-    {
-        if (!Directory.Exists(lockDirectory))
-        {
-            Directory.CreateDirectory(lockDirectory);
-        }
-
-        bool waitedForLock = false;
-        while (true)
-        {
-            try
-            {
-                using FileStream lockFile = new(
-                    Path.Combine(lockDirectory, ".lock"),
-                    FileMode.OpenOrCreate,
-                    FileAccess.Read,
-                    FileShare.None
-                );
-
-                if (waitedForLock)
-                {
-                    Cog.Warning($"Got lock for '{lockDirectory}'");
-                    return new(false);
-                }
-                return new(true, await doTask(progress));
-            }
-            catch (IOException)
-            {
-                if (!waitedForLock)
-                {
-                    waitedForLock = true;
-                    Cog.Warning($"Awaiting lock for '{lockDirectory}' instead of fetching");
-                }
-                await Task.Delay(100);
-            }
-        }
-    }
-}
-
-public sealed class ThunderstoreCommunity(Game game) : PackageSource, IPackageSourceService
+public sealed class ThunderstoreCommunity(Game game) : PackageSource
 {
     [JsonIgnore]
     public string PackageIndexBaseDirectory =>
@@ -260,7 +185,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource, IPackageSo
 
     public async Task<bool> FetchIndexToCacheAsync(ProgressContext progress = default)
     {
-        var result = await IPackageSourceService.DoTaskOrWaitForCompletionAsync(
+        var result = await Utils.DoTaskOrWaitForCompletionAsync(
             PackageIndexBaseDirectory,
             progress,
             DoIndexFetchLogicAsync
@@ -278,7 +203,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource, IPackageSo
 
         Cog.Information("Fetching: " + url);
 
-        HttpClient client = IPackageSourceService.SharedClient;
+        HttpClient client = Utils.SharedHttpClient;
         var response = await client.GetAsync(url);
         if (!response.IsSuccessStatusCode)
         {
@@ -464,7 +389,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource, IPackageSo
                 FileShare.None
             );
 
-            HttpClient client = IPackageSourceService.SharedClient;
+            HttpClient client = Utils.SharedHttpClient;
             var statusCode = await client.DownloadAsync(
                 downloadUrl,
                 fileStream,
@@ -659,7 +584,7 @@ public sealed class PackageSourceIndex
     }
 }
 
-public abstract class PackageSource : IPackageSourceService
+public abstract class PackageSource
 {
     public sealed class PackageSourceCache : ISaveWithJson
     {
@@ -667,7 +592,7 @@ public abstract class PackageSource : IPackageSourceService
     }
 
     public PackageSourceIndex SourceIndex { get; internal set; } = null!;
-    public IPackageSourceService Service => this;
+    public PackageSource Service => this;
     protected List<Package> Packages { get; set; } = [];
     public abstract Uri Uri { get; }
     public abstract string Id { get; }

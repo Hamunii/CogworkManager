@@ -79,7 +79,7 @@ public readonly record struct VisualPackageVersion
     }
 
     public Task<string?> ExtractAsync(
-        IPackageSourceService service,
+        PackageSource service,
         CancellationToken cancellationToken = default
     ) => service.ExtractAsync(this, cancellationToken);
 

@@ -5,7 +5,7 @@ using Cogwork.Core.Extensions;
 
 namespace Cogwork.Core;
 
-internal class TestPackageSource : IPackageSourceService
+internal class TestPackageSource : PackageSource
 {
     public string PackageIndexBaseDirectory =>
         field ??= CogworkPaths.GetCacheIndexSubDirectory(Game.Slug, "test");
