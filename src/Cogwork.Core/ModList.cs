@@ -335,7 +335,7 @@ public sealed class ModList
         _onResolved = onResolved;
         _onNewAddedList(this, Added);
 
-        Add(packages);
+        Add(packages, DependencyVersionResolution.Requested);
     }
 
     public static LazyModList CreateNew(Game game, string name)
@@ -420,9 +420,8 @@ public sealed class ModList
             if (IdToModList.TryGetValue(profileId, out var modList))
                 return modList;
 
-            var path = GetProfileFileLocation(game, profileId);
-            if (!File.Exists(path))
-                return null;
+            if (!ProfileExists(game, profileId, out var path))
+                return default;
 
             var data = ModListData.LoadSavedData(path, JsonGen.Default.ModListData);
             var lockFile = ModListLockFile.LoadSavedData(
@@ -432,6 +431,12 @@ public sealed class ModList
             modList = CreateFromData(game, profileId, data, lockFile);
             return modList;
         }
+    }
+
+    public static bool ProfileExists(Game game, string profileId, out string path)
+    {
+        path = GetProfileFileLocation(game, profileId);
+        return File.Exists(path);
     }
 
     public static string GetProfileFileLocation(Game game, string id) =>
@@ -453,25 +458,27 @@ public sealed class ModList
         lockFile.Save(_lazy.ProfilePackageLockPath);
     }
 
-    public bool Add(IEnumerable<Package> packages) => Add(packages.Select(x => x.Latest));
+    public bool Add(IEnumerable<Package> packages, DependencyVersionResolution context) =>
+        Add(packages.Select(x => x.Latest), context);
 
-    public bool Add(IEnumerable<PackageVersion> packages)
+    public bool Add(IEnumerable<PackageVersion> packages, DependencyVersionResolution context)
     {
         bool updated = false;
         foreach (var package in packages)
         {
             updated |= Added.AddOrUpdateToHigherVersion(package);
         }
-        DirtyRebuildDependencies();
+        DirtyRebuildDependencies(context);
         return updated;
     }
 
-    public bool Add(Package package) => Add(package.Latest);
+    public bool Add(Package package, DependencyVersionResolution context) =>
+        Add(package.Latest, context);
 
-    public bool Add(PackageVersion package)
+    public bool Add(PackageVersion package, DependencyVersionResolution context)
     {
         var updated = Added.AddOrUpdateToHigherVersion(package);
-        DirtyRebuildDependencies();
+        DirtyRebuildDependencies(context);
         return updated;
     }
 
@@ -482,6 +489,15 @@ public sealed class ModList
         List<(PackageVersion packageVersion, bool isUninstalled)> toUninstall = new(
             packages.Count()
         );
+
+        // This is horrible.
+        HashSet<VisualPackageVersion> installed =
+            InstalledPackages
+                .LoadSavedData(_lazy.ProfileInstalledPackagesFilePath)
+                .UserPackages?.Where(x => x.IsInstalled)
+                .Select(x => x.PackageVersion)
+                .ToHashSet()
+            ?? [];
 
         foreach (var package in packages)
         {
@@ -500,11 +516,16 @@ public sealed class ModList
                 )
                 .Result;
 
+            if (isUninstalled)
+            {
+                installed.Remove((VisualPackageVersion)packageVersion);
+            }
+
             toUninstall.Add((packageVersion, isUninstalled));
         }
 
         var dependenciesBefore = Dependencies.ToDictionary();
-        DirtyRebuildDependencies();
+        DirtyRebuildDependencies(DependencyVersionResolution.Requested);
 
         foreach (
             var dependency in dependenciesBefore.Where(x =>
@@ -524,8 +545,17 @@ public sealed class ModList
                 )
                 .Result;
 
+            if (isUninstalled)
+            {
+                installed.Remove((VisualPackageVersion)packageVersion);
+            }
+
             toUninstall.Add((packageVersion, isUninstalled));
         }
+
+        new InstalledPackages([
+            .. installed.Select(x => new UserPackage(x, IsInstalled: true)),
+        ]).Save(_lazy.ProfileInstalledPackagesFilePath);
 
         return (
             [.. toUninstall.Where(x => x.isUninstalled).Select(x => x.packageVersion)],
@@ -533,21 +563,21 @@ public sealed class ModList
         );
     }
 
-    void DirtyRebuildDependencies()
+    void DirtyRebuildDependencies(DependencyVersionResolution context)
     {
         Dictionary<Package, PackageVersion> map = [];
 
         // Pass 1: collect highest available package versions to map.
         foreach (var added in Added)
         {
-            added.Value.CollectAllDependenciesToMap(map);
+            added.Value.CollectAllDependenciesToMap(map, context);
         }
 
         // If any existing dependency is higher version than would be transitively from Added,
         // we want to keep those versions.
         foreach (var dependency in Dependencies)
         {
-            dependency.Value.CollectAllDependenciesToMap(map);
+            dependency.Value.CollectAllDependenciesToMap(map, context);
         }
 
         Dictionary<Package, PackageVersion> allDependencies = [];
@@ -576,7 +606,7 @@ public sealed class ModList
         {
             Dependencies[dependency.Key] = dependency.Key.Latest;
         }
-        Add(Added.Keys.Select(x => x.Latest));
+        Add(Added.Keys.Select(x => x.Latest), DependencyVersionResolution.Latest);
     }
 
     public Task<(
@@ -632,7 +662,8 @@ public sealed class ModList
             userPackages
                 ?.Where(x => x.IsInstalled)
                 .Select(x => x.PackageVersion)
-                .ToDictionary(x => x.FullName) ?? [];
+                .ToDictionary(x => x.FullName)
+            ?? [];
 
         var installRules = _lazy.Game.InstallRules;
         var files = _lazy.ProfileFilesDirectory;
@@ -777,4 +808,17 @@ public static class ModListExtensions
 
         return value;
     }
+}
+
+public enum DependencyVersionResolution
+{
+    /// <summary>
+    /// Resolve the requested version of a dependency.
+    /// </summary>
+    Requested,
+
+    /// <summary>
+    /// Resolve the latest version of a dependency.
+    /// </summary>
+    Latest,
 }

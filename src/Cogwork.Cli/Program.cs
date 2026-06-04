@@ -1,17 +1,14 @@
 global using static Cogwork.Core.CogworkCoreLogger;
-global using static Cogwork.Core.PackageSource;
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using FuzzySharp;
 using FuzzySharp.Extractor;
 using FuzzySharp.SimilarityRatio;
 using FuzzySharp.SimilarityRatio.Scorer.Composite;
 using FuzzySharp.SimilarityRatio.Scorer.StrategySensitive;
-using Gameloop.Vdf;
 using Gameloop.Vdf.Linq;
 using Spectre.Console;
 using ZLinq;
@@ -179,54 +176,66 @@ static class Program
                     CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
                 };
                 profileSelect.Arguments.Add(profileSelectArgument);
-                profileSelect.Validators.Add(
-                    (Action<CommandResult>)(
-                        result =>
+                profileSelect.Validators.Add(result =>
+                {
+                    if (!TryGetActiveGame(result, out Game? game))
+                        return;
+
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"Performing for game: [purple]{game.Name}[/]"
+                    );
+
+                    var profiles = game.GetProfiles().Select(x => x.profile).ToArray();
+                    LazyModList? selected;
+
+                    if (result.GetValue(profileSelectArgument) is { } argument)
+                    {
+                        if (!TryGetModList(result, argument, profiles, out selected))
                         {
-                            if (!TryGetActiveGame(result, out Game? game))
-                                return;
-
-                            AnsiConsole.MarkupLineInterpolated(
-                                CultureInfo.InvariantCulture,
-                                $"Performing for game: [purple]{game.Name}[/]"
-                            );
-
-                            var profiles = game.GetProfiles().Select(x => x.profile).ToArray();
-                            LazyModList? selected;
-
-                            if (result.GetValue(profileSelectArgument) is { } argument)
-                            {
-                                if (!TryGetModList(result, argument, profiles, out selected))
-                                {
-                                    return;
-                                }
-                            }
-                            else
-                            {
-                                var choice = AnsiConsole.Prompt(
-                                    new SelectionPrompt<string>()
-                                        .Title("Select a [green]profile[/]:")
-                                        .AddChoices(
-                                            profiles.Select(x => x.DisambiguatedDisplayName)
-                                        )
-                                );
-
-                                selected = profiles.First(x =>
-                                    x.DisambiguatedDisplayName == choice
-                                );
-                            }
-
-                            game.Config.ActiveProfile = selected;
-                            game.Config.Save(game.GameConfigLocation, JsonGen.Default.GameConfig);
-
-                            Cog.Debug($"selected {selected.DisambiguatedDisplayName}");
-                            AnsiConsole.MarkupLineInterpolated(
-                                CultureInfo.InvariantCulture,
-                                $"Selected profile: [blue]{selected.DisambiguatedDisplayName}[/]"
-                            );
+                            return;
                         }
-                    )
-                );
+                    }
+                    else
+                    {
+                        var choice = AnsiConsole.Prompt(
+                            new SelectionPrompt<string>()
+                                .Title("Select a [green]profile[/]:")
+                                .AddChoices(profiles.Select(x => x.DisambiguatedDisplayName))
+                        );
+
+                        selected = profiles.First(x => x.DisambiguatedDisplayName == choice);
+                    }
+
+                    game.Config.ActiveProfile = selected;
+                    game.Config.Save(game.GameConfigLocation, JsonGen.Default.GameConfig);
+
+                    Cog.Debug($"selected {selected.DisambiguatedDisplayName}");
+                    AnsiConsole.MarkupLineInterpolated(
+                        CultureInfo.InvariantCulture,
+                        $"Selected profile: [blue]{selected.DisambiguatedDisplayName}[/]"
+                    );
+                });
+            }
+
+            Command profileCreate = new("new", "Create new mod profile for the active game");
+            profileCreate.Aliases.Add("n");
+            profileCreate.Options.Add(optionExactMatching);
+            profileCreate.Options.Add(optionAssumeYes);
+            profileCreate.Options.Add(optionAssumeNo);
+            profile.Subcommands.Add(profileCreate);
+            {
+                Argument<string> profileCreateArgument = new("profile?")
+                {
+                    Description = "Name of profile to create",
+                    Arity = ArgumentArity.ZeroOrMore,
+                    CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
+                };
+                profileCreateArgument.Validators.Add(result =>
+                {
+                    _ = TryCreateProfile(result);
+                });
+                profileCreate.Arguments.Add(profileCreateArgument);
             }
 
             Command profileList = new("list", "List all your profiles for the active game");
@@ -252,14 +261,14 @@ static class Program
                         {
                             AnsiConsole.MarkupInterpolated(
                                 CultureInfo.InvariantCulture,
-                                $"[gray]{profile.DisplayName}[/] [gray]([/]{profile.Id}[gray])[/]"
+                                $"- [gray]{profile.DisplayName}[/] [gray]([/]{profile.Id}[gray])[/]"
                             );
                         }
                         else
                         {
                             AnsiConsole.MarkupInterpolated(
                                 CultureInfo.InvariantCulture,
-                                $"{profile.DisplayName}"
+                                $"- {profile.DisplayName}"
                             );
                         }
 
@@ -336,7 +345,7 @@ static class Program
                     throw new UnreachableException("Package name wasn't found.");
                 }
 
-                if (profile.Add(package))
+                if (profile.Add(package, DependencyVersionResolution.Latest))
                 {
                     AnsiConsole.MarkupLineInterpolated(
                         CultureInfo.InvariantCulture,
@@ -583,6 +592,8 @@ static class Program
                             .ToArray();
 
                         Task.WaitAll(downloadTasks);
+
+                        _ = await profile.InstallPackagesAsync();
 
                         if (downloadTasks.Length == 0 && !fetchedAny)
                         {
@@ -965,9 +976,13 @@ static class Program
         [NotNullWhen(true)] out LazyModList? selected
     )
     {
-        selected = profiles.FirstOrDefault(x => x.DisambiguatedDisplayName == argument);
+        selected = profiles.FirstOrDefault(x =>
+            x.DisambiguatedDisplayName.Equals(argument, StringComparison.OrdinalIgnoreCase)
+        );
         if (selected == default)
         {
+            // TODO: This is case sensitive, unlike the above exact selection.
+            // Fix this at some point, optimally by rewriting everything.
             var names = profiles.Select(x => x.DisambiguatedDisplayName).ToArray();
 
             if (!TryVeryFuzzySearch(result, argument, names, out var name))
@@ -1142,6 +1157,33 @@ static class Program
             values.Add((profile, nameCollision));
         }
         return values;
+    }
+
+    private static bool TryCreateProfile(ArgumentResult result)
+    {
+        var profileName = result.GetValueOrDefault<string>();
+        if (!result.TryGetActiveGame(out var game))
+            return false;
+
+        // Cogwork Manager is built to allow multiple identical profile names
+        // but it creates a bad user experience, so we don't allow creating them.
+        if (
+            game.EnumerateProfiles()
+                .Any(x => x.DisplayName.Equals(profileName, StringComparison.OrdinalIgnoreCase))
+        )
+        {
+            result.AddError($"Profile '{profileName}' already exists! Use another name.");
+            return false;
+        }
+
+        game.Config.ActiveProfile = ModList.CreateNew(game, profileName);
+        game.Config.Save(game.GameConfigLocation, JsonGen.Default.GameConfig);
+
+        AnsiConsole.MarkupLineInterpolated(
+            CultureInfo.InvariantCulture,
+            $"[green]Profile '[/][blue]{profileName}[/][green]' created and active.[/]"
+        );
+        return true;
     }
 
     private static void SelectGame(ArgumentResult result)

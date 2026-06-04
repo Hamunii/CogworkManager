@@ -120,6 +120,9 @@ public readonly record struct VisualPackageVersion
     }
 }
 
+// TODO: This is a horrible system for tracking which packages are installed.
+// Change this to a dictionary like Dictionary<VisualPackageVersion, string[]> for files added.
+// This would also allow deleting packages without looking at the downloaded clean package for reference.
 public readonly record struct UserPackage(VisualPackageVersion PackageVersion, bool IsInstalled);
 
 [JsonConverter(typeof(VersionRangeConverter))]
@@ -692,21 +695,49 @@ public sealed partial record PackageVersion
         }
     }
 
-    public void CollectAllDependenciesToMap(Dictionary<Package, PackageVersion> map)
+    public void CollectAllDependenciesToMap(
+        Dictionary<Package, PackageVersion> map,
+        DependencyVersionResolution context
+    )
     {
-        if (map.AddOrUpdateToHigherVersion(this))
+        switch (context)
         {
-            CollectDependenciesToMapRecursive(map);
+            case DependencyVersionResolution.Requested:
+                if (map.AddOrUpdateToHigherVersion(this))
+                {
+                    CollectRequestedDependenciesToMapRecursive(map);
+                }
+                break;
+            case DependencyVersionResolution.Latest:
+                if (map.AddOrUpdateToHigherVersion(this))
+                {
+                    CollectLatestDependenciesToMapRecursive(map);
+                }
+                break;
+            default:
+                throw new ArgumentOutOfRangeException($"Invalid enum value '{context}'");
         }
     }
 
-    void CollectDependenciesToMapRecursive(Dictionary<Package, PackageVersion> map)
+    void CollectRequestedDependenciesToMapRecursive(Dictionary<Package, PackageVersion> map)
     {
         foreach (var dependency in MarkedDependencies)
         {
             if (map.AddOrUpdateToHigherVersion(dependency))
             {
-                dependency.CollectDependenciesToMapRecursive(map);
+                dependency.CollectRequestedDependenciesToMapRecursive(map);
+            }
+        }
+    }
+
+    void CollectLatestDependenciesToMapRecursive(Dictionary<Package, PackageVersion> map)
+    {
+        foreach (var dependency in MarkedDependencies)
+        {
+            var latest = dependency.Package.Latest;
+            if (map.AddOrUpdateToHigherVersion(latest))
+            {
+                latest.CollectLatestDependenciesToMapRecursive(map);
             }
         }
     }
