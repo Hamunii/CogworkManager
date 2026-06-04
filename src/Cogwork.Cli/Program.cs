@@ -670,7 +670,6 @@ static class Program
         }
 
         Command source = new("sources", "Manage package sources");
-        source.Aliases.Add("so");
         rootCommand.Subcommands.Add(source);
         {
             Command sourceAdd = new("add", "Add package source");
@@ -680,6 +679,29 @@ static class Program
             Command sourceRemove = new("remove", "Remove package source");
             sourceRemove.Aliases.Add("r");
             source.Subcommands.Add(sourceRemove);
+
+            Command sourceLocal = new("local", "Manage local packages");
+            source.Subcommands.Add(sourceLocal);
+            {
+                Command sourceImport = new("import", "Import local package");
+                sourceLocal.Subcommands.Add(sourceImport);
+                Argument<string> sourceImportArgument = new("path")
+                {
+                    Description = "Path to package directory root or zip",
+                    Arity = ArgumentArity.OneOrMore,
+                    CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
+                };
+                sourceImport.Arguments.Add(sourceImportArgument);
+                sourceImportArgument.Validators.Add(result =>
+                {
+                    var path = result.GetValueOrDefault<string>();
+                    var error = LocalPackageSource.Instance.ImportPackage(path);
+                    if (error is { })
+                    {
+                        result.AddError(error);
+                    }
+                });
+            }
         }
 
         Command wasteTime = new("waste-time", "Waste time until close program") { Hidden = true };

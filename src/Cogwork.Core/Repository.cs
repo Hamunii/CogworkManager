@@ -202,7 +202,8 @@ public sealed class LocalPackageSource : PackageSource
             return true;
         }
 
-        var packages = JsonSerializer.Deserialize(PackageIndexPath, JsonGen.Default.ListPackage);
+        using var fileStream = File.Open(PackageIndexPath, FileMode.Open);
+        var packages = JsonSerializer.Deserialize(fileStream, JsonGen.Default.ListPackage);
         if (packages is null)
         {
             Packages ??= [];
@@ -216,26 +217,73 @@ public sealed class LocalPackageSource : PackageSource
         return true;
     }
 
-    public void ImportPackage(string path)
+    public string? ImportPackage(string path)
     {
         Cog.Information($"Importing local package at '{path}'");
 
         var manifest = Path.Combine(path, "manifest.json");
-        if (!File.Exists(manifest))
+
+        if (File.Exists(path))
+        {
+            using FileStream fileStream = File.Open(path, FileMode.Open);
+            var archive = new ZipArchive(fileStream);
+
+            var manifestFile = archive.Entries.FirstOrDefault(x =>
+                x.FullName.Equals("manifest.json", StringComparison.Ordinal)
+            );
+            if (manifestFile is null)
+            {
+                return "Manifest file not found in archive";
+            }
+
+            using var manifestStream = manifestFile.Open();
+            return ImportPackageFromManifest(
+                path,
+                manifest,
+                manifestStream,
+                () =>
+                {
+                    manifestStream.Dispose();
+                    archive.Dispose();
+                    fileStream.Dispose();
+                }
+            );
+        }
+        else if (!File.Exists(manifest))
         {
             throw new FileNotFoundException($"Manifest not found: '{manifest}'");
         }
+        else
+        {
+            using var manifestStream = File.OpenRead(manifest);
+            return ImportPackageFromManifest(path, manifest, manifestStream);
+        }
+    }
 
-        using var manifestStream = File.OpenRead(manifest);
-        var packageVersion =
-            JsonSerializer.Deserialize(manifestStream, JsonGen.Default.PackageVersion)
-            ?? throw new InvalidDataException(
-                $"Package index file '{manifest}' deserialization returned null"
-            );
+    private string? ImportPackageFromManifest(
+        string path,
+        string manifestPath,
+        Stream manifestStream,
+        Action? disposeStreams = null
+    )
+    {
+        var packageVersion = JsonSerializer.Deserialize(
+            manifestStream,
+            JsonGen.Default.PackageVersion
+        );
 
-        _ = FetchPackageIndexAsync(TimeSpan.FromSeconds(0), default).Result;
+        disposeStreams?.Invoke();
+
+        if (packageVersion is null)
+        {
+            return $"Package manifest file '{manifestPath}' deserialization returned null";
+        }
+
+        _ = FetchPackageIndexAsync(TimeSpan.Zero, default).Result;
 
         var package = new Package(packageVersion.Author, packageVersion.Name, [packageVersion]);
+
+        // Overwrites existing package
         ProcessPackage(package);
 
         if (
@@ -259,11 +307,20 @@ public sealed class LocalPackageSource : PackageSource
             }
         }
 
-        Utils.CopyDirectory(path, directoryPath, recursive: true);
+        if (File.Exists(path))
+        {
+            File.Copy(path, zipFileLocation);
+        }
+        else
+        {
+            Utils.CopyDirectory(path, directoryPath, recursive: true);
+        }
 
         Packages = [.. nameToPackage.Select(x => x.Value)];
         var localPackageIndex = JsonSerializer.Serialize(Packages, JsonGen.Default.ListPackage);
         File.WriteAllText(PackageIndexPath, localPackageIndex);
+
+        return null;
     }
 }
 

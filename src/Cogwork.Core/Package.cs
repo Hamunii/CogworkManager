@@ -382,8 +382,10 @@ public sealed partial record Package
     [JsonPropertyName("versions")]
     public PackageVersion[] Versions { get; internal set; }
 
+    [JsonIgnore]
     public PackageVersion Latest => Versions[0];
 
+    [JsonIgnore]
     public PackageSource Source { get; internal set; } = null!;
 
     public Package(Author author, string name, PackageVersion[] versions)
@@ -579,6 +581,7 @@ public sealed partial record Package
 
 public sealed partial record PackageVersion
 {
+    [JsonIgnore]
     public PackageVersion[] MarkedDependencies =>
         field ??= [
             .. DependencyStrings
@@ -627,6 +630,7 @@ public sealed partial record PackageVersion
                 .Where(x => x is { })!,
         ];
 
+    [JsonIgnore]
     public PackageVersion[] AllDependencies
     {
         get
@@ -637,12 +641,14 @@ public sealed partial record PackageVersion
         }
     }
 
+    [JsonIgnore]
     public PackageVersionNumber Version { get; set; }
 
     [JsonInclude]
     [JsonPropertyName("version_number")]
     public string VersionString { get; }
 
+    [JsonIgnore]
     public Package Package { get; internal set; } = null!;
 
     [JsonInclude]
