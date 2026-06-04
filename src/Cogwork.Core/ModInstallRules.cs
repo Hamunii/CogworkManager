@@ -391,7 +391,11 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
             UnixFileMode currentMode = File.GetUnixFileMode(runBepInExPath);
             File.SetUnixFileMode(runBepInExPath, currentMode | UnixFileMode.UserExecute);
         }
+
+        // <path to game> [doorstop arguments]
         args.Add(gameExecutable);
+        args.Add("--doorstop-enabled");
+        args.Add("true");
         args.Add("--doorstop-target-assembly");
         args.Add(Path.Combine(profileFiles, "BepInEx", "core", "BepInEx.Preloader.dll"));
 
