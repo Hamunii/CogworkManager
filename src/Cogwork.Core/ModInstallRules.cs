@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
+using System.Runtime.InteropServices;
 using ZLinq;
 
 namespace Cogwork.Core;
@@ -376,7 +377,19 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         if (!isWindowsApp)
         {
-            args.Add(Path.Combine(profileFiles, "run_bepinex.sh"));
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                // This is bad error handling, but I'd assume this should never happen.
+                throw new InvalidOperationException(
+                    "This game is not supported on Windows (as far as Cogwork Manager is aware)."
+                );
+            }
+
+            var runBepInExPath = Path.Combine(profileFiles, "run_bepinex.sh");
+            args.Add(runBepInExPath);
+
+            UnixFileMode currentMode = File.GetUnixFileMode(runBepInExPath);
+            File.SetUnixFileMode(runBepInExPath, currentMode | UnixFileMode.UserExecute);
         }
         args.Add(gameExecutable);
         args.Add("--doorstop-target-assembly");
