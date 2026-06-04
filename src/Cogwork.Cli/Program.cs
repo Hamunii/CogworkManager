@@ -225,10 +225,10 @@ static class Program
             profileCreate.Options.Add(optionAssumeNo);
             profile.Subcommands.Add(profileCreate);
             {
-                Argument<string> profileCreateArgument = new("profile?")
+                Argument<string> profileCreateArgument = new("profile")
                 {
                     Description = "Name of profile to create",
-                    Arity = ArgumentArity.ZeroOrMore,
+                    Arity = ArgumentArity.OneOrMore,
                     CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
                 };
                 profileCreateArgument.Validators.Add(result =>
