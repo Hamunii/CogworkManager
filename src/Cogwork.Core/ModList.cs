@@ -173,8 +173,6 @@ public sealed class LazyModList
         };
 
         modListData.Save(ProfileSaveDataPath);
-        ModListLockFile lockFile = new([], []);
-        lockFile.Save(ProfilePackageLockPath);
     }
 
     public string ProfilePackageLockPath => field ??= GetProfilePackageLockPath(Game, Id);

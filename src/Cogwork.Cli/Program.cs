@@ -335,7 +335,7 @@ static class Program
                     !Package.TryGetPackage(
                         profile.SourceIndex,
                         selected,
-                        out var package,
+                        out _,
                         hasVersion: false,
                         out _,
                         out _
@@ -343,6 +343,38 @@ static class Program
                 )
                 {
                     throw new UnreachableException("Package name wasn't found.");
+                }
+
+                var sameNamePackages = profile
+                    .SourceIndex.Sources.Select(
+                        (source) =>
+                        {
+                            _ = Package.TryGetPackage(source, selected, out var packageFromSource);
+                            return packageFromSource!;
+                        }
+                    )
+                    .Where(package => package is { });
+
+                Package package;
+                var countUpTo2 = sameNamePackages.Take(2).Count();
+                if (countUpTo2 == 0)
+                {
+                    throw new UnreachableException("Package name wasn't found.");
+                }
+                else if (countUpTo2 == 1)
+                {
+                    package = sameNamePackages.First();
+                }
+                else
+                {
+                    package = AnsiConsole.Prompt(
+                        new SelectionPrompt<Package>()
+                            .Title(
+                                "[violet]The package is available in the following sources, select which to use:[/]"
+                            )
+                            .UseConverter(x => x.Source.Id)
+                            .AddChoices(sameNamePackages)
+                    );
                 }
 
                 if (profile.Add(package, DependencyVersionResolution.Latest))
@@ -675,6 +707,33 @@ static class Program
             Command sourceAdd = new("add", "Add package source");
             sourceAdd.Aliases.Add("a");
             source.Subcommands.Add(sourceAdd);
+            {
+                Argument<string> sourceAddArgument = new("source")
+                {
+                    Description = "Source URL or 'local' for local source",
+                    Arity = ArgumentArity.OneOrMore,
+                    CustomParser = r => string.Join(' ', r.Tokens.Select(t => t.Value)),
+                };
+                sourceAdd.Arguments.Add(sourceAddArgument);
+                sourceAddArgument.Validators.Add(result =>
+                {
+                    var uri = result.GetValueOrDefault<string>();
+                    if (!TryGetActiveGameAndProfile(result, out _, out var profile))
+                    {
+                        return;
+                    }
+                    if (uri.Equals("local", StringComparison.OrdinalIgnoreCase))
+                    {
+                        uri = "cogman:sources/local";
+                    }
+                    if (!profile.SourceIndex.TryImportFromUri(new(uri), out var source))
+                    {
+                        result.AddError("Failed to add source: source is unknown or unsupported");
+                    }
+                    profile.SaveData();
+                    AnsiConsole.MarkupLine("[green]Added package source to current profile[/]");
+                });
+            }
 
             Command sourceRemove = new("remove", "Remove package source");
             sourceRemove.Aliases.Add("r");
@@ -695,7 +754,7 @@ static class Program
                 sourceImportArgument.Validators.Add(result =>
                 {
                     var path = result.GetValueOrDefault<string>();
-                    var error = LocalPackageSource.Instance.ImportPackage(path);
+                    var error = LocalPackageSource.UnconnectedShared.ImportPackage(path);
                     if (error is { })
                     {
                         result.AddError(error);
@@ -1077,7 +1136,7 @@ static class Program
     }
 
     private static bool TryGetActiveGameAndProfile(
-        CommandResult? result,
+        SymbolResult? result,
         [NotNullWhen(true)] out Game? game,
         [NotNullWhen(true)] out LazyModList? profile
     )

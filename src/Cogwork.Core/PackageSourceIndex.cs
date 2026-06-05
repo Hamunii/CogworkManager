@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using Cogwork.Core.Extensions;
 using ZLinq;
@@ -22,11 +24,13 @@ public sealed class PackageSourceIndex
     [JsonIgnore]
     List<PackageSource> PackageSources { get; } = [];
 
+    readonly Dictionary<string, PackageSource> sourceCache = [];
+
     public PackageSourceIndex() { }
 
     public PackageSourceIndex(PackageSource packageSource)
     {
-        Add(packageSource);
+        AddIfNotExists(packageSource);
     }
 
     public PackageSourceIndex(IEnumerable<Uri> uris) => Import(uris);
@@ -35,21 +39,22 @@ public sealed class PackageSourceIndex
     {
         foreach (var uri in uris.AsValueEnumerable())
         {
-            if (!PackageSources.Any(x => uri == x.Service.Uri))
+            if (!TryImportFromUri(uri, out var packageSource))
             {
-                if (TryParseFromUri(uri, out var packageSource))
-                {
-                    Add(packageSource);
-                }
-                else
-                {
-                    Cog.Warning($"Could not parse package source uri: '{uri}'");
-                }
+                Cog.Warning($"Could not parse package source uri: '{uri}'");
             }
+            // if (!PackageSources.Any(x => uri == x.Service.Uri)) { }
         }
     }
 
-    public static bool TryParseFromUri(Uri uri, [NotNullWhen(true)] out PackageSource? source)
+    public bool TryImportFromUri(Uri uri, [NotNullWhen(true)] out PackageSource? source) =>
+        TryParseFromUri(uri, out source, this);
+
+    public static bool TryParseFromUri(
+        Uri uri,
+        [NotNullWhen(true)] out PackageSource? source,
+        PackageSourceIndex? index = null
+    )
     {
         source = default;
 
@@ -58,7 +63,24 @@ public sealed class PackageSourceIndex
             case "cogman":
                 if (uri.AbsolutePath == "sources/local")
                 {
-                    source = LocalPackageSource.Instance;
+                    if (index is null)
+                    {
+                        source = new LocalPackageSource();
+                        return true;
+                    }
+
+                    ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                        index.sourceCache,
+                        $"cogman:sources/local",
+                        out var exists
+                    );
+                    if (!exists)
+                    {
+                        value = new LocalPackageSource();
+                        index.Add(value);
+                    }
+
+                    source = value!;
                     return true;
                 }
                 break;
@@ -83,7 +105,24 @@ public sealed class PackageSourceIndex
                 var nameToGame = Game.NameToGame.GetAlternateLookup<ReadOnlySpan<char>>();
                 if (nameToGame.TryGetValue(slug, out var game))
                 {
-                    source = new ThunderstoreCommunity(game);
+                    if (index is null)
+                    {
+                        source = new ThunderstoreCommunity(game);
+                        return true;
+                    }
+
+                    ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                        index.sourceCache,
+                        $"https://thunderstore.io/c/{game.Slug}/",
+                        out var exists
+                    );
+                    if (!exists)
+                    {
+                        value = new ThunderstoreCommunity(game);
+                        index.Add(value);
+                    }
+
+                    source = value!;
                     return true;
                 }
 
@@ -94,10 +133,35 @@ public sealed class PackageSourceIndex
         return false;
     }
 
+    public void AddIfNotExists(PackageSource packageSource)
+    {
+        packageSource.SourceIndex = this;
+
+        ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
+            sourceCache,
+            packageSource.Id,
+            out var exists
+        );
+
+        if (exists)
+        {
+            Cog.Debug($"Package source already exists {packageSource.Id} {new StackTrace(true)}");
+            return;
+        }
+
+        value = packageSource;
+        PackageSources.Add(packageSource);
+
+        if (Thunderstore is null && packageSource.Service is ThunderstoreCommunity)
+        {
+            Thunderstore = packageSource;
+        }
+    }
+
     public void Add(PackageSource packageSource)
     {
-        PackageSources.Add(packageSource);
         packageSource.SourceIndex = this;
+        PackageSources.Add(packageSource);
 
         if (Thunderstore is null && packageSource.Service is ThunderstoreCommunity)
         {

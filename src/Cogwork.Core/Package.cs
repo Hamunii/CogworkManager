@@ -407,6 +407,15 @@ public sealed partial record Package
     ) => TryGetPackage(sourceIndex, fullName, out package, hasVersion: false, out _, out _);
 
     public static bool TryGetPackage(
+        PackageSource source,
+        ReadOnlySpan<char> fullName,
+        [NotNullWhen(true)] out Package? package
+    ) =>
+        source
+            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
+            .TryGetValue(fullName, out package);
+
+    public static bool TryGetPackage(
         PackageSourceIndex sourceIndex,
         ReadOnlySpan<char> fullName,
         [NotNullWhen(true)] out Package? package,

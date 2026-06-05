@@ -14,7 +14,10 @@ namespace Cogwork.Core;
 
 public sealed class LocalPackageSource : PackageSource
 {
-    public static LocalPackageSource Instance { get; } = new();
+    /// <summary>
+    /// The <see cref="PackageSource.SourceIndex"/> property of this instance is null.
+    /// </summary>
+    public static LocalPackageSource UnconnectedShared { get; } = new();
 
     public override Uri Uri { get; } = new("cogman:sources/local");
 
