@@ -171,12 +171,11 @@ public sealed class LocalPackageSource : PackageSource
             if (Directory.Exists(directoryPathFinal))
             {
                 Directory.Delete(directoryPathFinal, recursive: true);
-                Directory.Move(directoryPathTemp, directoryPathFinal);
             }
 
             if (Directory.Exists(directoryPathTemp))
             {
-                Directory.Delete(directoryPathTemp, recursive: true);
+                Directory.Move(directoryPathTemp, directoryPathFinal);
             }
 
             if (zipExistsTemp)

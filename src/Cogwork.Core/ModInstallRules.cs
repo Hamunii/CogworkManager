@@ -243,12 +243,18 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         CancellationToken cancellationToken = default
     )
     {
-        var path = await packageVersion.ExtractAsync(cancellationToken);
-        if (path is null)
+        var isDownloaded = packageVersion.IsDownloaded(out var pathDir);
+        if (isDownloaded is null)
+        {
+            throw new InvalidOperationException("Corrupted package");
+        }
+        else if (isDownloaded is false)
         {
             Cog.Error($"Cannot uninstall package which is not downloaded: '{packageVersion}'");
             return false;
         }
+
+        var path = pathDir!;
 
         // We Map the extracted directory for our modloader to the actual final directory,
         // except in a fake filesystem to avoid actually moving our files.

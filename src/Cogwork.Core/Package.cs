@@ -99,7 +99,28 @@ public readonly record struct VisualPackageVersion
             return Task.FromResult<string?>(null);
         }
 
-        return source.Service.ExtractAsync(this, cancellationToken);
+        return source.ExtractAsync(this, cancellationToken);
+    }
+
+    public bool? IsDownloaded([NotNullWhen(true)] out string? directoryPath)
+    {
+        directoryPath = null;
+
+        if (Source is null)
+        {
+            Cog.Warning($"Source was null for '{ToString()}'" + new StackTrace(true));
+            return null;
+        }
+
+        var uri = new Uri(Source);
+
+        if (!PackageSourceIndex.TryParseFromUri(uri, out var source))
+        {
+            Cog.Warning($"No package source found for '{uri}'" + new StackTrace(true));
+            return null;
+        }
+
+        return source.IsPackageDownloaded(this, out _, out directoryPath, out _);
     }
 
     public override string ToString() =>
