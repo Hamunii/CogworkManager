@@ -427,7 +427,8 @@ static class Program
                             added.Select(x => x.FullName),
                             processor: s => s,
                             cutoff: 60,
-                            scorer: ScorerCache.Get<WeightedRatioScorer>()
+                            scorer: ScorerCache.Get<WeightedRatioScorer>(),
+                            limit: 15
                         ),
                         ref matches
                     );
@@ -1321,17 +1322,8 @@ static class Program
         var exactMatching = result.GetValue(optionExactMatching);
 
         List<string> best = [];
-        // It'd be kinda nice to have this, but it's way too slow. About 2 seconds for Lethal Company.
-        // var score = FilterBestResults(
-        //     FuzzySharp.Process.ExtractTop(
-        //         toSelect,
-        //         searchList,
-        //         processor: s => s,
-        //         cutoff: 60,
-        //         scorer: ScorerCache.Get<WeightedRatioScorer>()
-        //     ),
-        //     ref best
-        // );
+        // It'd be kinda nice to have fuzzy search here, but it's way too slow.
+        // It takes about 2 seconds for Lethal Company.
 
         var score = FilterBestResults(
             searchList
@@ -1372,7 +1364,8 @@ static class Program
                 searchList,
                 processor: s => s,
                 cutoff: 40,
-                scorer: ScorerCache.Get<WeightedRatioScorer>()
+                scorer: ScorerCache.Get<WeightedRatioScorer>(),
+                limit: 15
             ),
             ref best
         );
@@ -1385,7 +1378,8 @@ static class Program
                     toSelect,
                     searchList,
                     processor: s => s,
-                    scorer: ScorerCache.Get<PartialTokenAbbreviationScorer>()
+                    scorer: ScorerCache.Get<PartialTokenAbbreviationScorer>(),
+                    limit: 15
                 ),
                 ref best2
             );
@@ -1405,7 +1399,8 @@ static class Program
                         searchList,
                         processor: s => s,
                         cutoff: 60,
-                        scorer: ScorerCache.Get<TokenInitialismScorer>()
+                        scorer: ScorerCache.Get<TokenInitialismScorer>(),
+                        limit: 15
                     ),
                     ref best3
                 );
@@ -1496,7 +1491,7 @@ static class Program
                     .Title(
                         "[yellow]Ambiguous match. Please select the option you are looking for:[/]"
                     )
-                    .AddChoices(best)
+                    .AddChoices(best.Take(20))
             );
             selected = choice;
         }
