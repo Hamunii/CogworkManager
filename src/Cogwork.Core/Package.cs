@@ -715,16 +715,18 @@ public sealed partial record PackageVersion
         DependencyVersionResolution context
     )
     {
+        var dominant = Package.Source.SourceIndex.GetDominantPackage(this);
+
         switch (context)
         {
             case DependencyVersionResolution.Requested:
-                if (map.AddOrUpdateToHigherVersion(this))
+                if (map.AddOrUpdateToHigherVersion(dominant))
                 {
                     CollectRequestedDependenciesToMapRecursive(map);
                 }
                 break;
             case DependencyVersionResolution.Latest:
-                if (map.AddOrUpdateToHigherVersion(this))
+                if (map.AddOrUpdateToHigherVersion(dominant))
                 {
                     CollectLatestDependenciesToMapRecursive(map);
                 }
@@ -738,9 +740,11 @@ public sealed partial record PackageVersion
     {
         foreach (var dependency in MarkedDependencies)
         {
-            if (map.AddOrUpdateToHigherVersion(dependency))
+            var dominant = Package.Source.SourceIndex.GetDominantPackage(dependency);
+
+            if (map.AddOrUpdateToHigherVersion(dominant))
             {
-                dependency.CollectRequestedDependenciesToMapRecursive(map);
+                dominant.CollectRequestedDependenciesToMapRecursive(map);
             }
         }
     }
@@ -749,7 +753,9 @@ public sealed partial record PackageVersion
     {
         foreach (var dependency in MarkedDependencies)
         {
-            var latest = dependency.Package.Latest;
+            var dominant = Package.Source.SourceIndex.GetDominantPackage(dependency.Package);
+            var latest = dominant.Latest;
+
             if (map.AddOrUpdateToHigherVersion(latest))
             {
                 latest.CollectLatestDependenciesToMapRecursive(map);
@@ -773,7 +779,9 @@ public sealed partial record PackageVersion
     {
         foreach (var dependency in MarkedDependencies)
         {
-            var higher = map.GetHigherVersion(dependency);
+            var dominant = Package.Source.SourceIndex.GetDominantPackage(dependency);
+
+            var higher = map.GetHigherVersion(dominant);
             if (destination.TryAdd(higher.Package, higher))
             {
                 higher.CollectDependenciesToDestinationRecursive(map, destination);

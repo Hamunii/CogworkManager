@@ -25,6 +25,7 @@ public sealed class PackageSourceIndex
     List<PackageSource> PackageSources { get; } = [];
 
     readonly Dictionary<string, PackageSource> sourceCache = [];
+    readonly Dictionary<string, Package> dominantPackages = [];
 
     public PackageSourceIndex() { }
 
@@ -34,6 +35,39 @@ public sealed class PackageSourceIndex
     }
 
     public PackageSourceIndex(IEnumerable<Uri> uris) => Import(uris);
+
+    public void MakePackageDominant(Package package)
+    {
+        dominantPackages[package.FullName] = package;
+    }
+
+    public Package GetDominantPackage(Package package)
+    {
+        if (dominantPackages.TryGetValue(package.FullName, out var dominant))
+        {
+            return dominant;
+        }
+
+        return package;
+    }
+
+    public PackageVersion GetDominantPackage(PackageVersion packageVersion)
+    {
+        var package = packageVersion.Package;
+        var dominant = GetDominantPackage(package);
+
+        if (ReferenceEquals(dominant, package))
+        {
+            return packageVersion;
+        }
+
+        if (!dominant.TryGetVersion(packageVersion.Version, out var dominantVersion))
+        {
+            throw new UnreachableException("PackageVersion must have existed to get here");
+        }
+
+        return dominantVersion;
+    }
 
     public void Import(IEnumerable<Uri> uris)
     {

@@ -26,6 +26,8 @@ public sealed class LocalPackageSource : PackageSource
     public string PackageIndexPath { get; } =
         Path.Combine(CogworkPaths.GetPackagesSubDirectory("local"), "local-index.json");
 
+    bool _isLoaded;
+
     public override bool IsPackageDownloaded(
         VisualPackageVersion packageVersion,
         out string zipFileLocation,
@@ -198,9 +200,14 @@ public sealed class LocalPackageSource : PackageSource
         Func<PackageSource, ProgressContext>? progressFactory
     )
     {
+        if (_isLoaded)
+        {
+            Cog.Debug("Local package index is already fetched");
+            return true;
+        }
+
         if (!File.Exists(PackageIndexPath))
         {
-            Packages ??= [];
             Cog.Debug("Fetched local package index (which has not been created yet)");
             return true;
         }
@@ -216,6 +223,7 @@ public sealed class LocalPackageSource : PackageSource
         ProcessPackages(packages);
         Packages = packages;
 
+        _isLoaded = true;
         Cog.Debug("Fetched local package index");
         return true;
     }
@@ -323,6 +331,7 @@ public sealed class LocalPackageSource : PackageSource
         var localPackageIndex = JsonSerializer.Serialize(Packages, JsonGen.Default.ListPackage);
         File.WriteAllText(PackageIndexPath, localPackageIndex);
 
+        _isLoaded = true;
         return null;
     }
 }

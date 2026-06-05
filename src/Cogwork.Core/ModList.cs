@@ -150,9 +150,12 @@ public sealed class LazyModList
         _modList = new(
             this,
             onNewAddedDictionary: (modList, added) =>
+            {
+                _modList = modList; // this is set first, some stuff needs it early
                 AddedPackageIds = added
                     .Select(x => x.Key.ToStringSimpleWithSource())
-                    .Concat(modList.LostPackageIds),
+                    .Concat(modList.LostPackageIds);
+            },
             onResolved: () =>
             {
                 _isResolvedAddedDirty = true;
@@ -284,6 +287,8 @@ public sealed class ModList
     {
         _lazy = lazyModList;
         List<PackageVersion> packages = [];
+
+        Cog.Debug($"Initializing mod list");
 
         foreach (var packageId in _lazy.AddedPackageIds)
         {
@@ -453,29 +458,48 @@ public sealed class ModList
             ))
         );
 
+        // Cog.Warning(
+        //     $"Saving lock file '{string.Join(", ", lockFile.ResolvedAdded!.Select(x => x.Key))}'"
+        // );
+
         lockFile.Save(_lazy.ProfilePackageLockPath);
     }
+
+    public bool Add(Package package, DependencyVersionResolution context) =>
+        Add(package.Latest, context);
+
+    public bool Add(PackageVersion packageVersion, DependencyVersionResolution context) =>
+        Add([packageVersion], context);
 
     public bool Add(IEnumerable<Package> packages, DependencyVersionResolution context) =>
         Add(packages.Select(x => x.Latest), context);
 
     public bool Add(IEnumerable<PackageVersion> packages, DependencyVersionResolution context)
     {
+        Cog.Debug($"Adding: " + string.Join(", ", packages.Select(x => x.ToString())));
+
         bool updated = false;
-        foreach (var package in packages)
+        foreach (var packageVersion in packages)
         {
-            updated |= Added.AddOrUpdateToHigherVersion(package);
+            SourceIndex.MakePackageDominant(packageVersion.Package);
+
+            var sameNamePackages = SourceIndex
+                .Sources.Select(x =>
+                {
+                    _ = Package.TryGetPackage(x, packageVersion.Package.FullName, out var package);
+                    return package!;
+                })
+                .Where(x =>
+                    x is { } && !ReferenceEquals(x, packageVersion.Package) && Added.ContainsKey(x)
+                );
+
+            if (sameNamePackages.Any())
+            {
+                Remove(sameNamePackages);
+            }
+
+            updated |= Added.AddOrUpdateToHigherVersion(packageVersion);
         }
-        DirtyRebuildDependencies(context);
-        return updated;
-    }
-
-    public bool Add(Package package, DependencyVersionResolution context) =>
-        Add(package.Latest, context);
-
-    public bool Add(PackageVersion package, DependencyVersionResolution context)
-    {
-        var updated = Added.AddOrUpdateToHigherVersion(package);
         DirtyRebuildDependencies(context);
         return updated;
     }
@@ -484,6 +508,10 @@ public sealed class ModList
         IEnumerable<Package> packages
     )
     {
+        Cog.Debug(
+            $"Removing: " + string.Join(", ", packages.Select(x => x.ToStringSimpleWithSource()))
+        );
+
         List<(PackageVersion packageVersion, bool isUninstalled)> toUninstall = new(
             packages.Count()
         );

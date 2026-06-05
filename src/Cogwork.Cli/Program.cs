@@ -370,7 +370,7 @@ static class Program
                     package = AnsiConsole.Prompt(
                         new SelectionPrompt<Package>()
                             .Title(
-                                "[violet]The package is available in the following sources, select which to use:[/]"
+                                "[violet]The package is available in the following sources, select which one to use:[/]"
                             )
                             .UseConverter(x => x.Source.Id)
                             .AddChoices(sameNamePackages)
@@ -1491,7 +1491,7 @@ static class Program
                     .Title(
                         "[yellow]Ambiguous match. Please select the option you are looking for:[/]"
                     )
-                    .AddChoices(best.Take(20))
+                    .AddChoices(best.Take(20).Distinct())
             );
             selected = choice;
         }
