@@ -90,6 +90,15 @@ public sealed class LocalPackageSource : PackageSource
         return Task.FromResult(true);
     }
 
+    internal static bool NeedsReinstall(VisualPackageVersion packageVersion) =>
+        IsPackageDownloaded(
+            packageVersion,
+            withVersionName: "next",
+            out var _,
+            out var _,
+            out var _
+        );
+
     public override async Task<string?> ExtractAsync(
         VisualPackageVersion packageVersion,
         CancellationToken cancellationToken = default

@@ -717,7 +717,11 @@ public sealed class ModList
                     );
                 }
 
-                if (installedVisualPackageVersion != visualPackageVersion)
+                if (
+                    installedVisualPackageVersion != visualPackageVersion
+                    || package.Key.Source is LocalPackageSource
+                        && LocalPackageSource.NeedsReinstall(visualPackageVersion)
+                )
                 {
                     Cog.Debug(
                         $"Uninstalling old package version: '{installedVisualPackageVersion}'"
