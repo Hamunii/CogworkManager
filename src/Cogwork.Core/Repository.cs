@@ -42,12 +42,18 @@ public sealed class LocalPackageSource : PackageSource
         var version = "latest";
 
         return IsPackageDownloaded(
-            packageVersion,
-            withVersionName: version,
-            out zipFileLocation,
-            out directoryPath,
-            out zipExists
-        );
+                packageVersion,
+                withVersionName: version,
+                out zipFileLocation,
+                out directoryPath,
+                out zipExists
+            )
+            ||
+            // I don't feel good about this because we are passing the "latest" package's
+            // paths, but the API promises that one of those paths is true if this returns true,
+            // but if we return true here and the previous didn't, this implementation doesn't
+            // conform to the API.
+            IsPackageDownloaded(packageVersion, withVersionName: "next", out _, out _, out _);
     }
 
     public static bool IsPackageDownloaded(
@@ -79,7 +85,8 @@ public sealed class LocalPackageSource : PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        if (!IsPackageDownloaded((VisualPackageVersion)packageVersion))
+        var visualPackageVersion = (VisualPackageVersion)packageVersion;
+        if (!IsPackageDownloaded(visualPackageVersion))
         {
             Cog.Error(
                 $"Attempting to download local package '{packageVersion}' which is not found."
@@ -172,6 +179,7 @@ public sealed class LocalPackageSource : PackageSource
 
             _ = IsPackageDownloaded(
                 packageVersion,
+                withVersionName: "latest",
                 out var zipPathFinal,
                 out var directoryPathFinal,
                 out var zipExistsFinal

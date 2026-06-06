@@ -253,6 +253,13 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
             Cog.Error($"Cannot uninstall package which is not downloaded: '{packageVersion}'");
             return false;
         }
+        else if (!Path.Exists(pathDir))
+        {
+            Cog.Error(
+                $"Trying to uninstall package '{packageVersion}' but its path doesn't exist (probably corrupted local package installation)."
+            );
+            return false;
+        }
 
         var path = pathDir!;
 
