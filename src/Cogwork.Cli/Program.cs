@@ -5,12 +5,17 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
+using DBusGenerated.Freedesktop.Portal;
 using FuzzySharp.Extractor;
 using FuzzySharp.SimilarityRatio;
 using FuzzySharp.SimilarityRatio.Scorer.Composite;
 using FuzzySharp.SimilarityRatio.Scorer.StrategySensitive;
 using Gameloop.Vdf.Linq;
+using Microsoft.Win32.SafeHandles;
 using Spectre.Console;
+using Tmds.DBus.Protocol;
+using Tmds.Linux;
 using ZLinq;
 
 namespace Cogwork.Cli;
@@ -284,6 +289,52 @@ static class Program
                             AnsiConsole.WriteLine();
                         }
                     }
+                });
+            }
+
+            Command profileLocation = new("path", "Path operations for the active profile");
+            profile.Subcommands.Add(profileLocation);
+            {
+                Command profileLocationOpen = new("open", "Open active profile location");
+                profileLocation.Subcommands.Add(profileLocationOpen);
+                profileLocationOpen.Validators.Add(result =>
+                {
+                    if (!TryGetActiveGameAndProfile(result, out _, out var profile))
+                        return;
+
+                    if (DBusAddress.Session is null)
+                    {
+                        result.AddError("DBus Session not found.");
+                        return;
+                    }
+                });
+                profileLocationOpen.SetAction(async result =>
+                {
+                    if (!TryGetActiveGameAndProfile(null, out _, out var profile))
+                        return;
+
+                    using var connection = new DBusConnection(DBusAddress.Session!);
+                    await connection.ConnectAsync();
+
+                    var openUri = new OpenURI(
+                        connection,
+                        "org.freedesktop.portal.Desktop",
+                        "/org/freedesktop/portal/desktop"
+                    );
+
+                    var bytes = Encoding.UTF8.GetBytes(profile.ProfileFilesDirectory);
+                    int rawHandle;
+
+                    unsafe
+                    {
+                        fixed (byte* buffer = bytes)
+                        {
+                            rawHandle = LibC.open(buffer, LibC.O_RDONLY | LibC.O_DIRECTORY);
+                        }
+                    }
+
+                    using var handle = new SafeFileHandle(rawHandle, ownsHandle: true);
+                    await openUri.OpenDirectoryAsync("", handle, []);
                 });
             }
         }

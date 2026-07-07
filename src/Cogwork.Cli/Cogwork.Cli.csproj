@@ -15,6 +15,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishAot>true</PublishAot>
     <IncludeBuildOutput>false</IncludeBuildOutput>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,5 +32,16 @@
     <PackageReference Include="System.CommandLine" Version="2.0.1" />
     <PackageReference Include="Spectre.Console" Version="0.54.0" />
     <PackageReference Include="PublishAotCrossXWin" Version="1.2.0" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
+    <PackageReference Include="Tmds.DBus.Generator" Version="0.94.2" />
+    <PackageReference Include="Tmds.LibC" Version="0.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles
+      Include="$(SolutionRoot)src/dbus-xml/org.freedesktop.portal.OpenURI.xml"
+      Namespace="DBusGenerated.Freedesktop.Portal"
+      DBusGeneratorMode="Proxy"
+    />
   </ItemGroup>
 </Project>
