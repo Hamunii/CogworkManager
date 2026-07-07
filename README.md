@@ -1,12 +1,14 @@
 # Cogwork Manager
 
-A WIP concept of a generic mod package manager with:
+A WIP a generic mod package manager built for mod developers.
 
-- Dependency management where mods you explicitly add are separate from their dependencies
-- Support for multiple package sources which are freely configurable (with [Thunderstore](<https://thunderstore.io/>) included by default)
+> [!CAUTION]  
+> This project is not fit for consumption yet, and likely will not be for a long time. While this is technically very usable\*, I provide no support or promises in order to not make development harder.
+>
+> *\*Currently, this project only supports Linux and a few games on Thunderstore.*
 
-> [!NOTE]  
-> This may or may not ever become anything, depending on how useful it will be for me.
+<details>
+<summary>Why yet another mod manager?</summary>
 
 ## Why
 
@@ -42,12 +44,56 @@ With my own package manager, I can have my own package repositories where I coul
 
 The reason why I'd rather just create my own solution than use Thunderstore where I could use it, is that I don't think Thunderstore is a particularly good platform. However, it's generally less bad than the competition. I'm unlikely to create a competitor though, as this is mostly for fun.
 
-## Project
+</details>
+
+## Features
+
+- Dependencies are distinct from explicitly added packages
+- Comprehensive command line interface for developers: `cogman`
+- Support for multiple mod package sources
+  - [Thunderstore](<https://thunderstore.io/>) is the default package source
+  - Local package source for mod developers: [let `cogman` handle installing your mods](#local-package-source)
+- Data is stored in small human-readable json files
+  - No central database to break or desync by manually tampering with profile directories
+
+### Local Package Source
+
+Let Cogwork Manager handle installing your mods for you.
+
+As a part of e.g. MSBuild, you can import your Thunderstore package to your local package source to be able to be installed like any other mod into any profile:
+
+```sh
+cogman sources local import "/path/to/package/root-or-zip"
+```
+
+> [!NOTE]  
+> A proper MSBuild integration example will be provided at some point.
+
+To use the local package source, enable it for your current profile:
+
+```sh
+cogman sources add local
+```
+
+Then add the package to your current profile:
+
+```sh
+cogman add MyTeam-MyMod
+```
+
+And select the package source to install from if it exists in multiple enabled sources:
+
+```txt
+  https://thunderstore.io/c/hollow-knight-silksong/
+> cogman:sources/local
+```
+
+## Project Overview
 
 Cogwork Manager is currently split into 2 parts:
 
-- **Cogwork.Core:** The package manager library (WIP)
-- **Cogwork.Cli:** A command line interface named "cogman" (WIP)
+- **Cogwork.Core:** The package manager library
+- **Cogwork.Cli:** A command line interface named "`cogman`"
 
 A third part will likely eventually be implemented:
 
@@ -61,6 +107,6 @@ This library is heavily WIP still so everything about the implementation may cha
 
 ### Cogwork.Cli
 
-Aka "cogman". It's a CLI tool that focuses a lot on the user experience to try and make it easy-ish to use even for people who are not used to CLI tools.
+Aka "`cogman`". It's a CLI tool that focuses a lot on the user experience to try and make it easy-ish to use even for people who are not used to CLI tools.
 
 The goal of cogman is to be a fully-featured mod package manager so you don't need to open a GUI app for managing mods. As of right now, it's not quite there.
