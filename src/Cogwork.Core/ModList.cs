@@ -292,7 +292,14 @@ public sealed class ModList
 
         foreach (var packageId in _lazy.AddedPackageIds)
         {
-            if (Package.TryGetPackageWithNoVersion(_lazy.SourceIndex, packageId, out var package))
+            if (
+                Package.TryGetPackageWithNoVersion(
+                    _lazy.SourceIndex,
+                    packageId,
+                    out var package,
+                    preferredSource: null
+                )
+            )
             {
                 if (
                     _lazy.ResolvedAdded is { } resolved
@@ -325,7 +332,8 @@ public sealed class ModList
                     Package.TryGetPackageVersion(
                         _lazy.SourceIndex,
                         new VisualPackageVersion(package).ToString(),
-                        out var packageVersion
+                        out var packageVersion,
+                        preferredSource: null
                     )
                 )
                 {

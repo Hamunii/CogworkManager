@@ -48,6 +48,12 @@ public sealed class PackageSourceIndex
             return dominant;
         }
 
+        // One package must always be dominant to avoid cases where
+        // a package is installed from multiple sources at once.
+        // We don't necessarily care about the logic for which package
+        // is dominant if it's not defined by the user. If the user cares,
+        // they must explicitly add a package to make it dominant.
+        MakePackageDominant(package);
         return package;
     }
 

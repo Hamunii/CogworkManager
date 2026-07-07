@@ -338,7 +338,8 @@ static class Program
                         out _,
                         hasVersion: false,
                         out _,
-                        out _
+                        out _,
+                        preferredSource: null
                     )
                 )
                 {
@@ -442,7 +443,8 @@ static class Program
                                 out var package,
                                 hasVersion: false,
                                 out _,
-                                out _
+                                out _,
+                                preferredSource: null
                             )
                         )
                         {

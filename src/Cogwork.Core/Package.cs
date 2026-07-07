@@ -424,8 +424,18 @@ public sealed partial record Package
     public static bool TryGetPackageWithNoVersion(
         PackageSourceIndex sourceIndex,
         ReadOnlySpan<char> fullName,
-        [NotNullWhen(true)] out Package? package
-    ) => TryGetPackage(sourceIndex, fullName, out package, hasVersion: false, out _, out _);
+        [NotNullWhen(true)] out Package? package,
+        PackageSource? preferredSource
+    ) =>
+        TryGetPackage(
+            sourceIndex,
+            fullName,
+            out package,
+            hasVersion: false,
+            out _,
+            out _,
+            preferredSource
+        );
 
     public static bool TryGetPackage(
         PackageSource source,
@@ -436,13 +446,16 @@ public sealed partial record Package
             .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
             .TryGetValue(fullName, out package);
 
+    // FIXME: This is a horrible method, too many paths.
+    // This and related methods need to be refactored.
     public static bool TryGetPackage(
         PackageSourceIndex sourceIndex,
         ReadOnlySpan<char> fullName,
         [NotNullWhen(true)] out Package? package,
         bool hasVersion,
         out PackageVersionNumber? version,
-        [NotNullWhen(true)] out PackageSource? source
+        [NotNullWhen(true)] out PackageSource? source,
+        PackageSource? preferredSource
     )
     {
         var split = fullName.Split('-');
@@ -470,6 +483,15 @@ public sealed partial record Package
 
         source = default;
         package = default;
+
+        if (preferredSource is { })
+        {
+            if (TryGetPackage(preferredSource, name, out package))
+            {
+                source = preferredSource;
+                return true;
+            }
+        }
 
         if (!split.MoveNext())
         {
@@ -532,7 +554,8 @@ public sealed partial record Package
     public static bool TryGetPackageVersion(
         PackageSourceIndex sourceIndex,
         ReadOnlySpan<char> fullNameWithVersion,
-        [NotNullWhen(true)] out PackageVersion? packageVersion
+        [NotNullWhen(true)] out PackageVersion? packageVersion,
+        PackageSource? preferredSource
     )
     {
         if (
@@ -542,7 +565,8 @@ public sealed partial record Package
                 out var package,
                 hasVersion: true,
                 out var version,
-                out _
+                out _,
+                preferredSource
             )
         )
         {
@@ -569,16 +593,24 @@ public sealed partial record Package
     )
     {
         packageVersion = Versions.FirstOrDefault(x => version == x.Version);
-        if (packageVersion is null)
+        if (packageVersion is not null)
         {
-            Cog.Debug($"Version '{version}' not found for '{ToStringSimpleWithSource()}'");
-            packageVersion = Versions.FirstOrDefault();
-            if (packageVersion is null)
-            {
-                Cog.Error($"No versions of '{ToStringSimpleWithSource()}' exist");
-            }
+            return true;
         }
-        return packageVersion is { };
+
+        packageVersion = Versions.FirstOrDefault();
+        if (packageVersion is not null)
+        {
+            Cog.Debug(
+                $"Version '{version}' not found -> using '{packageVersion.Version}' for '{ToStringSimpleWithSource()}'"
+            );
+            return true;
+        }
+        else
+        {
+            Cog.Error($"No versions of '{ToStringSimpleWithSource()}' exist");
+            return false;
+        }
     }
 
     public string ToStringSimpleWithSource()
@@ -624,7 +656,8 @@ public sealed partial record PackageVersion
                             out var package,
                             hasVersion: true,
                             out var version,
-                            out var source
+                            out var source,
+                            Package.Source
                         )
                     )
                     {
