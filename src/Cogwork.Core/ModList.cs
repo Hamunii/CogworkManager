@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -8,7 +9,11 @@ using ZLinq;
 
 namespace Cogwork.Core;
 
-public readonly record struct InstalledPackages(UserPackage[]? UserPackages) : ISaveWithJson;
+public readonly record struct InstalledPackages(
+    Dictionary<VisualPackageVersion, FileInstalls?>? InstalledMap
+) : ISaveWithJson;
+
+public readonly record struct FileInstalls(string[] Installed, string[] Ignored);
 
 public readonly record struct ServiceUri(Uri Uri);
 
@@ -520,18 +525,16 @@ public sealed class ModList
             $"Removing: " + string.Join(", ", packages.Select(x => x.ToStringSimpleWithSource()))
         );
 
-        List<(PackageVersion packageVersion, bool isUninstalled)> toUninstall = new(
-            packages.Count()
-        );
+        List<PackageVersion> toUninstall = new(packages.Count());
+        var installMap = InstalledPackages
+            .LoadSavedData(_lazy.ProfileInstalledPackagesFilePath)
+            .InstalledMap;
+
+        var newInstallMap = installMap?.ToDictionary() ?? [];
 
         // This is horrible.
-        HashSet<VisualPackageVersion> installed =
-            InstalledPackages
-                .LoadSavedData(_lazy.ProfileInstalledPackagesFilePath)
-                .UserPackages?.Where(x => x.IsInstalled)
-                .Select(x => x.PackageVersion)
-                .ToHashSet()
-            ?? [];
+        // HashSet<VisualPackageVersion> installed =
+        //     installMap?.Where(x => x.Value is { }).Select(x => x.Key).ToHashSet() ?? [];
 
         foreach (var package in packages)
         {
@@ -543,19 +546,17 @@ public sealed class ModList
             // Add this version temporarily to deps so version can't get downgraded on rebuild
             Dependencies.Add(package, packageVersion);
 
-            var isUninstalled = _lazy
+            var visualPackageVersion = (VisualPackageVersion)packageVersion;
+            _ = _lazy
                 .Game.InstallRules.UninstallPackageAsync(
-                    (VisualPackageVersion)packageVersion,
-                    _lazy.ProfileFilesDirectory
+                    visualPackageVersion,
+                    _lazy.ProfileFilesDirectory,
+                    installMap
                 )
                 .Result;
 
-            if (isUninstalled)
-            {
-                installed.Remove((VisualPackageVersion)packageVersion);
-            }
-
-            toUninstall.Add((packageVersion, isUninstalled));
+            newInstallMap.Remove(visualPackageVersion);
+            toUninstall.Add(packageVersion);
         }
 
         var dependenciesBefore = Dependencies.ToDictionary();
@@ -572,29 +573,22 @@ public sealed class ModList
         {
             var packageVersion = dependency.Value;
 
-            var isUninstalled = _lazy
+            var visualPackageVersion = (VisualPackageVersion)packageVersion;
+            _ = _lazy
                 .Game.InstallRules.UninstallPackageAsync(
-                    (VisualPackageVersion)packageVersion,
-                    _lazy.ProfileFilesDirectory
+                    visualPackageVersion,
+                    _lazy.ProfileFilesDirectory,
+                    installMap
                 )
                 .Result;
 
-            if (isUninstalled)
-            {
-                installed.Remove((VisualPackageVersion)packageVersion);
-            }
-
-            toUninstall.Add((packageVersion, isUninstalled));
+            newInstallMap.Remove(visualPackageVersion);
+            toUninstall.Add(packageVersion);
         }
 
-        new InstalledPackages([
-            .. installed.Select(x => new UserPackage(x, IsInstalled: true)),
-        ]).Save(_lazy.ProfileInstalledPackagesFilePath);
+        new InstalledPackages(newInstallMap).Save(_lazy.ProfileInstalledPackagesFilePath);
 
-        return (
-            [.. toUninstall.Where(x => x.isUninstalled).Select(x => x.packageVersion)],
-            [.. toUninstall.Where(x => !x.isUninstalled).Select(x => x.packageVersion)]
-        );
+        return ([.. toUninstall], []);
     }
 
     void DirtyRebuildDependencies(DependencyVersionResolution context)
@@ -685,18 +679,15 @@ public sealed class ModList
     {
         Cog.Debug($"Installing all packages");
 
-        var userPackages = InstalledPackages
+        var installMap = InstalledPackages
             .LoadSavedData(_lazy.ProfileInstalledPackagesFilePath)
-            .UserPackages;
+            .InstalledMap;
 
         // TODO: Packages are identified by FullName for installation.
         // This is not necessarily unique if another package source is used.
         // Maybe do something about it sometime.
         Dictionary<string, VisualPackageVersion> isInstalled =
-            userPackages
-                ?.Where(x => x.IsInstalled)
-                .Select(x => x.PackageVersion)
-                .ToDictionary(x => x.FullName)
+            installMap?.Where(x => x.Value is { }).Select(x => x.Key).ToDictionary(x => x.FullName)
             ?? [];
 
         var installRules = _lazy.Game.InstallRules;
@@ -715,7 +706,7 @@ public sealed class ModList
                 )
                 {
                     Cog.Debug($"Installing package: '{visualPackageVersion}'");
-                    return new UserPackage(
+                    return (
                         visualPackageVersion,
                         await installRules.InstallPackageAsync(
                             visualPackageVersion,
@@ -734,22 +725,16 @@ public sealed class ModList
                     Cog.Debug(
                         $"Uninstalling old package version: '{installedVisualPackageVersion}'"
                     );
-                    if (
-                        !await installRules.UninstallPackageAsync(
-                            installedVisualPackageVersion,
-                            files,
-                            cancellationToken
-                        )
-                    )
-                    {
-                        Cog.Debug(
-                            $"Failed to uninstall package: '{installedVisualPackageVersion}'"
-                        );
-                        return new UserPackage(visualPackageVersion, false);
-                    }
+                    var uninstallFiles = await installRules.UninstallPackageAsync(
+                        installedVisualPackageVersion,
+                        files,
+                        installMap,
+                        cancellationToken
+                    );
+                    Debug.Assert(uninstallFiles is null);
 
                     Cog.Debug($"Installing new package version: '{visualPackageVersion}'");
-                    return new UserPackage(
+                    return (
                         visualPackageVersion,
                         await installRules.InstallPackageAsync(
                             visualPackageVersion,
@@ -761,12 +746,14 @@ public sealed class ModList
                 else
                 {
                     Cog.Debug($"Package is installed already: '{visualPackageVersion}'");
-                    return new UserPackage(visualPackageVersion, true);
+
+                    Debug.Assert(installMap is { });
+                    return (visualPackageVersion, installMap[visualPackageVersion]);
                 }
             })
         );
 
-        var installed = new InstalledPackages(packages);
+        var installed = new InstalledPackages(packages.ToDictionary());
         installed.Save(_lazy.ProfileInstalledPackagesFilePath);
 
         return true;

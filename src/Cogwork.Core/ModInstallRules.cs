@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using System.Runtime.InteropServices;
@@ -11,17 +12,26 @@ public interface IModInstallRules
 
     static abstract string InstallRootDirectory { get; }
 
-    bool Map(VisualPackageVersion packageVersion, string directoryPath, string outputPath);
+    string[] Map(VisualPackageVersion packageVersion, string directoryPath, string outputPath);
 
-    public Task<bool> InstallPackageAsync(
+    public Task<FileInstalls?> InstallPackageAsync(
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
         CancellationToken cancellationToken = default
     );
 
-    public Task<bool> UninstallPackageAsync(
+    /// <summary>
+    /// Uninstalls the target package from a profile, or nothing if it's not installed.
+    /// </summary>
+    /// <remarks>
+    /// This never fails, however the install map must be accurate in order to
+    /// not corrupt the installed files tracking data.
+    /// </remarks>
+    /// <returns>Null.</returns>
+    public Task<FileInstalls?> UninstallPackageAsync(
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
+        Dictionary<VisualPackageVersion, FileInstalls?>? installMap,
         CancellationToken cancellationToken = default
     );
 
@@ -62,25 +72,32 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         }
     }
 
-    public bool Map(VisualPackageVersion packageVersion, string directoryPath, string outputPath)
+    public string[] Map(
+        VisualPackageVersion packageVersion,
+        string directoryPath,
+        string outputPath
+    )
     {
+        List<string> mapped = [];
+
         if (IsBepInExPackage(packageVersion))
         {
-            IgnoreUntilWinhttpThenMap(directoryPath, outputPath, foundWinhttpDll: false);
+            IgnoreUntilWinhttpThenMap(directoryPath, outputPath, foundWinhttpDll: false, mapped);
             Fs.Directory.Delete(directoryPath, recursive: true);
-            return true;
+            return [.. mapped];
         }
 
         Fs.Directory.CreateDirectory(Path.Combine(outputPath, defaultDir, packageVersion.FullName));
-        MapRecursive(packageVersion, directoryPath, outputPath);
+        MapRecursive(packageVersion, directoryPath, outputPath, mapped);
         Fs.Directory.Delete(directoryPath, recursive: true);
-        return true;
+        return [.. mapped];
     }
 
     private void IgnoreUntilWinhttpThenMap(
         string directoryPath,
         string outputPath,
-        bool foundWinhttpDll
+        bool foundWinhttpDll,
+        List<string> mappedFiles
     )
     {
         Fs.Directory.CreateDirectory(outputPath);
@@ -108,21 +125,34 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
                     Fs.File.Delete(dest);
                 }
                 Fs.File.Move(fileDir, dest);
+                mappedFiles.Add(dest);
             }
         }
 
         foreach (var dir in Fs.Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
         {
-            var dirName = Path.GetFileName(dir);
-
             if (foundWinhttpDll)
-                IgnoreUntilWinhttpThenMap(dir, Path.Combine(outputPath, dirName), foundWinhttpDll);
+            {
+                var dirName = Path.GetFileName(dir);
+
+                IgnoreUntilWinhttpThenMap(
+                    dir,
+                    Path.Combine(outputPath, dirName),
+                    foundWinhttpDll,
+                    mappedFiles
+                );
+            }
             else
-                IgnoreUntilWinhttpThenMap(dir, outputPath, foundWinhttpDll);
+                IgnoreUntilWinhttpThenMap(dir, outputPath, foundWinhttpDll, mappedFiles);
         }
     }
 
-    private void MapRecursive(VisualPackageVersion package, string directoryPath, string outputPath)
+    private void MapRecursive(
+        VisualPackageVersion package,
+        string directoryPath,
+        string outputPath,
+        List<string> mappedFiles
+    )
     {
         foreach (
             var dirPath in Fs.Directory.EnumerateDirectories(directoryPath).AsValueEnumerable()
@@ -135,18 +165,18 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
                 var mapped = Path.Combine(outputPath, dirName);
                 var mapped2 = Path.Combine(mapped, package.FullName);
                 Fs.Directory.CreateDirectory(mapped);
-                MoveOrMergeOverwrite(dirPath, mapped2);
+                MoveOrMergeOverwrite(dirPath, mapped2, mappedFiles);
                 continue;
             }
 
             if (dirToDir.Contains(dirName))
             {
                 var mapped = Path.Combine(outputPath, dirName);
-                MoveOrMergeOverwrite(dirPath, mapped);
+                MoveOrMergeOverwrite(dirPath, mapped, mappedFiles);
                 continue;
             }
 
-            MapRecursive(package, dirPath, outputPath);
+            MapRecursive(package, dirPath, outputPath, mappedFiles);
         }
 
         // Flatten the rest.
@@ -172,7 +202,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         }
     }
 
-    void MoveOrMergeOverwrite(string sourceDirName, string destDirName)
+    void MoveOrMergeOverwrite(string sourceDirName, string destDirName, List<string> mappedFiles)
     {
         if (!Fs.Directory.Exists(destDirName))
         {
@@ -189,18 +219,19 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
                 Fs.File.Delete(dest);
             }
             Fs.File.Move(file, dest);
+            mappedFiles.Add(dest);
         }
 
         foreach (var dir in Fs.Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
         {
             var dirName = Path.GetFileName(dir);
-            MoveOrMergeOverwrite(dir, Path.Combine(destDirName, dirName));
+            MoveOrMergeOverwrite(dir, Path.Combine(destDirName, dirName), mappedFiles);
         }
 
         Fs.Directory.Delete(sourceDirName);
     }
 
-    public async Task<bool> InstallPackageAsync(
+    public async Task<FileInstalls?> InstallPackageAsync(
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
         CancellationToken cancellationToken = default
@@ -210,7 +241,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         if (path is null)
         {
             Cog.Error($"Cannot install package which is not downloaded: '{packageVersion}'");
-            return false;
+            return null;
         }
 
         string installRoot = GetInstallRoot(packageVersion, profileFilesDirectory);
@@ -219,9 +250,9 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         Fs.Directory.CreateDirectory(pathCopy);
         CopyDirectory(path, pathCopy);
-        Map(packageVersion, pathCopy, installRoot);
+        var mapped = Map(packageVersion, pathCopy, installRoot);
 
-        return true;
+        return new FileInstalls(mapped, []);
     }
 
     private static string GetInstallRoot(
@@ -237,47 +268,29 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         return Path.Combine(profileFilesDirectory, "BepInEx");
     }
 
-    public async Task<bool> UninstallPackageAsync(
+    public async Task<FileInstalls?> UninstallPackageAsync(
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
+        Dictionary<VisualPackageVersion, FileInstalls?>? installMap,
         CancellationToken cancellationToken = default
     )
     {
-        var isDownloaded = packageVersion.IsDownloaded(out var pathDir);
-        if (isDownloaded is null)
+        if (
+            installMap is null
+            || !installMap.TryGetValue(packageVersion, out var fileInstallsOrNull)
+            || fileInstallsOrNull is not { } fileInstalls
+        )
         {
-            throw new InvalidOperationException("Corrupted package");
-        }
-        else if (isDownloaded is false)
-        {
-            Cog.Error($"Cannot uninstall package which is not downloaded: '{packageVersion}'");
-            return false;
-        }
-        else if (!Path.Exists(pathDir))
-        {
-            Cog.Error(
-                $"Trying to uninstall package '{packageVersion}' but its path doesn't exist (probably corrupted local package installation)."
-            );
-            return false;
+            // Was not installed
+            return null;
         }
 
-        var path = pathDir!;
-
-        // We Map the extracted directory for our modloader to the actual final directory,
-        // except in a fake filesystem to avoid actually moving our files.
         var fakeFs = new MockFileSystem(
-            IModInstallRules
-                .RealFileSystem.Directory.GetFiles(path, "*", SearchOption.AllDirectories)
-                .ToDictionary(
-                    keySelector: x => x,
-                    elementSelector: x => new MockFileData(string.Empty)
-                )
+            fileInstalls.Installed.ToDictionary(
+                keySelector: x => x,
+                elementSelector: x => new MockFileData(string.Empty)
+            )
         );
-
-        var fakeInstallRules = new BepInExModInstallRules(fakeFs);
-        string installRoot = GetInstallRoot(packageVersion, profileFilesDirectory);
-
-        fakeInstallRules.Map(packageVersion, path, installRoot);
 
         // We don't want users' config files to be deleted if a package ships
         // config files and the package is uninstalled. It's possible the user
@@ -290,9 +303,10 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         }
 
         // Then we just delete the fake mapped files from our real filesystem.
+        string installRoot = GetInstallRoot(packageVersion, profileFilesDirectory);
         DeleteDirectoryContentsBasedOnSource(fakeFs, installRoot);
 
-        return true;
+        return null;
     }
 
     void CopyDirectory(string sourceDirName, string destDirName)
