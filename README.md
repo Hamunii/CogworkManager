@@ -1,6 +1,6 @@
 # Cogwork Manager
 
-A WIP a generic mod package manager built for mod developers.
+A WIP generic mod package manager built for mod developers.
 
 > [!CAUTION]  
 > This project is not fit for consumption yet, and likely will not be for a long time. While this is technically very usable\*, I provide no support or promises in order to not make development harder.
