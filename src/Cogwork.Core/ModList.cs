@@ -686,6 +686,8 @@ public sealed class ModList
         // TODO: Packages are identified by FullName for installation.
         // This is not necessarily unique if another package source is used.
         // Maybe do something about it sometime.
+        // There are restrictions in place though to disallow same-id packages,
+        // so we don't need to worry about it here.
         Dictionary<string, VisualPackageVersion> isInstalled =
             installMap?.Where(x => x.Value is { }).Select(x => x.Key).ToDictionary(x => x.FullName)
             ?? [];

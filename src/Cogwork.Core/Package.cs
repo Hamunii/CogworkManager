@@ -141,12 +141,6 @@ public readonly record struct VisualPackageVersion
     }
 }
 
-// TODO: This is a horrible system for tracking which packages are installed.
-// Change this to a dictionary like Dictionary<VisualPackageVersion, string[]> for files added.
-// This would also allow deleting packages without looking at the downloaded clean package for reference.
-[Obsolete("Use InstalledPackages instead")]
-public readonly record struct UserPackage(VisualPackageVersion PackageVersion, bool IsInstalled);
-
 [JsonConverter(typeof(VersionRangeConverter))]
 public readonly record struct VersionRange
 {

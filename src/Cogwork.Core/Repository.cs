@@ -111,11 +111,6 @@ public sealed class LocalPackageSource : PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        // TODO: For now, the package must be uninstalled from all profiles it has been installed to.
-        // This is because the package installation is the source of truth for which files belong to
-        // the package.
-        // It would be more optimal if each profile tracked each file added by each installed package.
-        // The following code is rather horrible, and I want to get rid of it.
         if (
             IsPackageDownloaded(
                 packageVersion,
@@ -126,57 +121,6 @@ public sealed class LocalPackageSource : PackageSource
             )
         )
         {
-            foreach (var game in Game.SupportedGames)
-            {
-                foreach (var profile in game.EnumerateProfiles())
-                {
-                    var localPackage = profile
-                        .GetResolved()
-                        .FirstOrDefault(x => x.FullName == packageVersion.FullName);
-
-                    if (!IsLocalSource(localPackage.Source))
-                        continue;
-
-                    var userPackages = InstalledPackages
-                        .LoadSavedData(profile.ProfileInstalledPackagesFilePath)
-                        .UserPackages;
-
-                    var isUninstalled = await profile.Game.InstallRules.UninstallPackageAsync(
-                        packageVersion,
-                        profile.ProfileFilesDirectory,
-                        cancellationToken
-                    );
-
-                    if (isUninstalled)
-                    {
-                        if (userPackages is { })
-                        {
-                            var installed = new InstalledPackages(
-                                userPackages
-                                    .Where(x =>
-                                        x.PackageVersion.FullName != packageVersion.FullName
-                                    )
-                                    .Append(new UserPackage(packageVersion, IsInstalled: false))
-                                    .ToArray()
-                            );
-                            installed.Save(profile.ProfileInstalledPackagesFilePath);
-                        }
-
-                        Cog.Debug(
-                            $"Uninstalled local old version of '{packageVersion}'"
-                                + $" for profile '{profile.DisplayName}' for game '{game.Slug}'"
-                        );
-                    }
-                    else
-                    {
-                        Cog.Error(
-                            $"Failed to uninstall local package '{packageVersion}'"
-                                + $" for profile '{profile.DisplayName}' for game '{game.Slug}'"
-                        );
-                    }
-                }
-            }
-
             _ = IsPackageDownloaded(
                 packageVersion,
                 withVersionName: "latest",
