@@ -9,11 +9,59 @@ using ZLinq;
 
 namespace Cogwork.Core;
 
+public readonly record struct InstalledPackagesExpanded(
+    Dictionary<VisualPackageVersion, FileInstalls?>? InstalledMap
+)
+{
+    public readonly InstalledPackages WithStrippedPaths(LazyModList modList)
+    {
+        return new(
+            InstalledMap
+                ?.Select(x => new KeyValuePair<VisualPackageVersion, FileInstalls?>(
+                    x.Key,
+                    x.Value is { } fileInstalls ? fileInstalls.WithStrippedPaths(modList) : null
+                ))
+                .ToDictionary()
+        );
+    }
+}
+
 public readonly record struct InstalledPackages(
     Dictionary<VisualPackageVersion, FileInstalls?>? InstalledMap
-) : ISaveWithJson;
+) : ISaveWithJson
+{
+    public readonly InstalledPackagesExpanded WithExpandedPaths(LazyModList modList)
+    {
+        return new(
+            InstalledMap
+                ?.Select(x => new KeyValuePair<VisualPackageVersion, FileInstalls?>(
+                    x.Key,
+                    x.Value is { } fileInstalls ? fileInstalls.WithExpandedPaths(modList) : null
+                ))
+                .ToDictionary()
+        );
+    }
+}
 
-public readonly record struct FileInstalls(string[] Installed, string[] Ignored);
+public readonly record struct FileInstalls(string[] Installed, string[] Ignored)
+{
+    public readonly FileInstalls WithExpandedPaths(LazyModList modList)
+    {
+        var profileFilesDirectory = modList.ProfileFilesDirectory;
+        var newStuff = new FileInstalls(
+            [.. Installed.Select(x => Path.Combine(profileFilesDirectory, x))],
+            [.. Ignored.Select(x => Path.Combine(profileFilesDirectory, x))]
+        );
+        return newStuff;
+    }
+
+    public readonly FileInstalls WithStrippedPaths(LazyModList modList)
+    {
+        var profileFilesDirectory = modList.ProfileFilesDirectory;
+        var len = profileFilesDirectory.Length + 1;
+        return new([.. Installed.Select(x => x[len..])], [.. Ignored.Select(x => x[len..])]);
+    }
+}
 
 public readonly record struct ServiceUri(Uri Uri);
 
@@ -528,6 +576,7 @@ public sealed class ModList
         List<PackageVersion> toUninstall = new(packages.Count());
         var installMap = InstalledPackages
             .LoadSavedData(_lazy.ProfileInstalledPackagesFilePath)
+            .WithExpandedPaths(_lazy)
             .InstalledMap;
 
         var newInstallMap = installMap?.ToDictionary() ?? [];
@@ -586,7 +635,9 @@ public sealed class ModList
             toUninstall.Add(packageVersion);
         }
 
-        new InstalledPackages(newInstallMap).Save(_lazy.ProfileInstalledPackagesFilePath);
+        new InstalledPackagesExpanded(newInstallMap)
+            .WithStrippedPaths(_lazy)
+            .Save(_lazy.ProfileInstalledPackagesFilePath);
 
         return ([.. toUninstall], []);
     }
@@ -681,6 +732,7 @@ public sealed class ModList
 
         var installMap = InstalledPackages
             .LoadSavedData(_lazy.ProfileInstalledPackagesFilePath)
+            .WithExpandedPaths(_lazy)
             .InstalledMap;
 
         // TODO: Packages are identified by FullName for installation.
@@ -755,8 +807,9 @@ public sealed class ModList
             })
         );
 
-        var installed = new InstalledPackages(packages.ToDictionary());
-        installed.Save(_lazy.ProfileInstalledPackagesFilePath);
+        new InstalledPackagesExpanded(packages.ToDictionary())
+            .WithStrippedPaths(_lazy)
+            .Save(_lazy.ProfileInstalledPackagesFilePath);
 
         return true;
     }

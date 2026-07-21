@@ -124,8 +124,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
                 {
                     Fs.File.Delete(dest);
                 }
-                Fs.File.Move(fileDir, dest);
-                mappedFiles.Add(dest);
+                MoveFile(mappedFiles, fileDir, dest);
             }
         }
 
@@ -198,7 +197,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
             {
                 Fs.File.Delete(dest);
             }
-            Fs.File.Move(fileDir, dest);
+            MoveFile(mappedFiles, fileDir, dest);
         }
     }
 
@@ -206,8 +205,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     {
         if (!Fs.Directory.Exists(destDirName))
         {
-            Fs.Directory.Move(sourceDirName, destDirName);
-            return;
+            Fs.Directory.CreateDirectory(destDirName);
         }
 
         foreach (var file in Fs.Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
@@ -218,8 +216,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
             {
                 Fs.File.Delete(dest);
             }
-            Fs.File.Move(file, dest);
-            mappedFiles.Add(dest);
+            MoveFile(mappedFiles, file, dest);
         }
 
         foreach (var dir in Fs.Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
@@ -229,6 +226,12 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         }
 
         Fs.Directory.Delete(sourceDirName);
+    }
+
+    private void MoveFile(List<string> mappedFiles, string file, string dest)
+    {
+        Fs.File.Move(file, dest);
+        mappedFiles.Add(dest);
     }
 
     public async Task<FileInstalls?> InstallPackageAsync(
@@ -287,7 +290,16 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         var fakeFs = new MockFileSystem(
             fileInstalls.Installed.ToDictionary(
-                keySelector: x => x,
+                keySelector: x =>
+                {
+                    if (!x.StartsWith(profileFilesDirectory, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"Corrupt installed file data; file to delete ('{x}') is not within '{profileFilesDirectory}'"
+                        );
+                    }
+                    return x;
+                },
                 elementSelector: x => new MockFileData(string.Empty)
             )
         );

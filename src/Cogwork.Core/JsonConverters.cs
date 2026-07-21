@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -12,9 +13,9 @@ public class VisualPackageVersionConverter : JsonConverter<VisualPackageVersion>
     )
     {
         var packageId = reader.GetString();
-        return new(
-            packageId! // I don't care
-        );
+
+        // Let the constructor throw if property is null
+        return new(packageId!);
     }
 
     public override void Write(
@@ -24,6 +25,27 @@ public class VisualPackageVersionConverter : JsonConverter<VisualPackageVersion>
     )
     {
         writer.WriteStringValue(value.ToString());
+    }
+
+    public override VisualPackageVersion ReadAsPropertyName(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    )
+    {
+        var property = reader.GetString();
+
+        // Let the constructor throw if property is null
+        return new(property!);
+    }
+
+    public override void WriteAsPropertyName(
+        Utf8JsonWriter writer,
+        [DisallowNull] VisualPackageVersion value,
+        JsonSerializerOptions options
+    )
+    {
+        writer.WritePropertyName(value.ToString());
     }
 }
 

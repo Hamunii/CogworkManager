@@ -16,6 +16,7 @@
     <PublishAot>true</PublishAot>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- <StartArguments>update</StartArguments> -->
   </PropertyGroup>
 
   <ItemGroup>
