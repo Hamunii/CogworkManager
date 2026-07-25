@@ -23,6 +23,7 @@ obj/
 !/BannedSymbols.txt
 !/.gitignore
 !/Cogwork.slnx
+!/Design.md
 !/CONTRIBUTING.md
 !/Directory.Build.props
 !/Directory.Build.targets
