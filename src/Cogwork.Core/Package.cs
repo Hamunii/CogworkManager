@@ -371,8 +371,8 @@ public readonly record struct WildcardVersion
         var major = Major.Expand();
         var minor = Minor.Expand();
         var patch = Patch.Expand();
-        var min = new PackageVersionNumber(major.Min, minor.Min, patch.Min);
-        var max = new PackageVersionNumber(major.Max, minor.Max, patch.Max);
+        var min = new PackageVersionNumber(major.Min, minor.Min, patch.Min, null);
+        var max = new PackageVersionNumber(major.Max, minor.Max, patch.Max, null);
         return new(min, max, VersionRange.Kind.Default);
     }
 }
@@ -392,6 +392,7 @@ public sealed partial record Package
     [JsonPropertyName("name")]
     public string Name { get; }
 
+    [JsonIgnore]
     public string FullName { get; }
 
     [JsonInclude]
@@ -742,6 +743,11 @@ public sealed partial record PackageVersion
         DependencyStrings = dependencyStrings;
     }
 
+    public PackageVersion WithVersion(PackageVersionNumber version)
+    {
+        return new(Author, Name, version.ToString(), DependencyStrings);
+    }
+
     public bool IsDownloaded() =>
         Package.Source.Service.IsPackageDownloaded((VisualPackageVersion)this);
 
@@ -864,11 +870,17 @@ public readonly record struct PackageVersionNumber
     public long Minor { get; init; }
     public long Patch { get; init; }
 
-    public PackageVersionNumber(long major, long minor, long patch)
+    /// <summary>
+    /// SemVer build metadata; is ignored when determining version precedence.
+    /// </summary>
+    public string? Metadata { get; init; }
+
+    public PackageVersionNumber(long major, long minor, long patch, string? metadata)
     {
         Major = major;
         Minor = minor;
         Patch = patch;
+        Metadata = metadata;
     }
 
     public PackageVersionNumber(scoped ReadOnlySpan<char> version)
@@ -878,8 +890,32 @@ public readonly record struct PackageVersionNumber
         Major = long.Parse(version[split.Current], CultureInfo.InvariantCulture);
         split.MoveNext();
         Minor = long.Parse(version[split.Current], CultureInfo.InvariantCulture);
+
         split.MoveNext();
-        Patch = long.Parse(version[split.Current], CultureInfo.InvariantCulture);
+        var lastDigitAndMetadata = version[split.Current.Start..];
+
+        split = lastDigitAndMetadata.Split('+');
+        split.MoveNext();
+        Patch = long.Parse(lastDigitAndMetadata[split.Current], CultureInfo.InvariantCulture);
+
+        if (lastDigitAndMetadata.Length == split.Current.End.Value)
+            return;
+
+        if (lastDigitAndMetadata[split.Current.End] is not '+')
+        {
+            throw new InvalidDataException($"Version '{version}' metadata doesn't start with '+'.");
+        }
+
+        split.MoveNext();
+        Metadata = lastDigitAndMetadata[split.Current.Start..].ToString();
+    }
+
+    public readonly PackageVersionNumber WithMetadata(string metadata)
+    {
+        if (Metadata is null)
+            return this with { Metadata = metadata };
+        else
+            return this with { Metadata = Metadata + '.' + metadata };
     }
 
     public bool IsHigherThan(PackageVersionNumber other)
@@ -943,7 +979,13 @@ public readonly record struct PackageVersionNumber
         throw new InvalidDataException($"No valid higher version for: {this}");
     }
 
-    public override string ToString() => $"{Major}.{Minor}.{Patch}";
+    public override string ToString()
+    {
+        if (Metadata is null)
+            return $"{Major}.{Minor}.{Patch}";
+        else
+            return $"{Major}.{Minor}.{Patch}+{Metadata}";
+    }
 
     public string ToStringWithWildcards() =>
         Patch is not long.MaxValue ? $"{Major}.{Minor}.{Patch}"

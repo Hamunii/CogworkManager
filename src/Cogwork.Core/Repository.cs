@@ -252,6 +252,10 @@ public sealed class LocalPackageSource : PackageSource
 
         _ = FetchPackageIndexAsync(TimeSpan.Zero, default).Result;
 
+        packageVersion = packageVersion.WithVersion(
+            packageVersion.Version.WithMetadata($"id.{Guid.NewGuid():N}")
+        );
+
         var package = new Package(packageVersion.Author, packageVersion.Name, [packageVersion]);
 
         // Overwrites existing package
@@ -290,6 +294,8 @@ public sealed class LocalPackageSource : PackageSource
         Packages = [.. nameToPackage.Select(x => x.Value)];
         var localPackageIndex = JsonSerializer.Serialize(Packages, JsonGen.Default.ListPackage);
         File.WriteAllText(PackageIndexPath, localPackageIndex);
+
+        Cog.Information($"Imported package '{packageVersion}'");
 
         _isLoaded = true;
         return null;
