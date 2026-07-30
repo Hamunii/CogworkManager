@@ -21,45 +21,52 @@ public readonly record struct VisualPackageVersion
 
     public VisualPackageVersion(string packageId)
     {
-        var split = packageId.AsSpan().Split('-');
+        var span = packageId.AsSpan();
 
-        split.MoveNext();
-        Author = packageId[split.Current];
+        var everythingButSource = span.Split('/');
+        everythingButSource.MoveNext();
 
-        split.MoveNext();
-        Name = packageId[split.Current];
+        var left = span[everythingButSource.Current];
+        var versionDivider = left.LastIndexOf('-');
 
-        FullName = packageId[..split.Current.End];
+        FullName = left[..versionDivider].ToString();
+        var nameDivider = FullName.LastIndexOf('-');
+        Author = FullName[..nameDivider].ToString();
+        Name = FullName[(nameDivider + 1)..].ToString();
 
-        split.MoveNext();
-        Version = new(packageId[split.Current]);
+        Version = new(left[(versionDivider + 1)..]);
 
-        if (!split.MoveNext())
+        if (!everythingButSource.MoveNext())
         {
             throw new InvalidDataException(
-                "This constructor requires format 'author-name-version-uri'"
+                "This constructor requires format 'author-name-version/uri'"
             );
         }
 
-        Source = packageId[split.Current.Start..];
+        var right = span[everythingButSource.Current.Start..];
+        Source = right.ToString();
     }
 
     public VisualPackageVersion(string packageId, PackageVersionNumber version)
     {
         Version = version;
-        var split = packageId.AsSpan().Split('-');
 
-        split.MoveNext();
-        Author = packageId[split.Current];
+        var span = packageId.AsSpan();
 
-        split.MoveNext();
-        Name = packageId[split.Current];
+        var everythingButSource = span.Split('/');
+        everythingButSource.MoveNext();
 
-        FullName = packageId[..split.Current.End];
+        var left = span[everythingButSource.Current];
+        var divider = left.LastIndexOf('-');
 
-        if (split.MoveNext())
+        FullName = left.ToString();
+        Author = left[..divider].ToString();
+        Name = left[(divider + 1)..].ToString();
+
+        if (everythingButSource.MoveNext())
         {
-            Source = packageId[split.Current.Start..];
+            var right = span[everythingButSource.Current.Start..];
+            Source = right.ToString();
         }
     }
 
@@ -124,9 +131,9 @@ public readonly record struct VisualPackageVersion
     }
 
     public override string ToString() =>
-        Source is { } ? $"{FullName}-{Version}-{Source}" : $"{FullName}-{Version}";
+        Source is { } ? $"{FullName}-{Version}/{Source}" : $"{FullName}-{Version}";
 
-    public string ToStringWithoutVersion() => Source is { } ? $"{FullName}-{Source}" : FullName;
+    public string ToStringWithoutVersion() => Source is { } ? $"{FullName}/{Source}" : FullName;
 
     public static explicit operator VisualPackageVersion(PackageVersion packageVersion)
     {
@@ -446,7 +453,7 @@ public sealed partial record Package
     // This and related methods need to be refactored.
     public static bool TryGetPackage(
         PackageSourceIndex sourceIndex,
-        ReadOnlySpan<char> fullName,
+        ReadOnlySpan<char> fullNameX,
         [NotNullWhen(true)] out Package? package,
         bool hasVersion,
         out PackageVersionNumber? version,
@@ -454,6 +461,10 @@ public sealed partial record Package
         PackageSource? preferredSource
     )
     {
+        var fullSplit = fullNameX.Split('/');
+        fullSplit.MoveNext();
+
+        var fullName = fullNameX[fullSplit.Current];
         var split = fullName.Split('-');
         split.MoveNext();
         split.MoveNext();
@@ -489,7 +500,7 @@ public sealed partial record Package
             }
         }
 
-        if (!split.MoveNext())
+        if (!fullSplit.MoveNext())
         {
             foreach (var so in sourceIndex.Sources)
             {
@@ -503,7 +514,7 @@ public sealed partial record Package
             return false;
         }
 
-        var service = fullName[split.Current.Start..];
+        var service = fullNameX[fullSplit.Current.Start..];
         if (service.Equals("ts", StringComparison.Ordinal))
         {
             source = sourceIndex.Thunderstore;
@@ -612,7 +623,7 @@ public sealed partial record Package
     public string ToStringSimpleWithSource()
     {
         var service = Source.Service;
-        return $"{Author.Name}-{Name}-{service.Id}";
+        return $"{Author.Name}-{Name}/{service.Id}";
     }
 
     public override string ToString()
@@ -734,7 +745,7 @@ public sealed partial record PackageVersion
 
     [JsonInclude]
     [JsonPropertyName("namespace")]
-    public Author Author => field is { Name: not null } ?  field : Package.Author;
+    public Author Author => field is { Name: not null } ? field : Package.Author;
 
     [JsonInclude]
     [JsonPropertyName("name")]
@@ -867,12 +878,12 @@ public sealed partial record PackageVersion
     public override string ToString()
     {
         var service = Package.Source.Service;
-        return $"{Package.Author.Name}-{Package.Name}-{Version}-{service.Id}";
+        return $"{Package.Author.Name}-{Package.Name}-{Version}/{service.Id}";
     }
 
     public string ToStringWithoutVersion(string packageSourceId)
     {
-        return $"{Author.Name}-{Name}-{packageSourceId}";
+        return $"{Author.Name}-{Name}/{packageSourceId}";
     }
 }
 
