@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Data;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Net;
@@ -754,6 +755,29 @@ public abstract class PackageSource
     {
         package.Source = this;
         nameToPackage[package.FullName] = package;
+    }
+
+    public bool TryImportUniquePackage(
+        PackageVersion packageVersion,
+        [NotNullWhen(true)] out Package? package
+    )
+    {
+        if (packageVersion.Package is not null)
+        {
+            throw new ArgumentException(
+                $"PackageVersion '{packageVersion}' must not belong to a Package."
+            );
+        }
+
+        if (nameToPackage.ContainsKey(packageVersion.GetFullName()))
+        {
+            package = null;
+            return false;
+        }
+
+        package = new Package(packageVersion.Author, packageVersion.Name, [packageVersion]);
+        ProcessPackage(package);
+        return true;
     }
 
     public override string ToString()

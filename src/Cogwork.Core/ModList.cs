@@ -77,6 +77,10 @@ public readonly record struct ModListLockFile(
     IEnumerable<KeyValuePair<string, PackageVersionNumber>>? ResolvedDependencies
 ) : ISaveWithJson;
 
+public readonly record struct ModListLockDependencyFile(
+    IEnumerable<PackageVersionWithSource>? LockCache
+) : ISaveWithJson;
+
 public sealed class LazyModList
 {
     public required string DisplayName { get; init; }
@@ -232,9 +236,13 @@ public sealed class LazyModList
     }
 
     public string ProfilePackageLockPath => field ??= GetProfilePackageLockPath(Game, Id);
+    public string ProfilePackageLockCachePath => field ??= GetProfilePackageLockCachePath(Game, Id);
 
     public static string GetProfilePackageLockPath(Game game, string id) =>
         Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "lock.json");
+
+    public static string GetProfilePackageLockCachePath(Game game, string id) =>
+        Path.Combine(CogworkPaths.GetProfilesSubDirectoryNoCreate(game, id), "lock-cache.json");
 
     public string ProfileInstalledPackagesFilePath =>
         field ??= Path.Combine(
@@ -327,7 +335,8 @@ public sealed class ModList
     public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
     public IEnumerable<KeyValuePair<Package, PackageVersion>> AllPackages =>
         Added.Concat(Dependencies);
-    public List<string> LostPackageIds { get; } = [];
+    public HashSet<string> LostPackageIds { get; } = [];
+    public HashSet<Package> LostPackages { get; } = [];
     readonly LazyModList _lazy;
     readonly Action<ModList, Dictionary<Package, PackageVersion>> _onNewAddedList;
     readonly Action _onResolved;
@@ -340,6 +349,29 @@ public sealed class ModList
     {
         _lazy = lazyModList;
         List<PackageVersion> packages = [];
+
+        // Ensure added and dependency packages are cached so that if a whole package
+        // is taken down we can handle it gracefully.
+        // This helps cogman track added and installed mods without forgetting and
+        // corrupting data.
+        var depCache = ModListLockDependencyFile.LoadSavedData(_lazy.ProfilePackageLockCachePath);
+        if (depCache.LockCache is not null)
+        {
+            foreach (var dep in depCache.LockCache)
+            {
+                var source = dep.GetSourceOrNull(SourceIndex);
+                if (source is null)
+                {
+                    LostPackageIds.Add(dep.PackageVersion.GetFullName());
+                    continue;
+                }
+
+                if (source.TryImportUniquePackage(dep.PackageVersion, out var package))
+                {
+                    LostPackages.Add(package);
+                }
+            }
+        }
 
         Cog.Debug($"Initializing mod list");
 
@@ -524,6 +556,11 @@ public sealed class ModList
         // );
 
         lockFile.Save(_lazy.ProfilePackageLockPath);
+
+        ModListLockDependencyFile lockDepFile = new(
+            AllPackages.Select(x => new PackageVersionWithSource(x.Key.Source.Id, x.Value))
+        );
+        lockDepFile.Save(_lazy.ProfilePackageLockCachePath);
     }
 
     public bool Add(Package package, DependencyVersionResolution context) =>

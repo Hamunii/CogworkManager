@@ -21,6 +21,7 @@ public interface ISaveWithJson;
 [JsonSerializable(typeof(InstalledPackages))]
 [JsonSerializable(typeof(List<Package>))]
 [JsonSerializable(typeof(Author))]
+[JsonSerializable(typeof(ModListLockDependencyFile))]
 [JsonSerializable(typeof(string[]))]
 public partial class JsonGen : JsonSerializerContext { }
 

@@ -637,6 +637,24 @@ public sealed partial record Package
     }
 }
 
+public readonly record struct PackageVersionWithSource(
+    string SourceId,
+    PackageVersion PackageVersion
+)
+{
+    public readonly PackageSource? GetSourceOrNull(PackageSourceIndex index)
+    {
+        Uri uri = new(SourceId);
+
+        if (!PackageSourceIndex.TryParseFromUri(uri, out var source, index))
+        {
+            Cog.Warning($"No package source found for '{uri}'" + new StackTrace(true));
+            return null;
+        }
+        return source;
+    }
+}
+
 public sealed partial record PackageVersion
 {
     [JsonIgnore]
@@ -716,7 +734,7 @@ public sealed partial record PackageVersion
 
     [JsonInclude]
     [JsonPropertyName("namespace")]
-    public Author Author { get; }
+    public Author Author => field is { Name: not null } ?  field : Package.Author;
 
     [JsonInclude]
     [JsonPropertyName("name")]
@@ -742,6 +760,8 @@ public sealed partial record PackageVersion
         }
         DependencyStrings = dependencyStrings;
     }
+
+    public string GetFullName() => $"{Author}-{Name}";
 
     public PackageVersion WithVersion(PackageVersionNumber version)
     {
@@ -848,6 +868,11 @@ public sealed partial record PackageVersion
     {
         var service = Package.Source.Service;
         return $"{Package.Author.Name}-{Package.Name}-{Version}-{service.Id}";
+    }
+
+    public string ToStringWithoutVersion(string packageSourceId)
+    {
+        return $"{Author.Name}-{Name}-{packageSourceId}";
     }
 }
 
