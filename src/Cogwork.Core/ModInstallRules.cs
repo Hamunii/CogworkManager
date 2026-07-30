@@ -12,9 +12,15 @@ public interface IModInstallRules
 
     static abstract string InstallRootDirectory { get; }
 
-    string[] Map(VisualPackageVersion packageVersion, string directoryPath, string outputPath);
+    string[] Map(
+        ModList modList,
+        VisualPackageVersion packageVersion,
+        string directoryPath,
+        string outputPath
+    );
 
     public Task<FileInstalls?> InstallPackageAsync(
+        ModList modList,
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
         CancellationToken cancellationToken = default
@@ -29,6 +35,7 @@ public interface IModInstallRules
     /// </remarks>
     /// <returns>Null.</returns>
     public Task<FileInstalls?> UninstallPackageAsync(
+        ModList modList,
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
         Dictionary<VisualPackageVersion, FileInstalls?>? installMap,
@@ -52,13 +59,20 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     public static string InstallRootDirectory { get; } = "BepInEx";
 
     // TODO: Use proper detection of BepInEx package for a Thunderstore community.
-    static bool IsBepInExPackage(VisualPackageVersion package) =>
-        package.Name.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase)
-        && package.Author.Name
-            is "BepInEx" // Default
-                or "bbepis" // Risk of Rain 2
-                or " denikson" // Valheim
-    ;
+    static bool IsBepInExPackage(ModList modList, VisualPackageVersion package)
+    {
+        if (!package.Name.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return package.Author.Name switch
+        {
+            "BepInEx" => modList.Game != Game.Silksong, // Default
+            "bbepis" => true, // Risk of Rain 2
+            "denikson" => true, // Valheim
+            "silksong_modding" => true, // Silksong
+            _ => false,
+        };
+    }
 
     public BepInExModInstallRules()
         : this(IModInstallRules.RealFileSystem) { }
@@ -73,6 +87,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     }
 
     public string[] Map(
+        ModList modList,
         VisualPackageVersion packageVersion,
         string directoryPath,
         string outputPath
@@ -80,7 +95,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     {
         List<string> mapped = [];
 
-        if (IsBepInExPackage(packageVersion))
+        if (IsBepInExPackage(modList, packageVersion))
         {
             IgnoreUntilWinhttpThenMap(directoryPath, outputPath, foundWinhttpDll: false, mapped);
             Fs.Directory.Delete(directoryPath, recursive: true);
@@ -235,6 +250,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     }
 
     public async Task<FileInstalls?> InstallPackageAsync(
+        ModList modList,
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
         CancellationToken cancellationToken = default
@@ -247,23 +263,24 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
             return null;
         }
 
-        string installRoot = GetInstallRoot(packageVersion, profileFilesDirectory);
+        string installRoot = GetInstallRoot(modList, packageVersion, profileFilesDirectory);
         Directory.CreateDirectory(installRoot);
         var pathCopy = path + ".temp";
 
         Fs.Directory.CreateDirectory(pathCopy);
         CopyDirectory(path, pathCopy);
-        var mapped = Map(packageVersion, pathCopy, installRoot);
+        var mapped = Map(modList, packageVersion, pathCopy, installRoot);
 
         return new FileInstalls(mapped, []);
     }
 
     private static string GetInstallRoot(
+        ModList modList,
         VisualPackageVersion packageVersion,
         string profileFilesDirectory
     )
     {
-        if (IsBepInExPackage(packageVersion))
+        if (IsBepInExPackage(modList, packageVersion))
         {
             return profileFilesDirectory;
         }
@@ -272,6 +289,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     }
 
     public async Task<FileInstalls?> UninstallPackageAsync(
+        ModList modList,
         VisualPackageVersion packageVersion,
         string profileFilesDirectory,
         Dictionary<VisualPackageVersion, FileInstalls?>? installMap,
@@ -315,7 +333,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         }
 
         // Then we just delete the fake mapped files from our real filesystem.
-        string installRoot = GetInstallRoot(packageVersion, profileFilesDirectory);
+        string installRoot = GetInstallRoot(modList, packageVersion, profileFilesDirectory);
         DeleteDirectoryContentsBasedOnSource(fakeFs, installRoot);
 
         return null;

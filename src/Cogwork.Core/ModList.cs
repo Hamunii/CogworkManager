@@ -329,6 +329,7 @@ public sealed class LazyModList
 public sealed class ModList
 {
     internal static readonly Lock idToModListLock = new();
+    public Game Game => _lazy.Game;
     internal static Dictionary<string, LazyModList> IdToModList { get; } = [];
     public PackageSourceIndex SourceIndex => _lazy.SourceIndex;
     public Dictionary<Package, PackageVersion> Added { get; } = [];
@@ -635,6 +636,7 @@ public sealed class ModList
             var visualPackageVersion = (VisualPackageVersion)packageVersion;
             _ = _lazy
                 .Game.InstallRules.UninstallPackageAsync(
+                    this,
                     visualPackageVersion,
                     _lazy.ProfileFilesDirectory,
                     installMap
@@ -662,6 +664,7 @@ public sealed class ModList
             var visualPackageVersion = (VisualPackageVersion)packageVersion;
             _ = _lazy
                 .Game.InstallRules.UninstallPackageAsync(
+                    this,
                     visualPackageVersion,
                     _lazy.ProfileFilesDirectory,
                     installMap
@@ -800,6 +803,7 @@ public sealed class ModList
                     return (
                         visualPackageVersion,
                         await installRules.InstallPackageAsync(
+                            this,
                             visualPackageVersion,
                             files,
                             cancellationToken
@@ -813,6 +817,7 @@ public sealed class ModList
                         $"Uninstalling old package version: '{installedVisualPackageVersion}'"
                     );
                     var uninstallFiles = await installRules.UninstallPackageAsync(
+                        this,
                         installedVisualPackageVersion,
                         files,
                         installMap,
@@ -824,6 +829,7 @@ public sealed class ModList
                     return (
                         visualPackageVersion,
                         await installRules.InstallPackageAsync(
+                            this,
                             visualPackageVersion,
                             files,
                             cancellationToken
