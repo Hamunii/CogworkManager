@@ -90,14 +90,11 @@ And select the package source to install from if it exists in multiple enabled s
 
 ## Project Overview
 
-Cogwork Manager is currently split into 2 parts:
+Cogwork Manager is currently split into 3 parts:
 
 - **Cogwork.Core:** The package manager library
 - **Cogwork.Cli:** A command line interface named "`cogman`"
-
-A third part will likely eventually be implemented:
-
-- **Cogwork.Gui:** A graphical interface named "Cogwork Manager" (with [Adwaita](<https://gnome.pages.gitlab.gnome.org/libadwaita/>))
+- **Cogwork.Gui:** A [GNOME](<https://www.gnome.org/>) app named "Cogwork Manager"
 
 ### Cogwork.Core
 
@@ -110,3 +107,9 @@ This library is heavily WIP still so everything about the implementation may cha
 Aka "`cogman`". It's a CLI tool that focuses a lot on the user experience to try and make it easy-ish to use even for people who are not used to CLI tools.
 
 The goal of cogman is to be a fully-featured mod package manager so you don't need to open a GUI app for managing mods. As of right now, it's not quite there.
+
+### Cogwork.Gui
+
+A GUI for the mod manger, built for [GNOME](<https://www.gnome.org/>). The goal is to make this app simple, intuitive, and effective for the average user.
+
+Since both of these interfaces (Cogwork.Cli and Cogwork.Gui) use the same Cogwork.Core backend, they also share the same data. This means that you can use whichever app you feel like, whenever.
