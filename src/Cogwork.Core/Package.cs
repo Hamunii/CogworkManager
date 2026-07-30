@@ -893,6 +893,8 @@ public readonly partial record struct Author(string Name)
     public static implicit operator string(Author author) => author.Name;
 
     public static implicit operator Author(string author) => new(author);
+
+    public override string ToString() => Name;
 }
 
 /// <summary>

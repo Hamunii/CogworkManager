@@ -336,8 +336,10 @@ public sealed class ModList
     public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
     public IEnumerable<KeyValuePair<Package, PackageVersion>> AllPackages =>
         Added.Concat(Dependencies);
+    public Dictionary<Package, PackageVersion> RecentlyRemoved { get; } = [];
     public HashSet<string> LostPackageIds { get; } = [];
     public HashSet<Package> LostPackages { get; } = [];
+    public LazyModList Lazy => _lazy;
     readonly LazyModList _lazy;
     readonly Action<ModList, Dictionary<Package, PackageVersion>> _onNewAddedList;
     readonly Action _onResolved;
@@ -369,6 +371,9 @@ public sealed class ModList
 
                 if (source.TryImportUniquePackage(dep.PackageVersion, out var package))
                 {
+                    Cog.Information(
+                        $"Imported missing package '{dep.PackageVersion}' (packages in source '{source.Id}': {source.nameToPackage.Count})"
+                    );
                     LostPackages.Add(package);
                 }
             }
@@ -600,7 +605,16 @@ public sealed class ModList
             updated |= Added.AddOrUpdateToHigherVersion(packageVersion);
         }
         DirtyRebuildDependencies(context);
+        CleanRecentlyRemoved();
         return updated;
+    }
+
+    private void CleanRecentlyRemoved()
+    {
+        foreach (var package in AllPackages)
+        {
+            RecentlyRemoved.Remove(package.Key);
+        }
     }
 
     public (PackageVersion[] uninstalled, PackageVersion[] failedToUninstall) Remove(
@@ -619,10 +633,6 @@ public sealed class ModList
 
         var newInstallMap = installMap?.ToDictionary() ?? [];
 
-        // This is horrible.
-        // HashSet<VisualPackageVersion> installed =
-        //     installMap?.Where(x => x.Value is { }).Select(x => x.Key).ToHashSet() ?? [];
-
         foreach (var package in packages)
         {
             if (!Added.Remove(package, out var packageVersion))
@@ -632,19 +642,7 @@ public sealed class ModList
 
             // Add this version temporarily to deps so version can't get downgraded on rebuild
             Dependencies.Add(package, packageVersion);
-
-            var visualPackageVersion = (VisualPackageVersion)packageVersion;
-            _ = _lazy
-                .Game.InstallRules.UninstallPackageAsync(
-                    this,
-                    visualPackageVersion,
-                    _lazy.ProfileFilesDirectory,
-                    installMap
-                )
-                .Result;
-
-            newInstallMap.Remove(visualPackageVersion);
-            toUninstall.Add(packageVersion);
+            RecentlyRemoved[package] = packageVersion;
         }
 
         var dependenciesBefore = Dependencies.ToDictionary();
@@ -679,6 +677,7 @@ public sealed class ModList
             .WithStrippedPaths(_lazy)
             .Save(_lazy.ProfileInstalledPackagesFilePath);
 
+        CleanRecentlyRemoved();
         return ([.. toUninstall], []);
     }
 
@@ -851,6 +850,17 @@ public sealed class ModList
             .Save(_lazy.ProfileInstalledPackagesFilePath);
 
         return true;
+    }
+
+    public IEnumerable<Package> Search(string package)
+    {
+        return SourceIndex
+            .GetAllPackagesAsync()
+            .Result.Where(x =>
+                x.FullName.Contains(package, StringComparison.InvariantCultureIgnoreCase)
+            )
+            .OrderByDescending(x => 100 - (x.FullName.Length - package.Length))
+            .Take(50);
     }
 
     public override string ToString()

@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RuntimeIdentifiers>any</RuntimeIdentifiers>
+    <TargetFramework>$(CogworkTargetFramework)</TargetFramework>
+    <AssemblyName>Cogwork</AssemblyName>
+    <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
+    <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
+    <OutputType>Exe</OutputType>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <Authors>Hamunii</Authors>
+    <Description>A GUI mod package manager for a few games on Thunderstore.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- <StartArguments>update</StartArguments> -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cogwork.Tests" />
+  </ItemGroup>
+
+  <!-- Local project references -->
+  <ItemGroup>
+    <ProjectReference Include="$(SolutionRoot)src/Cogwork.Core/Cogwork.Core.csproj" />
+    <Using Include="Cogwork.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="GirCore.Adw-1" Version="0.8.1" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
+    <PackageReference Include="Tmds.DBus.Generator" Version="0.94.2" />
+    <PackageReference Include="Tmds.LibC" Version="0.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles
+      Include="$(SolutionRoot)src/dbus-xml/org.freedesktop.portal.OpenURI.xml"
+      Namespace="DBusGenerated.Freedesktop.Portal"
+      DBusGeneratorMode="Proxy"
+    />
+  </ItemGroup>
+</Project>
