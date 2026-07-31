@@ -158,7 +158,8 @@ public sealed class LocalPackageSource : PackageSource
 
     public override async Task<bool> FetchPackageIndexAsync(
         TimeSpan timeUntilIndexRefreshAllowed,
-        Func<PackageSource, ProgressContext>? progressFactory
+        Func<PackageSource, ProgressContext>? progressFactory,
+        CancellationToken cancellationToken = default
     )
     {
         if (_isLoaded)
@@ -340,7 +341,8 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
 
     public override async Task<bool> FetchPackageIndexAsync(
         TimeSpan timeUntilIndexRefreshAllowed,
-        Func<PackageSource, ProgressContext>? progressFactory
+        Func<PackageSource, ProgressContext>? progressFactory,
+        CancellationToken cancellationToken = default
     )
     {
         var dateNow = DateTime.Now;
@@ -358,7 +360,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         {
             var progress = progressFactory?.Invoke(this) ?? default;
 
-            var successfulFetch = await FetchIndexToCacheAsync(progress);
+            var successfulFetch = await FetchIndexToCacheAsync(progress, cancellationToken);
             if (!successfulFetch)
                 return false;
 
@@ -389,12 +391,16 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         return true;
     }
 
-    public async Task<bool> FetchIndexToCacheAsync(ProgressContext progress = default)
+    public async Task<bool> FetchIndexToCacheAsync(
+        ProgressContext progress = default,
+        CancellationToken cancellationToken = default
+    )
     {
         var result = await Utils.DoTaskOrWaitForCompletionAsync(
             PackageIndexBaseDirectory,
             progress,
-            DoIndexFetchLogicAsync
+            DoIndexFetchLogicAsync,
+            cancellationToken
         );
 
         if (!result.Performed)
@@ -403,14 +409,17 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         return result.Value;
     }
 
-    async Task<bool> DoIndexFetchLogicAsync(ProgressContext progress)
+    async Task<bool> DoIndexFetchLogicAsync(
+        ProgressContext progress,
+        CancellationToken cancellationToken = default
+    )
     {
         var url = $"https://thunderstore.io/c/{game.Slug}/api/v1/package-listing-index/";
 
         Cog.Information("Fetching: " + url);
 
         HttpClient client = Utils.SharedHttpClient;
-        var response = await client.GetAsync(url);
+        var response = await client.GetAsync(url, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             Cog.Error("Error fetching url for package index: " + response.StatusCode);
@@ -421,7 +430,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         (string url, string fileName)[] newPackageIndexUrls;
         {
             using GZipStream zipStream = new(
-                response.Content.ReadAsStream(),
+                response.Content.ReadAsStream(cancellationToken),
                 CompressionMode.Decompress
             );
             var strings = JsonSerializer.Deserialize(zipStream, JsonGen.Default.StringArray);
@@ -629,29 +638,41 @@ public abstract class PackageSource
     internal ConcurrentDictionary<string, Package> nameToPackage = [];
 
     public async Task FetchPackageIndexAutomaticAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
+        Func<PackageSource, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
     )
     {
-        _ = await FetchPackageIndexAsync(TimeSpan.FromMinutes(20), progressFactory);
+        _ = await FetchPackageIndexAsync(
+            TimeSpan.FromMinutes(20),
+            progressFactory,
+            cancellationToken
+        );
     }
 
     public async Task FetchPackageIndexManualAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
+        Func<PackageSource, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
     )
     {
-        _ = await FetchPackageIndexAsync(TimeSpan.FromSeconds(10), progressFactory);
+        _ = await FetchPackageIndexAsync(
+            TimeSpan.FromSeconds(10),
+            progressFactory,
+            cancellationToken
+        );
     }
 
     public abstract Task<bool> FetchPackageIndexAsync(
         TimeSpan timeUntilIndexRefreshAllowed,
-        Func<PackageSource, ProgressContext>? progressFactory
+        Func<PackageSource, ProgressContext>? progressFactory,
+        CancellationToken cancellationToken = default
     );
 
     public async Task<List<Package>> GetPackagesAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
+        Func<PackageSource, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
     )
     {
-        await FetchPackageIndexAutomaticAsync(progressFactory);
+        await FetchPackageIndexAutomaticAsync(progressFactory, cancellationToken);
         return Packages;
     }
 

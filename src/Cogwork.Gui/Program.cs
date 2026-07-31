@@ -311,8 +311,6 @@ class Program
             }
             else
             {
-                // When explicitly clicking the button to CLOSE search, wipe the text
-                // which naturally triggers the fallback back to the manage_tab view
                 searchEntry.SetText("");
             }
         };
@@ -369,10 +367,16 @@ class Program
         // Declare a token source outside the handler to track and cancel stale typing actions
         CancellationTokenSource? searchCts = null;
 
-        searchEntry.OnSearchChanged += (se, e) =>
+        // This OnStopSearch event seems to always cause critical asserts just by existing.
+        // I'm going to ignore it since there doesn't seem to be a good way to avoid it.
+        searchEntry.OnStopSearch += (searchEntry, e) =>
+        {
+            searchToggleButton.SetActive(false);
+        };
+
+        searchEntry.OnSearchChanged += (searchEntry, e) =>
         {
             string currentText = searchEntry.GetText();
-
             // 1. MANAGE VIEW SHEET TOGGLE LOGIC
             // Only drop back to the manage tab if the search string is completely empty
             // AND the user has explicitly clicked away or hit escape to unfocus the search bar.
@@ -423,7 +427,7 @@ class Program
                     {
                         // 1. RUN THE SLOW SEARCH ON THE WORKER THREAD
                         // Executing this block in the background keeps your text typing inputs butter-smooth
-                        var searchResults = profile.Search(query).ToArray();
+                        var searchResults = (await profile.Search(query, token)).ToArray();
 
                         if (token.IsCancellationRequested)
                             return;

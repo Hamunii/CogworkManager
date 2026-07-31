@@ -21,7 +21,8 @@ public static class Utils
     public static async Task<PerformedOrNot<T>> DoTaskOrWaitForCompletionAsync<T>(
         string lockDirectory,
         ProgressContext progress,
-        Func<ProgressContext, Task<T>> doTask
+        Func<ProgressContext, CancellationToken, Task<T>> doTask,
+        CancellationToken cancellationToken = default
     )
     {
         if (!Directory.Exists(lockDirectory))
@@ -46,7 +47,7 @@ public static class Utils
                     Cog.Warning($"Got lock for '{lockDirectory}'");
                     return new(false);
                 }
-                return new(true, await doTask(progress));
+                return new(true, await doTask(progress, cancellationToken));
             }
             catch (IOException)
             {
@@ -55,7 +56,7 @@ public static class Utils
                     waitedForLock = true;
                     Cog.Warning($"Awaiting lock for '{lockDirectory}' instead of fetching");
                 }
-                await Task.Delay(100);
+                await Task.Delay(100, cancellationToken);
             }
         }
     }

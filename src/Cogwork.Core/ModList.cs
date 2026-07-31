@@ -184,18 +184,20 @@ public sealed class LazyModList
     }
 
     public async Task<ModList> LoadAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
+        Func<PackageSource, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
     )
     {
-        await SourceIndex.FetchAllPackagesAsync(progressFactory);
+        await SourceIndex.FetchAllPackagesAsync(progressFactory, cancellationToken);
         return InitModList();
     }
 
     public async Task<ModList> LoadManualAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
+        Func<PackageSource, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
     )
     {
-        await SourceIndex.FetchAllPackagesManualAsync(progressFactory);
+        await SourceIndex.FetchAllPackagesManualAsync(progressFactory, cancellationToken);
         return InitModList();
     }
 
@@ -852,10 +854,10 @@ public sealed class ModList
         return true;
     }
 
-    public IEnumerable<Package> Search(string package)
+    public async Task<IEnumerable<Package>> Search(string package, CancellationToken cancellationToken = default)
     {
         return SourceIndex
-            .GetAllPackagesAsync()
+            .GetAllPackagesAsync(progressFactory: null, cancellationToken)
             .Result.Where(x =>
                 x.FullName.Contains(package, StringComparison.InvariantCultureIgnoreCase)
             )

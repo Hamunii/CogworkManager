@@ -210,44 +210,42 @@ public sealed class PackageSourceIndex
     }
 
     public async Task<IEnumerable<Package>> GetAllPackagesAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
+        Func<PackageSource, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
     )
     {
         Cog.Information($"Package sources count: {PackageSources.Count}");
-        var fetchTasks = PackageSources.Select(x => x.GetPackagesAsync(progressFactory)).ToArray();
-#if DEBUG
-        // Simulate at least some delay to make sure things are awaited properly.
-        await Task.Delay(100);
-#endif
-        Task.WaitAll(fetchTasks);
+        var fetchTasks = PackageSources
+            .Select(x => x.GetPackagesAsync(progressFactory, cancellationToken))
+            .ToArray();
+
+        await Task.WhenAll(fetchTasks);
         return fetchTasks.SelectMany(x => x.Result);
     }
 
     public async Task FetchAllPackagesAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
+        Func<PackageSource, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
     )
     {
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Select(x => x.FetchPackageIndexAutomaticAsync(progressFactory))
+            .Select(x => x.FetchPackageIndexAutomaticAsync(progressFactory, cancellationToken))
             .ToArray();
-#if DEBUG
-        await Task.Delay(100);
-#endif
+
         await Task.WhenAll(fetchTasks);
     }
 
     public async Task FetchAllPackagesManualAsync(
-        Func<PackageSource, ProgressContext>? progressFactory = null
+        Func<PackageSource, ProgressContext>? progressFactory = null,
+        CancellationToken cancellationToken = default
     )
     {
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Select(x => x.FetchPackageIndexManualAsync(progressFactory))
+            .Select(x => x.FetchPackageIndexManualAsync(progressFactory, cancellationToken))
             .ToArray();
-#if DEBUG
-        await Task.Delay(100);
-#endif
+
         await Task.WhenAll(fetchTasks);
     }
 }
