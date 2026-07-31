@@ -285,7 +285,7 @@ class Program
         // 2. GNOME Software Style Search Bar Container
         var searchBar = Gtk.SearchBar.New();
         var searchEntry = Gtk.SearchEntry.New();
-        searchEntry.SetPlaceholderText("Search mods to add...");
+        searchEntry.SetPlaceholderText("Search mods...");
         searchEntry.SetHexpand(true);
         searchEntry.SetHalign(Gtk.Align.Center);
         searchEntry.SetSizeRequest(400, -1);
@@ -371,7 +371,6 @@ class Program
 
         // ================= TAB 2: INSTALL MODS (NEW VIEW) =================
         var installTabBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
-        installTabBox.SetMarginTop(16);
 
         // 1. Structural outer scroller
         var scrollInstall = Gtk.ScrolledWindow.New();
@@ -383,14 +382,20 @@ class Program
         clampInstall.SetMaximumSize(800);
         scrollInstall.SetChild(clampInstall);
 
-        var installListBox = Gtk.ListBox.New();
-        installListBox.AddCssClass("boxed-list");
-        installListBox.SetSelectionMode(Gtk.SelectionMode.None);
-        installListBox.SetMarginStart(24);
-        installListBox.SetMarginEnd(24);
+        var stackInstall = Gtk.Box.New(Gtk.Orientation.Vertical, 24);
+        stackInstall.SetMarginTop(24);
+        stackInstall.SetMarginBottom(24);
+        stackInstall.SetMarginStart(24);
+        stackInstall.SetMarginEnd(24);
+        clampInstall.SetChild(stackInstall);
 
-        // 3. Target the list box straight to the installation view clamp
-        clampInstall.SetChild(installListBox);
+        var installListBox = CreateSection(
+            stackInstall,
+            "Search Results",
+            "No matches.",
+            out var resultsLabel,
+            out var noMatchesLabel
+        );
 
         // Declare a token source outside the handler to track and cancel stale typing actions
         CancellationTokenSource? searchCts = null;
@@ -468,6 +473,23 @@ class Program
                             () =>
                             {
                                 ClearList(installListBox);
+
+                                if (searchResults.Length == 0)
+                                {
+                                    ToggleSectionVisibility(
+                                        resultsLabel,
+                                        noMatchesLabel,
+                                        installListBox,
+                                        false
+                                    );
+                                    return false;
+                                }
+                                ToggleSectionVisibility(
+                                    resultsLabel,
+                                    noMatchesLabel,
+                                    installListBox,
+                                    true
+                                );
 
                                 foreach (var package in searchResults)
                                 {
