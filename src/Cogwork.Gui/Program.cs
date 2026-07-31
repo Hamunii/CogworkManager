@@ -624,6 +624,8 @@ class Program
                             addedListBox,
                             false
                         );
+                        // Ensure focus doesn't disappear by moving it where there are elements
+                        recentListBox.GrabFocus();
                     }
                 };
 
@@ -664,6 +666,18 @@ class Program
                         {
                             activeProfile.Add(dep, DependencyVersionResolution.Latest);
                             appendDirectRowAction?.Invoke(dep, activeProfile);
+
+                            if (activeProfile.Dependencies.Count == 0)
+                            {
+                                if (profile.RecentlyRemoved.Count > 0)
+                                {
+                                    recentListBox.GrabFocus();
+                                }
+                                else
+                                {
+                                    addedListBox.GrabFocus();
+                                }
+                            }
                         };
 
                         row.AddSuffix(addButton);
@@ -696,6 +710,18 @@ class Program
                             // with a package from added if the package exists in
                             // multiple sources. Easiest way to avoid desync.
                             updateConfig?.Invoke(activeProfile.Lazy);
+
+                            if (profile.RecentlyRemoved.Count == 0)
+                            {
+                                if (profile.Dependencies.Count > 0)
+                                {
+                                    depsListBox.GrabFocus();
+                                }
+                                else
+                                {
+                                    addedListBox.GrabFocus();
+                                }
+                            }
                         };
 
                         row.AddSuffix(addButton);
@@ -706,25 +732,6 @@ class Program
                 else
                 {
                     ToggleSectionVisibility(recentSectionLabel, recentListBox, false);
-                }
-
-                // Hacky fix for if focused element is removed and no other elements
-                // are in the list, so focus is lost and typing to search doesn't just work.
-                if (activeProfile.Added.Count > 0)
-                {
-                    addedListBox.GrabFocus();
-                }
-                else if (activeProfile.Dependencies.Count > 0)
-                {
-                    depsListBox.GrabFocus();
-                }
-                else if (activeProfile.RecentlyRemoved.Count > 0)
-                {
-                    recentListBox.GrabFocus();
-                }
-                else
-                {
-                    searchToggleButton.GrabFocus();
                 }
             };
 
