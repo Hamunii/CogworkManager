@@ -187,14 +187,23 @@ class Program
 
         layoutBox.Append(header);
 
+        var scroll = Gtk.ScrolledWindow.New();
+        scroll.SetVexpand(true);
+        layoutBox.Append(scroll);
+
+        var clamp = Adw.Clamp.New();
+        clamp.SetMaximumSize(800);
+        scroll.SetChild(clamp);
+
         var listBox = Gtk.ListBox.New();
         listBox.AddCssClass("boxed-list");
         listBox.SetMarginTop(24);
         listBox.SetMarginStart(24);
         listBox.SetMarginEnd(24);
         listBox.SetSelectionMode(Gtk.SelectionMode.None);
+        listBox.SetValign(Gtk.Align.Start);
 
-        layoutBox.Append(listBox);
+        clamp.SetChild(listBox);
 
         updateContentCallback = (selectedGame) =>
         {
@@ -277,7 +286,7 @@ class Program
         // 2. GNOME Software Style Search Bar Container
         var searchBar = Gtk.SearchBar.New();
         var searchEntry = Gtk.SearchEntry.New();
-        searchEntry.SetPlaceholderText("Search online mods to install...");
+        searchEntry.SetPlaceholderText("Search mods to add...");
         searchEntry.SetHexpand(true);
         searchEntry.SetHalign(Gtk.Align.Center);
         searchEntry.SetSizeRequest(400, -1);
@@ -321,21 +330,28 @@ class Program
         // ================= TAB 1: MANAGE MODS (CURRENT VIEW) =================
         var manageTabBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
 
+        // 1. Structural outer scroller
         var scrollManage = Gtk.ScrolledWindow.New();
         scrollManage.SetVexpand(true);
         manageTabBox.Append(scrollManage);
 
+        // 2. Sizing clamp container placed inside the scroller to restrict extreme widths
+        var clampManage = Adw.Clamp.New();
+        clampManage.SetMaximumSize(800);
+        scrollManage.SetChild(clampManage); // Links clamp directly to viewport
+
+        // 3. Your content box placed cleanly inside the clamp
         var contentStack = Gtk.Box.New(Gtk.Orientation.Vertical, 24);
         contentStack.SetMarginTop(24);
         contentStack.SetMarginBottom(24);
         contentStack.SetMarginStart(24);
         contentStack.SetMarginEnd(24);
-        scrollManage.SetChild(contentStack);
+        clampManage.SetChild(contentStack); // Fixed: Target content box to clamp
 
         var addedListBox = CreateSection(
             contentStack,
             "Added",
-            "No added mods. Start searching by typing.",
+            "No added mods. Type to search mods.",
             out var addedSectionLabel,
             out var addedEmptyLabel
         );
@@ -357,18 +373,25 @@ class Program
         // ================= TAB 2: INSTALL MODS (NEW VIEW) =================
         var installTabBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
         installTabBox.SetMarginTop(16);
-        installTabBox.SetMarginStart(24);
-        installTabBox.SetMarginEnd(24);
 
-        // Layout scroll for browse/install section
+        // 1. Structural outer scroller
         var scrollInstall = Gtk.ScrolledWindow.New();
         scrollInstall.SetVexpand(true);
         installTabBox.Append(scrollInstall);
 
+        // 2. Sizing clamp container
+        var clampInstall = Adw.Clamp.New();
+        clampInstall.SetMaximumSize(800);
+        scrollInstall.SetChild(clampInstall);
+
         var installListBox = Gtk.ListBox.New();
         installListBox.AddCssClass("boxed-list");
         installListBox.SetSelectionMode(Gtk.SelectionMode.None);
-        scrollInstall.SetChild(installListBox);
+        installListBox.SetMarginStart(24);
+        installListBox.SetMarginEnd(24);
+
+        // 3. Target the list box straight to the installation view clamp
+        clampInstall.SetChild(installListBox);
 
         // Declare a token source outside the handler to track and cancel stale typing actions
         CancellationTokenSource? searchCts = null;
