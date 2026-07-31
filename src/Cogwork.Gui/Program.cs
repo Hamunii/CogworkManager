@@ -266,57 +266,58 @@ class Program
             stack.SetVisibleChildName("profiles");
         };
         header.PackStart(backButton);
+
+        // GNOME SOFTWARE STYLE: Create search toggle button in the header
+        var searchToggleButton = Gtk.ToggleButton.New();
+        searchToggleButton.SetIconName("edit-find-symbolic");
+        header.PackStart(searchToggleButton);
+
         layoutBox.Append(header);
 
-        // 2. Tab Bar System: Internal view stack setup
+        // 2. GNOME Software Style Search Bar Container
+        var searchBar = Gtk.SearchBar.New();
+        var searchEntry = Gtk.SearchEntry.New();
+        searchEntry.SetPlaceholderText("Search online mods to install...");
+        searchEntry.SetHexpand(true);
+        searchEntry.SetHalign(Gtk.Align.Center);
+        searchEntry.SetSizeRequest(400, -1);
+
+        searchBar.SetChild(searchEntry);
+        searchBar.ConnectEntry(searchEntry);
+
+        // FIX: Force the bar container layout to expand and display
+        searchEntry.SetKeyCaptureWidget(layoutBox);
+        searchEntry.SetSearchDelay(0);
+
+        layoutBox.Append(searchBar);
+
+        // 3. Tab Stack Content Setup
         var internalTabsStack = Adw.ViewStack.New();
         internalTabsStack.SetEnableTransitions(false);
         internalTabsStack.SetVexpand(true);
 
-        // ================= CODE FROM OPTION B GOES HERE =================
-        // Create a horizontal layout box to hold the segmented buttons
-        var segmentedContainer = Gtk.Box.New(Gtk.Orientation.Horizontal, 0);
-        segmentedContainer.AddCssClass("linked"); // Fuses the buttons into a single rounded control block
-        segmentedContainer.SetHalign(Gtk.Align.Center); // Compactly centered instead of stretching
-        segmentedContainer.SetMarginTop(12);
-        segmentedContainer.SetMarginBottom(12);
-
-        var btnManage = Gtk.ToggleButton.NewWithLabel("Manage");
-        var btnInstall = Gtk.ToggleButton.NewWithLabel("Search");
-
-        // Group them so pressing one pops the other out automatically
-        btnInstall.SetGroup(btnManage);
-        btnManage.SetActive(true); // Default starting tab state
-
         ModList? profile = null;
-
         Action<LazyModList>? updateConfig = null;
 
-        // Bind click handlers to change your internal view stack sheets smoothly
-        btnManage.OnToggled += (s, e) =>
+        // Dynamic State Switching Hooks
+        searchToggleButton.OnToggled += (s, e) =>
         {
-            if (btnManage.GetActive())
-            {
-                internalTabsStack.SetVisibleChildName("manage_tab");
+            bool isActive = searchToggleButton.GetActive();
+            searchBar.SetSearchMode(isActive);
 
-                if (profile is { })
-                    updateConfig?.Invoke(profile.Lazy);
+            if (isActive)
+            {
+                searchEntry.GrabFocus();
+            }
+            else
+            {
+                // When explicitly clicking the button to CLOSE search, wipe the text
+                // which naturally triggers the fallback back to the manage_tab view
+                searchEntry.SetText("");
             }
         };
-        btnInstall.OnToggled += (s, e) =>
-        {
-            if (btnInstall.GetActive())
-                internalTabsStack.SetVisibleChildName("install_tab");
-        };
 
-        segmentedContainer.Append(btnManage);
-        segmentedContainer.Append(btnInstall);
-
-        // Append the newly styled pill container directly under your header text line
-        layoutBox.Append(segmentedContainer);
-        // ================= END OF OPTION B CODE =================
-
-        // Append the main content stack container underneath the tabs toggle
+        // Append the main content stack container underneath the search bar control panel
         layoutBox.Append(internalTabsStack);
 
         // ================= TAB 1: MANAGE MODS (CURRENT VIEW) =================
@@ -346,7 +347,6 @@ class Program
         managePage.SetIconName("emblem-system-symbolic");
 
         // ================= STATE PERSISTENCE HOOKS =================
-        // FIXED: Using ModList explicit reference instead of ModProfile
         Action<ModList>? rebuildDependenciesAction = null;
         Action<PackageVersion, ModList>? appendDirectRowAction = null;
 
@@ -355,15 +355,6 @@ class Program
         installTabBox.SetMarginTop(16);
         installTabBox.SetMarginStart(24);
         installTabBox.SetMarginEnd(24);
-
-        var searchEntry = Gtk.SearchEntry.New();
-        searchEntry.SetPlaceholderText("Search online mods to install...");
-        searchEntry.SetMarginBottom(16);
-        installTabBox.Append(searchEntry);
-
-        // 1. Establish the basic loose letter capturing link from the root view container context
-        searchEntry.SetKeyCaptureWidget(layoutBox);
-        searchEntry.SetSearchDelay(0);
 
         // Layout scroll for browse/install section
         var scrollInstall = Gtk.ScrolledWindow.New();
@@ -375,17 +366,39 @@ class Program
         installListBox.SetSelectionMode(Gtk.SelectionMode.None);
         scrollInstall.SetChild(installListBox);
 
-        // 1. Declare a token source outside the handler to track and cancel stale typing actions
+        // Declare a token source outside the handler to track and cancel stale typing actions
         CancellationTokenSource? searchCts = null;
 
-        searchEntry.OnSearchChanged += (searchEntry, e) =>
+        searchEntry.OnSearchChanged += (se, e) =>
         {
-            if (!searchEntry.HasFocus && !string.IsNullOrEmpty(searchEntry.GetText()))
+            string currentText = searchEntry.GetText();
+
+            // 1. MANAGE VIEW SHEET TOGGLE LOGIC
+            // Only drop back to the manage tab if the search string is completely empty
+            // AND the user has explicitly clicked away or hit escape to unfocus the search bar.
+            if (!searchEntry.HasFocus)
             {
                 searchEntry.GrabFocus();
-                if (!btnInstall.GetActive())
+            }
+
+            if (string.IsNullOrEmpty(currentText))
+            {
+                internalTabsStack.SetVisibleChildName("manage_tab");
+
+                if (profile is { })
+                    updateConfig?.Invoke(profile.Lazy);
+            }
+            else
+            {
+                // If there is text, OR if it's empty but still focused, keep the install/search view active
+                if (internalTabsStack.GetVisibleChildName() != "install_tab")
                 {
-                    btnInstall.Activate();
+                    internalTabsStack.SetVisibleChildName("install_tab");
+                }
+
+                if (!searchToggleButton.GetActive())
+                {
+                    searchToggleButton.SetActive(true);
                 }
             }
 
@@ -393,7 +406,9 @@ class Program
             if (profile == null)
                 return;
 
-            string query = searchEntry.GetText().Trim().Replace(' ', '_');
+            string query = currentText.Trim().Replace(' ', '_');
+            if (string.IsNullOrEmpty(query))
+                return;
 
             // Cancel any pending search task immediately because the user is still actively typing
             searchCts?.Cancel();
@@ -487,14 +502,14 @@ class Program
         // ================= POPULATE LOGIC LOOP =================
         updateConfigCallback = (lazyProfile) =>
         {
-            // FIXED: Using ModList explicitly
             profile = lazyProfile.LoadAsync().Result;
 
             windowTitle.SetTitle(lazyProfile.DisplayName);
             windowTitle.SetSubtitle(lazyProfile.Game.Name);
 
             internalTabsStack.SetVisibleChildName("manage_tab");
-            searchEntry.SetText("");
+            // searchEntry.SetText("");
+            // searchToggleButton.SetActive(false);
 
             ClearList(addedListBox);
             ClearList(installListBox);
@@ -502,8 +517,9 @@ class Program
             // --- Helper Action: Build Direct/Added Mod Row ---
             appendDirectRowAction = (mod, currentProfile) =>
             {
-                // FIXED: Passing mod.Value directly down into CreateBaseRow configuration
                 var row = CreateBaseRow(mod);
+                // ... remainder of file continues safely ...
+
                 var removeButton = CreateActionButton(
                     "list-remove-symbolic",
                     $"Remove {mod.Package.FullName}",
