@@ -195,15 +195,14 @@ class Program
         clamp.SetMaximumSize(800);
         scroll.SetChild(clamp);
 
-        var listBox = Gtk.ListBox.New();
-        listBox.AddCssClass("boxed-list");
-        listBox.SetMarginTop(24);
-        listBox.SetMarginStart(24);
-        listBox.SetMarginEnd(24);
-        listBox.SetSelectionMode(Gtk.SelectionMode.None);
-        listBox.SetValign(Gtk.Align.Start);
+        var contentStack = Gtk.Box.New(Gtk.Orientation.Vertical, 24);
+        contentStack.SetMarginTop(24);
+        contentStack.SetMarginBottom(24);
+        contentStack.SetMarginStart(24);
+        contentStack.SetMarginEnd(24);
+        clamp.SetChild(contentStack);
 
-        clamp.SetChild(listBox);
+        var listBox = CreateSection(contentStack, "Profiles", out _);
 
         updateContentCallback = (selectedGame) =>
         {
