@@ -358,7 +358,7 @@ class Program
         var depsListBox = CreateSection(contentStack, "Dependencies", out var depsSectionLabel);
         var recentListBox = CreateSection(
             contentStack,
-            "Recently removed",
+            "Recently Removed",
             out var recentSectionLabel
         );
 
