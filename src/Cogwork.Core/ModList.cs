@@ -183,6 +183,14 @@ public sealed class LazyModList
         }
     }
 
+    public Task<ModList> GetModListAsync()
+    {
+        if (_modList is { })
+            return Task.FromResult(_modList);
+
+        return LoadAsync();
+    }
+
     public async Task<ModList> LoadAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,
         CancellationToken cancellationToken = default

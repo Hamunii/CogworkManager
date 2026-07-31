@@ -662,7 +662,7 @@ class Program
         // ================= POPULATE LOGIC LOOP =================
         updateConfigCallback = (lazyProfile) =>
         {
-            profile = lazyProfile.LoadAsync().Result;
+            profile = lazyProfile.GetModListAsync().Result;
 
             windowTitle.SetTitle(lazyProfile.DisplayName);
             windowTitle.SetSubtitle(lazyProfile.Game.Name);
