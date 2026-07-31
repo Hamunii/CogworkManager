@@ -151,11 +151,6 @@ public sealed class LocalPackageSource : PackageSource
         return await base.ExtractAsync(packageVersion, cancellationToken);
     }
 
-    bool IsLocalSource(string? source)
-    {
-        return source == Id;
-    }
-
     public override async Task<bool> FetchPackageIndexAsync(
         TimeSpan timeUntilIndexRefreshAllowed,
         Func<PackageSource, ProgressContext>? progressFactory,
@@ -360,8 +355,11 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         {
             var progress = progressFactory?.Invoke(this) ?? default;
 
-            var successfulFetch = await FetchIndexToCacheAsync(progress, cancellationToken);
-            if (!successfulFetch)
+            var fetchResult = await FetchIndexToCacheAsync(progress, cancellationToken);
+            if (!fetchResult.Performed)
+                return true;
+
+            if (!fetchResult.Value)
                 return false;
 
             SourceCache.LastFetch = dateNow;
@@ -391,7 +389,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         return true;
     }
 
-    public async Task<bool> FetchIndexToCacheAsync(
+    public async Task<PerformedOrNot<bool>> FetchIndexToCacheAsync(
         ProgressContext progress = default,
         CancellationToken cancellationToken = default
     )
@@ -403,10 +401,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
             cancellationToken
         );
 
-        if (!result.Performed)
-            return true;
-
-        return result.Value;
+        return result;
     }
 
     async Task<bool> DoIndexFetchLogicAsync(
@@ -691,7 +686,9 @@ public abstract class PackageSource
         List<Package> allPackages = [];
 
         var result = Parallel.ForEach(
-            Directory.EnumerateFiles(packageIndexPath),
+            Directory
+                .EnumerateFiles(packageIndexPath)
+                .Where(x => !x.EndsWith(".todo", StringComparison.Ordinal)),
             (indexFile, state) =>
             {
                 try

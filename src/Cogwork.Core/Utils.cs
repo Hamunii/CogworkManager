@@ -35,7 +35,7 @@ public static class Utils
         {
             try
             {
-                using FileStream lockFile = new(
+                FileStream lockFile = new(
                     Path.Combine(lockDirectory, ".lock"),
                     FileMode.OpenOrCreate,
                     FileAccess.Read,
@@ -47,7 +47,15 @@ public static class Utils
                     Cog.Warning($"Got lock for '{lockDirectory}'");
                     return new(false);
                 }
-                return new(true, await doTask(progress, cancellationToken));
+
+                var result = await doTask(progress, cancellationToken);
+
+                // Important: explicitly disposing after await
+                // to ensure it doesn't get disposed earlier.
+                // This might also break something, but probably inconsistent?
+                // Figure out if fetching stuff like Lethal Company sometimes waits forever.
+                lockFile.Dispose();
+                return new(true, result);
             }
             catch (IOException)
             {

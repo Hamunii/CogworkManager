@@ -751,15 +751,21 @@ public sealed partial record PackageVersion
     [JsonPropertyName("name")]
     public string Name { get; }
 
+    [JsonInclude]
+    [JsonPropertyName("description")]
+    public string Description { get; }
+
     public PackageVersion(
         Author author,
         string name,
+        string? description,
         string versionString,
         string[] dependencyStrings
     )
     {
         Author = author;
         Name = name;
+        Description = description ?? string.Empty;
         VersionString = versionString;
         try
         {
@@ -776,7 +782,7 @@ public sealed partial record PackageVersion
 
     public PackageVersion WithVersion(PackageVersionNumber version)
     {
-        return new(Author, Name, version.ToString(), DependencyStrings);
+        return new(Author, Name, Description, version.ToString(), DependencyStrings);
     }
 
     public bool IsDownloaded() =>

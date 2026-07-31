@@ -432,7 +432,24 @@ class Program
         var modDependant = CreateSection(modContent, "Dependant", out var modDependantLabel);
 
         var modLabel = Gtk.Label.New("mod_name");
+        modLabel.AddCssClass("heading");
+        modLabel.SetHalign(Gtk.Align.Start);
+        modLabel.SetWrapMode(Pango.WrapMode.Word);
+        modLabel.SetWrap(true);
         modContent.Append(modLabel);
+
+        var modDescriptionLabel = Gtk.Label.New("mod_description");
+        modDescriptionLabel.SetHalign(Gtk.Align.Start);
+        modDescriptionLabel.SetWrapMode(Pango.WrapMode.Word);
+        modDescriptionLabel.SetWrap(true);
+        modContent.Append(modDescriptionLabel);
+
+        var modSourceLabel = Gtk.Label.New("mod_source");
+        modSourceLabel.AddCssClass("dim-label");
+        modSourceLabel.SetHalign(Gtk.Align.Start);
+        modSourceLabel.SetWrapMode(Pango.WrapMode.Word);
+        modSourceLabel.SetWrap(true);
+        modContent.Append(modSourceLabel);
 
         var modDependencies = CreateSection(
             modContent,
@@ -483,6 +500,9 @@ class Program
             }
 
             modLabel.SetText(packageVersion.Package.FullName);
+            modDescriptionLabel.SetText(packageVersion.Description);
+            modSourceLabel.SetText($"Source: {packageVersion.Package.Source.Id}");
+
             ClearList(modDependencies);
             if (packageVersion.MarkedDependencies.Length == 0)
             {
@@ -567,7 +587,15 @@ class Program
                 {
                     try
                     {
-                        var searchResults = (await profile.Search(query, token)).ToArray();
+                        var packages = await profile.SourceIndex.GetAllPackagesAsync(
+                            progressFactory: null,
+                            cancellationToken: default
+                        );
+
+                        if (token.IsCancellationRequested)
+                            return;
+
+                        var searchResults = ModList.Search(packages, query).ToArray();
 
                         if (token.IsCancellationRequested)
                             return;
@@ -598,9 +626,6 @@ class Program
 
                                 foreach (var package in searchResults)
                                 {
-                                    if (token.IsCancellationRequested)
-                                        return false;
-
                                     var row = CreateBaseRow(package.Latest, OnClicked);
                                     var btn = CreateAddOrRemoveButton(profile, package);
                                     row.AddSuffix(btn);
@@ -877,8 +902,8 @@ class Program
         var package = packageVersion.Package;
 
         var row = Adw.ActionRow.New();
-        row.SetTitle($"{package.FullName} v{packageVersion.Version}");
-        row.SetSubtitle(package.Source.Id ?? "");
+        row.SetTitle($"{GLib.Markup.EscapeText(package.FullName)} v{packageVersion.Version}");
+        row.SetSubtitle(GLib.Markup.EscapeText(packageVersion.Description));
         row.SetActivatable(true);
 
         row.OnActivated += (s, e) =>

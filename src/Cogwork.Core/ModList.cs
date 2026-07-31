@@ -854,13 +854,10 @@ public sealed class ModList
         return true;
     }
 
-    public async Task<IEnumerable<Package>> Search(string package, CancellationToken cancellationToken = default)
+    public static IEnumerable<Package> Search(IEnumerable<Package> packages, string package)
     {
-        return SourceIndex
-            .GetAllPackagesAsync(progressFactory: null, cancellationToken)
-            .Result.Where(x =>
-                x.FullName.Contains(package, StringComparison.InvariantCultureIgnoreCase)
-            )
+        return packages
+            .Where(x => x.FullName.Contains(package, StringComparison.InvariantCultureIgnoreCase))
             .OrderByDescending(x => 100 - (x.FullName.Length - package.Length))
             .Take(50);
     }
