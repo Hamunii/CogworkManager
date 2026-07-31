@@ -84,9 +84,7 @@ class Program
         var layoutBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
 
         var header = Adw.HeaderBar.New();
-        header.SetTitleWidget(
-            Adw.WindowTitle.New("Game Mod Manager", "Select a game to manage profiles")
-        );
+        header.SetTitleWidget(Adw.WindowTitle.New("Cogwork", "Select game to mod"));
         layoutBox.Append(header);
 
         var scroll = Gtk.ScrolledWindow.New();
@@ -200,8 +198,8 @@ class Program
 
         updateContentCallback = (selectedGame) =>
         {
-            windowTitle.SetTitle($"Mod Profiles");
-            windowTitle.SetSubtitle(selectedGame.Name);
+            windowTitle.SetTitle(selectedGame.Name);
+            windowTitle.SetSubtitle("Select mod profile");
 
             while (listBox.GetFirstChild() != null)
             {
@@ -210,10 +208,12 @@ class Program
 
             foreach (var profile in selectedGame.EnumerateProfiles())
             {
+                var addedCount = profile.ResolvedAdded?.Count ?? 0;
+                var depCount = profile.ResolvedDependencies?.Count ?? 0;
                 var row = Adw.ActionRow.New();
                 row.SetTitle(profile.DisplayName);
                 row.SetSubtitle(
-                    $"{profile.ResolvedAdded?.Count ?? 0} added, {profile.ResolvedDependencies?.Count ?? 0} dependencies"
+                    $"{addedCount} added, {depCount} {(depCount == 1 ? "dependency" : "dependencies")}"
                 );
 
                 // 1. Make the row itself mimic a giant button
@@ -256,7 +256,7 @@ class Program
 
         // 1. Top navigation and header setup
         var header = Adw.HeaderBar.New();
-        var windowTitle = Adw.WindowTitle.New("Configure Profile", "");
+        var windowTitle = Adw.WindowTitle.New("Manage Profile", "");
         header.SetTitleWidget(windowTitle);
 
         var backButton = Gtk.Button.NewFromIconName("go-previous-symbolic");
@@ -281,8 +281,8 @@ class Program
         segmentedContainer.SetMarginTop(12);
         segmentedContainer.SetMarginBottom(12);
 
-        var btnManage = Gtk.ToggleButton.NewWithLabel("Manage Mods");
-        var btnInstall = Gtk.ToggleButton.NewWithLabel("Install Mods");
+        var btnManage = Gtk.ToggleButton.NewWithLabel("Manage");
+        var btnInstall = Gtk.ToggleButton.NewWithLabel("Search");
 
         // Group them so pressing one pops the other out automatically
         btnInstall.SetGroup(btnManage);
@@ -298,7 +298,6 @@ class Program
             if (btnManage.GetActive())
             {
                 internalTabsStack.SetVisibleChildName("manage_tab");
-                Console.WriteLine("manage_tab GetActive");
 
                 if (profile is { })
                     updateConfig?.Invoke(profile.Lazy);
@@ -334,11 +333,7 @@ class Program
         contentStack.SetMarginEnd(24);
         scrollManage.SetChild(contentStack);
 
-        var addedListBox = CreateSection(
-            contentStack,
-            "Added",
-            out var addedSectionLabel
-        );
+        var addedListBox = CreateSection(contentStack, "Added", out var addedSectionLabel);
         var depsListBox = CreateSection(contentStack, "Dependencies", out var depsSectionLabel);
         var recentListBox = CreateSection(
             contentStack,
@@ -347,7 +342,7 @@ class Program
         );
 
         var managePage = internalTabsStack.AddNamed(manageTabBox, "manage_tab");
-        managePage.SetTitle("Manage Mods");
+        managePage.SetTitle("Manage");
         managePage.SetIconName("emblem-system-symbolic");
 
         // ================= STATE PERSISTENCE HOOKS =================
@@ -368,21 +363,7 @@ class Program
 
         // 1. Establish the basic loose letter capturing link from the root view container context
         searchEntry.SetKeyCaptureWidget(layoutBox);
-
-        // 2. FIXED: Catch the first keystroke event and grab true physical window focus
-        // to handle subsequent spacebar characters smoothly.
-        searchEntry.OnSearchChanged += (s, e) =>
-        {
-            // If text was injected via the key capture widget but the text input
-            // field does not have physical focus yet, violently yank focus into it!
-            if (!searchEntry.HasFocus && !string.IsNullOrEmpty(searchEntry.GetText()))
-            {
-                searchEntry.GrabFocus();
-
-                // Move the flashing cursor text caret to the end of the newly typed string block
-                // (Depends on your Gir.Core bindings mapping, typically: searchEntry.SetPosition(-1);)
-            }
-        };
+        searchEntry.SetSearchDelay(0);
 
         // Layout scroll for browse/install section
         var scrollInstall = Gtk.ScrolledWindow.New();
@@ -397,12 +378,15 @@ class Program
         // 1. Declare a token source outside the handler to track and cancel stale typing actions
         CancellationTokenSource? searchCts = null;
 
-        searchEntry.OnSearchChanged += (s, e) =>
+        searchEntry.OnSearchChanged += (searchEntry, e) =>
         {
-            // Focus snatching trick from before
             if (!searchEntry.HasFocus && !string.IsNullOrEmpty(searchEntry.GetText()))
             {
                 searchEntry.GrabFocus();
+                if (!btnInstall.GetActive())
+                {
+                    btnInstall.Activate();
+                }
             }
 
             // SAFETY CHECK: Ensure a profile has actually loaded first
@@ -410,7 +394,6 @@ class Program
                 return;
 
             string query = searchEntry.GetText().Trim().Replace(' ', '_');
-            Console.WriteLine($"Filtering installation list for: {query}");
 
             // Cancel any pending search task immediately because the user is still actively typing
             searchCts?.Cancel();
@@ -498,7 +481,7 @@ class Program
         };
 
         var installPage = internalTabsStack.AddNamed(installTabBox, "install_tab");
-        installPage.SetTitle("Install Mods");
+        installPage.SetTitle("Browse");
         installPage.SetIconName("list-add-symbolic");
 
         // ================= POPULATE LOGIC LOOP =================
@@ -508,7 +491,7 @@ class Program
             profile = lazyProfile.LoadAsync().Result;
 
             windowTitle.SetTitle(lazyProfile.DisplayName);
-            windowTitle.SetSubtitle("");
+            windowTitle.SetSubtitle(lazyProfile.Game.Name);
 
             internalTabsStack.SetVisibleChildName("manage_tab");
             searchEntry.SetText("");
