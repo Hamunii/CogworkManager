@@ -407,6 +407,110 @@ class Program
         shortcutController.AddShortcut(escapeShortcut);
         stackInstall.AddController(shortcutController);
 
+        var modBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
+
+        var modHeader = Adw.HeaderBar.New();
+        modHeader.SetShowTitle(false);
+        modHeader.AddCssClass("flat");
+        modBox.Append(modHeader);
+
+        var scrollMod = Gtk.ScrolledWindow.New();
+        scrollMod.SetVexpand(true);
+        modBox.Append(scrollMod);
+
+        var clampMod = Adw.Clamp.New();
+        clampMod.SetMaximumSize(800);
+        scrollMod.SetChild(clampMod);
+
+        var modContent = Gtk.Box.New(Gtk.Orientation.Vertical, 24);
+        modContent.SetMarginTop(24);
+        modContent.SetMarginBottom(24);
+        modContent.SetMarginStart(24);
+        modContent.SetMarginEnd(24);
+        clampMod.SetChild(modContent);
+
+        var modDependant = CreateSection(modContent, "Dependant", out var modDependantLabel);
+
+        var modLabel = Gtk.Label.New("mod_name");
+        modContent.Append(modLabel);
+
+        var modDependencies = CreateSection(
+            modContent,
+            "Dependencies",
+            "None.",
+            out var modDepLabel,
+            out var modNoneLabel
+        );
+
+        var modPage = Adw.NavigationPage.New(modBox, "mod_page");
+        modPage.OnShowing += (navPage, args) =>
+        {
+            updateConfig!(profile!.Lazy);
+        };
+
+        Stack<PackageVersion> dependants = [];
+
+        modPage.OnHidden += (navPage, args) =>
+        {
+            dependants.Clear();
+        };
+
+        void OnClicked2(PackageVersion packageVersion)
+        {
+            ClearList(modDependant);
+
+            if (dependants.Count == 0)
+            {
+                ToggleSectionVisibility(modDependantLabel, modDependant, false);
+            }
+            else
+            {
+                ToggleSectionVisibility(modDependantLabel, modDependant, true);
+
+                var dep = dependants.Peek();
+                var row = CreateBaseRow(
+                    dep,
+                    pk =>
+                    {
+                        dependants.Pop();
+                        OnClicked2(pk);
+                    }
+                );
+                modDependant.Append(row);
+            }
+
+            modLabel.SetText(packageVersion.Package.FullName);
+            ClearList(modDependencies);
+            if (packageVersion.MarkedDependencies.Length == 0)
+            {
+                ToggleSectionVisibility(modDepLabel, modNoneLabel, modDependencies, false);
+            }
+            else
+            {
+                ToggleSectionVisibility(modDepLabel, modNoneLabel, modDependencies, true);
+
+                foreach (var dep in packageVersion.MarkedDependencies)
+                {
+                    var row = CreateBaseRow(
+                        dep,
+                        (pk) =>
+                        {
+                            dependants.Push(packageVersion);
+                            OnClicked2(pk);
+                        }
+                    );
+                    modDependencies.Append(row);
+                }
+            }
+        }
+
+        void OnClicked(PackageVersion packageVersion)
+        {
+            // dependants.Push(packageVersion);
+            OnClicked2(packageVersion);
+            navView.Push(modPage);
+        }
+
         CancellationTokenSource? searchCts = null;
 
         searchEntry.OnStopSearch += (searchEntry, e) =>
@@ -492,7 +596,7 @@ class Program
                                     if (token.IsCancellationRequested)
                                         return false;
 
-                                    var row = CreateBaseRow(package.Latest);
+                                    var row = CreateBaseRow(package.Latest, OnClicked);
 
                                     Gtk.Button? btn = null;
                                     if (!profile.Added.ContainsKey(package))
@@ -574,7 +678,7 @@ class Program
             // --- Helper Action: Build Direct/Added Mod Row ---
             appendDirectRowAction = (mod, currentProfile) =>
             {
-                var row = CreateBaseRow(mod);
+                var row = CreateBaseRow(mod, OnClicked);
                 // ... remainder of file continues safely ...
 
                 var removeButton = CreateActionButton(
@@ -628,7 +732,7 @@ class Program
                     foreach (var dep in activeProfile.Dependencies.Values)
                     {
                         // FIXED: Passing dep.Value directly down into CreateBaseRow configuration
-                        var row = CreateBaseRow(dep);
+                        var row = CreateBaseRow(dep, OnClicked);
                         var addButton = CreateActionButton(
                             "go-up-symbolic",
                             $"Add {dep.Package.FullName}"
@@ -669,7 +773,7 @@ class Program
                     foreach (var dep in activeProfile.RecentlyRemoved.Values)
                     {
                         // FIXED: Passing dep.Value directly down into CreateBaseRow configuration
-                        var row = CreateBaseRow(dep);
+                        var row = CreateBaseRow(dep, OnClicked);
                         var addButton = CreateActionButton(
                             "list-add-symbolic",
                             $"Add {dep.Package.FullName}"
@@ -763,13 +867,22 @@ class Program
         return listBox;
     }
 
-    private static Adw.ActionRow CreateBaseRow(PackageVersion packageVersion)
+    private static Adw.ActionRow CreateBaseRow(
+        PackageVersion packageVersion,
+        Action<PackageVersion> onClicked
+    )
     {
         var package = packageVersion.Package;
 
         var row = Adw.ActionRow.New();
         row.SetTitle($"{package.FullName} v{packageVersion.Version}");
         row.SetSubtitle(package.Source.Id ?? "");
+        row.SetActivatable(true);
+
+        row.OnActivated += (s, e) =>
+        {
+            onClicked(packageVersion);
+        };
         return row;
     }
 
