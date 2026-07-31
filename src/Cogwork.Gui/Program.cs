@@ -469,7 +469,16 @@ class Program
 
         modPage.OnHidden += (navPage, args) =>
         {
-            header.GrabFocus();
+            if (internalTabsStack.GetVisibleChildName() == "install_tab")
+            {
+                searchEntry.GrabFocus();
+            }
+            else
+            {
+                // FIXME: Temporary fix for if no focus.
+                // Optimally keep track which element should be focused.
+                searchToggleButton.GrabFocus();
+            }
             dependants.Clear();
         };
 
@@ -664,15 +673,10 @@ class Program
         {
             profile = lazyProfile.GetModListAsync().Result;
 
-            windowTitle.SetTitle(lazyProfile.DisplayName);
-            windowTitle.SetSubtitle(lazyProfile.Game.Name);
-
-            internalTabsStack.SetVisibleChildName("manage_tab");
-            // searchEntry.SetText("");
-            // searchToggleButton.SetActive(false);
+            windowTitle.SetTitle(GLib.Markup.EscapeText(lazyProfile.DisplayName));
+            windowTitle.SetSubtitle(GLib.Markup.EscapeText(lazyProfile.Game.Name));
 
             ClearList(addedListBox);
-            ClearList(installListBox);
 
             // --- Helper Action: Build Direct/Added Mod Row ---
             appendDirectRowAction = (mod, currentProfile) =>
