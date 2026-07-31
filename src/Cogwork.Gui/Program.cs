@@ -443,7 +443,7 @@ class Program
         );
 
         var modPage = Adw.NavigationPage.New(modBox, "mod_page");
-        modPage.OnShowing += (navPage, args) =>
+        modPage.OnHiding += (navPage, args) =>
         {
             updateConfig!(profile!.Lazy);
         };
@@ -452,6 +452,7 @@ class Program
 
         modPage.OnHidden += (navPage, args) =>
         {
+            header.GrabFocus();
             dependants.Clear();
         };
 
@@ -476,6 +477,8 @@ class Program
                         OnClicked2(pk);
                     }
                 );
+                var btn = CreateAddOrRemoveButton(profile, dep.Package);
+                row.AddSuffix(btn);
                 modDependant.Append(row);
             }
 
@@ -499,6 +502,8 @@ class Program
                             OnClicked2(pk);
                         }
                     );
+                    var btn = CreateAddOrRemoveButton(profile, dep.Package);
+                    row.AddSuffix(btn);
                     modDependencies.Append(row);
                 }
             }
@@ -597,38 +602,7 @@ class Program
                                         return false;
 
                                     var row = CreateBaseRow(package.Latest, OnClicked);
-
-                                    Gtk.Button? btn = null;
-                                    if (!profile.Added.ContainsKey(package))
-                                        btn = CreateActionButton("list-add-symbolic", "Add");
-                                    else
-                                        btn = CreateActionButton(
-                                            "list-remove-symbolic",
-                                            "Remove",
-                                            "destructive-action"
-                                        );
-
-                                    btn.OnClicked += (btnSender, btnArgs) =>
-                                    {
-                                        if (!profile.Added.ContainsKey(package))
-                                        {
-                                            profile.Add(
-                                                package,
-                                                DependencyVersionResolution.Latest
-                                            );
-                                            btn.SetIconName("list-remove-symbolic");
-                                            btn.SetCssClasses(["destructive-action"]);
-                                            btn.SetTooltipText("Remove");
-                                        }
-                                        else
-                                        {
-                                            profile.Remove([package]);
-                                            btn.SetIconName("list-add-symbolic");
-                                            btn.SetCssClasses([]);
-                                            btn.SetTooltipText("Add");
-                                        }
-                                    };
-
+                                    var btn = CreateAddOrRemoveButton(profile, package);
                                     row.AddSuffix(btn);
                                     installListBox.Append(row);
                                 }
@@ -817,6 +791,34 @@ class Program
         updateConfig = updateConfigCallback;
 
         return navigationPage;
+    }
+
+    private static Gtk.Button CreateAddOrRemoveButton(ModList profile, Package package)
+    {
+        Gtk.Button? btn = null;
+        if (!profile.Added.ContainsKey(package))
+            btn = CreateActionButton("list-add-symbolic", "Add");
+        else
+            btn = CreateActionButton("list-remove-symbolic", "Remove", "destructive-action");
+
+        btn.OnClicked += (btnSender, btnArgs) =>
+        {
+            if (!profile.Added.ContainsKey(package))
+            {
+                profile.Add(package, DependencyVersionResolution.Latest);
+                btn.SetIconName("list-remove-symbolic");
+                btn.SetCssClasses(["destructive-action"]);
+                btn.SetTooltipText("Remove");
+            }
+            else
+            {
+                profile.Remove([package]);
+                btn.SetIconName("list-add-symbolic");
+                btn.SetCssClasses([]);
+                btn.SetTooltipText("Add");
+            }
+        };
+        return btn;
     }
 
     // ================= STATIC UI HELPERS TO PREVENT DUPLICATION =================
