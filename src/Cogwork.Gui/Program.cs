@@ -1,6 +1,7 @@
 global using static Cogwork.Core.CogworkCoreLogger;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace Cogwork.Gui;
 
@@ -397,6 +398,36 @@ class Program
             out var noMatchesLabel
         );
 
+        // 1. Create a top-level keyboard shortcut controller
+        var shortcutController = Gtk.ShortcutController.New();
+
+        // 2. Set up the trigger wrapper configured to look strictly for the Escape key
+        uint escapeKeyval = Gdk.Functions.KeyvalFromName("Escape");
+        var escapeTrigger = Gtk.KeyvalTrigger.New(escapeKeyval, 0);
+
+        // 3. Define the action to take (using a callback to execute your transition)
+        var backAction = Gtk.CallbackAction.New(
+            (widget, args) =>
+            {
+                // Execute your structural navigation state change
+                internalTabsStack.SetVisibleChildName("manage_tab");
+
+                searchToggleButton.SetActive(false);
+
+                if (profile is { })
+                    updateConfig?.Invoke(profile.Lazy);
+
+                return true; // Tells GTK the shortcut was handled completely
+            }
+        );
+
+        // 4. Combine trigger and action into a unified shortcut definition
+        var escapeShortcut = Gtk.Shortcut.New(escapeTrigger, backAction);
+
+        // 5. Add to the controller and hook it directly onto the layout view container
+        shortcutController.AddShortcut(escapeShortcut);
+        stackInstall.AddController(shortcutController);
+
         // Declare a token source outside the handler to track and cancel stale typing actions
         CancellationTokenSource? searchCts = null;
 
@@ -675,6 +706,25 @@ class Program
                 else
                 {
                     ToggleSectionVisibility(recentSectionLabel, recentListBox, false);
+                }
+
+                // Hacky fix for if focused element is removed and no other elements
+                // are in the list, so focus is lost and typing to search doesn't just work.
+                if (activeProfile.Added.Count > 0)
+                {
+                    addedListBox.GrabFocus();
+                }
+                else if (activeProfile.Dependencies.Count > 0)
+                {
+                    depsListBox.GrabFocus();
+                }
+                else if (activeProfile.RecentlyRemoved.Count > 0)
+                {
+                    recentListBox.GrabFocus();
+                }
+                else
+                {
+                    searchToggleButton.GrabFocus();
                 }
             };
 
