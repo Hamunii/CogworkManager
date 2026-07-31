@@ -332,7 +332,13 @@ class Program
         contentStack.SetMarginEnd(24);
         scrollManage.SetChild(contentStack);
 
-        var addedListBox = CreateSection(contentStack, "Added", out var addedSectionLabel);
+        var addedListBox = CreateSection(
+            contentStack,
+            "Added",
+            "No added mods. Start searching by typing.",
+            out var addedSectionLabel,
+            out var addedEmptyLabel
+        );
         var depsListBox = CreateSection(contentStack, "Dependencies", out var depsSectionLabel);
         var recentListBox = CreateSection(
             contentStack,
@@ -537,14 +543,19 @@ class Program
                     rebuildDependenciesAction?.Invoke(currentProfile);
                     if (profile.Added.Count == 0)
                     {
-                        ToggleSectionVisibility(addedSectionLabel, addedListBox, false);
+                        ToggleSectionVisibility(
+                            addedSectionLabel,
+                            addedEmptyLabel,
+                            addedListBox,
+                            false
+                        );
                     }
                 };
 
                 row.AddSuffix(removeButton);
                 addedListBox.Append(row);
                 rebuildDependenciesAction?.Invoke(currentProfile);
-                ToggleSectionVisibility(addedSectionLabel, addedListBox, true);
+                ToggleSectionVisibility(addedSectionLabel, addedEmptyLabel, addedListBox, true);
             };
 
             // --- Populate Added Mods ---
@@ -555,7 +566,7 @@ class Program
             }
             else
             {
-                ToggleSectionVisibility(addedSectionLabel, addedListBox, false);
+                ToggleSectionVisibility(addedSectionLabel, addedEmptyLabel, addedListBox, false);
             }
 
             // --- Rebuild Loop for Dependencies ---
@@ -652,6 +663,33 @@ class Program
         return listBox;
     }
 
+    private static Gtk.ListBox CreateSection(
+        Gtk.Box parent,
+        string headingText,
+        string emptyText,
+        out Gtk.Label labelWidget,
+        out Gtk.Label emptyLabelWidget
+    )
+    {
+        labelWidget = Gtk.Label.New(headingText);
+        labelWidget.SetHalign(Gtk.Align.Start);
+        labelWidget.AddCssClass("heading");
+
+        emptyLabelWidget = Gtk.Label.New(emptyText);
+        emptyLabelWidget.SetHalign(Gtk.Align.Start);
+        emptyLabelWidget.AddCssClass("dim-label");
+        emptyLabelWidget.Hide();
+
+        var listBox = Gtk.ListBox.New();
+        listBox.AddCssClass("boxed-list");
+        listBox.SetSelectionMode(Gtk.SelectionMode.None);
+
+        parent.Append(labelWidget);
+        parent.Append(emptyLabelWidget);
+        parent.Append(listBox);
+        return listBox;
+    }
+
     private static Adw.ActionRow CreateBaseRow(PackageVersion packageVersion)
     {
         var package = packageVersion.Package;
@@ -693,6 +731,27 @@ class Program
         else
         {
             label.Hide();
+            list.Hide();
+        }
+    }
+
+    private static void ToggleSectionVisibility(
+        Gtk.Label label,
+        Gtk.Label hiddenLabel,
+        Gtk.ListBox list,
+        bool visible
+    )
+    {
+        if (visible)
+        {
+            label.Show();
+            hiddenLabel.Hide();
+            list.Show();
+        }
+        else
+        {
+            label.Show();
+            hiddenLabel.Show();
             list.Hide();
         }
     }
