@@ -18,17 +18,17 @@ class Program
             var window = Adw.ApplicationWindow.New(app);
             window.SetDefaultSize(1000, 700);
 
-            var viewStack = Adw.ViewStack.New();
-            viewStack.SetEnableTransitions(false);
+            // 1. Swap Adw.ViewStack for Adw.NavigationView
+            var navView = Adw.NavigationView.New();
 
-            // 1. Local state pointer to track what game layout we are viewing
+            // Local state pointer to track what game layout we are viewing
             Game? currentActiveGame = null;
 
-            // 2. Declare our output delegates so they are scoped for the whole block
+            // Declare our output delegates so they are scoped for the whole block
             Action<Game>? updateProfileContent = null;
             Action<LazyModList>? updateConfigContent = null;
 
-            // 3. Define the refresh callback action that runs when returning from config view
+            // 2. Adjust the refresh callback action to look at active context
             Action refreshProfilesCallback = () =>
             {
                 if (currentActiveGame != null && updateProfileContent != null)
@@ -37,38 +37,37 @@ class Program
                 }
             };
 
-            // 4. Construct View 3 (Config), which spits out 'updateConfigContent'
+            // 1. Construct View 3 (Config), which spits out 'updateConfigContent'
             var configPage = CreateConfigureProfileView(
-                viewStack,
+                navView,
                 refreshProfilesCallback,
                 out updateConfigContent
             );
 
-            // 5. Construct View 2 (Profiles), passing the config action and catching 'updateProfileContent'
+            // 2. Construct View 2 (Profiles), PASSING the configPage reference explicitly
             var profilePage = CreateProfileView(
-                viewStack,
+                navView,
+                configPage, // Passed destination object
                 updateConfigContent, // Target configuration trigger hook
                 out updateProfileContent
             );
 
-            // 6. Construct View 1 (Dashboard) with a tracking lambda interceptor
+            // 3. Construct View 1 (Dashboard) with a tracking lambda interceptor
             var dashboardPage = CreateDashboardView(
-                viewStack,
+                navView,
                 games,
+                profilePage, // Passed destination object
                 (selectedGame) =>
                 {
-                    currentActiveGame = selectedGame; // Track active choice pointer
-                    updateProfileContent(selectedGame); // Initial population run
+                    currentActiveGame = selectedGame;
+                    updateProfileContent(selectedGame);
                 }
             );
 
-            // 7. Register everything onto the view stack container
-            viewStack.AddNamed(dashboardPage, "dashboard");
-            viewStack.AddNamed(profilePage, "profiles");
-            viewStack.AddNamed(configPage, "configure_profile");
+            // 4. Seed the container view with our starting root dashboard node layout
+            navView.Push(dashboardPage);
 
-            viewStack.SetVisibleChildName("dashboard");
-            window.SetContent(viewStack);
+            window.SetContent(navView);
             window.Present();
         };
 
@@ -76,9 +75,10 @@ class Program
     }
 
     // ================= VIEW 1: GAME GRID DASHBOARD =================
-    private static Gtk.Box CreateDashboardView(
-        Adw.ViewStack stack,
+    private static Adw.NavigationPage CreateDashboardView(
+        Adw.NavigationView navView,
         List<Game> games,
+        Adw.NavigationPage profilePage, // Accepted target reference
         Action<Game> onGameSelected
     )
     {
@@ -95,17 +95,11 @@ class Program
         var grid = Gtk.FlowBox.New();
         grid.SetHomogeneous(false);
         grid.UnselectAll();
-
-        // Center the grid block horizontally inside the scroll area
         grid.SetHalign(Gtk.Align.Center);
         grid.SetValign(Gtk.Align.Start);
-
         grid.SetMinChildrenPerLine(2);
         grid.SetMaxChildrenPerLine(5);
-
-        // FIXED 1: Turn selection mode back on so rows handle hover/clicks natively
         grid.SetSelectionMode(Gtk.SelectionMode.None);
-
         grid.SetColumnSpacing(16);
         grid.SetRowSpacing(16);
         grid.SetMarginTop(16);
@@ -115,14 +109,12 @@ class Program
 
         scroll.SetChild(grid);
 
-        // Dictionary to tie the auto-generated UI wrapper child back to our Game data reference
         var childToGameMap = new Dictionary<Gtk.FlowBoxChild, Game>();
 
         foreach (var game in games)
         {
-            // FIXED 2: Create a native FlowBoxChild container instead of a Gtk.Button
             var childContainer = Gtk.FlowBoxChild.New();
-            childContainer.AddCssClass("card"); // Applies the clean card-shape and uniform hover styling
+            childContainer.AddCssClass("card");
             childContainer.SetSizeRequest(140, 180);
             childContainer.SetHalign(Gtk.Align.Center);
             childContainer.SetValign(Gtk.Align.Center);
@@ -134,7 +126,7 @@ class Program
             var coverArtPlaceholder = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
             coverArtPlaceholder.SetSizeRequest(100, 100);
             coverArtPlaceholder.SetHalign(Gtk.Align.Center);
-            coverArtPlaceholder.AddCssClass("thumbnail"); // Safe to use now without duplicate glowing
+            coverArtPlaceholder.AddCssClass("thumbnail");
             coverArtPlaceholder.SetTooltipText(game.Name);
             cardContent.Append(coverArtPlaceholder);
 
@@ -147,32 +139,33 @@ class Program
             titleLabel.SetWidthChars(14);
             cardContent.Append(titleLabel);
 
-            // Assign content straight to our container row child
             childContainer.SetChild(cardContent);
             grid.Insert(childContainer, -1);
 
-            // Save relationship reference for the grid activation lookup
             childToGameMap[childContainer] = game;
         }
 
-        // FIXED 3: Handle single-click navigation globally on the grid wrapper
         grid.OnChildActivated += (senderGrid, args) =>
         {
-            // args.Child tells us exactly which FlowBoxChild container wrapper was clicked
             if (childToGameMap.TryGetValue(args.Child, out var clickedGame))
             {
                 onGameSelected(clickedGame);
-                stack.SetVisibleChildName("profiles");
+                // 5. Navigate forward using explicit Push instead of visibility names
+                navView.Push(profilePage);
             }
         };
 
-        return layoutBox;
+        // 6. Return the layout boxed directly into a clean NavigationPage wrapper
+        return Adw.NavigationPage.New(layoutBox, "dashboard");
     }
 
     // ================= VIEW 2: MOD PROFILES LIST =================
-    private static Gtk.Box CreateProfileView(
-        Adw.ViewStack stack,
-        Action<LazyModList> onProfileSelected, // Callback pointing to the config view logic (accepting your custom profile type)
+    // 1. Change return type to Adw.NavigationPage, accept Adw.NavigationView,
+    // and pass the target configPage down into the initialization lifecycle.
+    private static Adw.NavigationPage CreateProfileView(
+        Adw.NavigationView navView,
+        Adw.NavigationPage configPage, // Accept the destination page reference
+        Action<LazyModList> onProfileSelected,
         out Action<Game> updateContentCallback
     )
     {
@@ -182,9 +175,9 @@ class Program
         var windowTitle = Adw.WindowTitle.New("Loading Profiles...", "");
         header.SetTitleWidget(windowTitle);
 
-        var backButton = Gtk.Button.NewFromIconName("go-previous-symbolic");
-        backButton.OnClicked += (s, e) => stack.SetVisibleChildName("dashboard");
-        header.PackStart(backButton);
+        // Adw.HeaderBar will now automatically inject a back arrow button
+        // when this page is pushed onto an Adw.NavigationView stack.
+        // It also handles trackpad/touchscreen swipe-to-back gestures natively.
 
         layoutBox.Append(header);
 
@@ -225,24 +218,27 @@ class Program
                     $"{addedCount} added, {depCount} {(depCount == 1 ? "dependency" : "dependencies")}"
                 );
 
-                // 1. Make the row itself mimic a giant button
+                // Make the row itself mimic a giant button
                 row.SetActivatable(true);
 
                 // Trigger view swap to config page when clicking the row body
                 row.OnActivated += (s, e) =>
                 {
                     onProfileSelected(profile);
-                    stack.SetVisibleChildName("configure_profile");
+
+                    // 2. REPLACED: Push the page target onto the view stack natively
+                    // instead of calling string-based view switching.
+                    navView.Push(configPage);
                 };
 
-                // 2. Add quick button to launch the game on the right side
+                // Add quick button to launch the game on the right side
                 var launchButton = Gtk.Button.NewFromIconName("media-playback-start-symbolic");
                 launchButton.SetValign(Gtk.Align.Center);
                 launchButton.SetTooltipText($"Launch with {profile.DisplayName}");
 
                 launchButton.OnClicked += (s, e) =>
                 {
-                    // TODO: Connect this to your launching function mechanism
+                    // Connect this to your launching function mechanism
                     Console.WriteLine($"Quick launching game profile: {profile.DisplayName}");
                 };
 
@@ -251,30 +247,27 @@ class Program
             }
         };
 
-        return layoutBox;
+        // 3. Return the entire layout wrapped inside a clean NavigationPage instance
+        return Adw.NavigationPage.New(layoutBox, "profiles");
     }
 
     // ================= VIEW 3: PROFILE CONFIGURATION VIEW =================
-    private static Gtk.Box CreateConfigureProfileView(
-        Adw.ViewStack stack,
+    // 1. Change return type to Adw.NavigationPage and accept Adw.NavigationView instead of Adw.ViewStack
+    private static Adw.NavigationPage CreateConfigureProfileView(
+        Adw.NavigationView navView,
         Action onBackNavigated,
         out Action<LazyModList> updateConfigCallback
     )
     {
         var layoutBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
 
-        // 1. Top navigation and header setup
+        // Top navigation and header setup
         var header = Adw.HeaderBar.New();
         var windowTitle = Adw.WindowTitle.New("Manage Profile", "");
         header.SetTitleWidget(windowTitle);
 
-        var backButton = Gtk.Button.NewFromIconName("go-previous-symbolic");
-        backButton.OnClicked += (s, e) =>
-        {
-            onBackNavigated();
-            stack.SetVisibleChildName("profiles");
-        };
-        header.PackStart(backButton);
+        // 2. REMOVED: Manual back button configuration.
+        // Adw.HeaderBar will now natively render a back button and handle popping the view.
 
         // GNOME SOFTWARE STYLE: Create search toggle button in the header
         var searchToggleButton = Gtk.ToggleButton.New();
@@ -283,7 +276,7 @@ class Program
 
         layoutBox.Append(header);
 
-        // 2. GNOME Software Style Search Bar Container
+        // GNOME Software Style Search Bar Container
         var searchBar = Gtk.SearchBar.New();
         var searchEntry = Gtk.SearchEntry.New();
         searchEntry.SetPlaceholderText("Search mods...");
@@ -294,13 +287,12 @@ class Program
         searchBar.SetChild(searchEntry);
         searchBar.ConnectEntry(searchEntry);
 
-        // FIX: Force the bar container layout to expand and display
         searchEntry.SetKeyCaptureWidget(layoutBox);
         searchEntry.SetSearchDelay(0);
 
         layoutBox.Append(searchBar);
 
-        // 3. Tab Stack Content Setup
+        // Tab Stack Content Setup (NOTE: This is internal to the page, so it stays an Adw.ViewStack)
         var internalTabsStack = Adw.ViewStack.New();
         internalTabsStack.SetEnableTransitions(false);
         internalTabsStack.SetVexpand(true);
@@ -324,29 +316,25 @@ class Program
             }
         };
 
-        // Append the main content stack container underneath the search bar control panel
         layoutBox.Append(internalTabsStack);
 
         // ================= TAB 1: MANAGE MODS (CURRENT VIEW) =================
         var manageTabBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
 
-        // 1. Structural outer scroller
         var scrollManage = Gtk.ScrolledWindow.New();
         scrollManage.SetVexpand(true);
         manageTabBox.Append(scrollManage);
 
-        // 2. Sizing clamp container placed inside the scroller to restrict extreme widths
         var clampManage = Adw.Clamp.New();
         clampManage.SetMaximumSize(800);
-        scrollManage.SetChild(clampManage); // Links clamp directly to viewport
+        scrollManage.SetChild(clampManage);
 
-        // 3. Your content box placed cleanly inside the clamp
         var contentStack = Gtk.Box.New(Gtk.Orientation.Vertical, 24);
         contentStack.SetMarginTop(24);
         contentStack.SetMarginBottom(24);
         contentStack.SetMarginStart(24);
         contentStack.SetMarginEnd(24);
-        clampManage.SetChild(contentStack); // Fixed: Target content box to clamp
+        clampManage.SetChild(contentStack);
 
         var addedListBox = CreateSection(
             contentStack,
@@ -373,12 +361,10 @@ class Program
         // ================= TAB 2: INSTALL MODS (NEW VIEW) =================
         var installTabBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
 
-        // 1. Structural outer scroller
         var scrollInstall = Gtk.ScrolledWindow.New();
         scrollInstall.SetVexpand(true);
         installTabBox.Append(scrollInstall);
 
-        // 2. Sizing clamp container
         var clampInstall = Adw.Clamp.New();
         clampInstall.SetMaximumSize(800);
         scrollInstall.SetChild(clampInstall);
@@ -398,41 +384,31 @@ class Program
             out var noMatchesLabel
         );
 
-        // 1. Create a top-level keyboard shortcut controller
         var shortcutController = Gtk.ShortcutController.New();
 
-        // 2. Set up the trigger wrapper configured to look strictly for the Escape key
         uint escapeKeyval = Gdk.Functions.KeyvalFromName("Escape");
         var escapeTrigger = Gtk.KeyvalTrigger.New(escapeKeyval, 0);
 
-        // 3. Define the action to take (using a callback to execute your transition)
         var backAction = Gtk.CallbackAction.New(
             (widget, args) =>
             {
-                // Execute your structural navigation state change
                 internalTabsStack.SetVisibleChildName("manage_tab");
-
                 searchToggleButton.SetActive(false);
 
                 if (profile is { })
                     updateConfig?.Invoke(profile.Lazy);
 
-                return true; // Tells GTK the shortcut was handled completely
+                return true;
             }
         );
 
-        // 4. Combine trigger and action into a unified shortcut definition
         var escapeShortcut = Gtk.Shortcut.New(escapeTrigger, backAction);
 
-        // 5. Add to the controller and hook it directly onto the layout view container
         shortcutController.AddShortcut(escapeShortcut);
         stackInstall.AddController(shortcutController);
 
-        // Declare a token source outside the handler to track and cancel stale typing actions
         CancellationTokenSource? searchCts = null;
 
-        // This OnStopSearch event seems to always cause critical asserts just by existing.
-        // I'm going to ignore it since there doesn't seem to be a good way to avoid it.
         searchEntry.OnStopSearch += (searchEntry, e) =>
         {
             searchToggleButton.SetActive(false);
@@ -441,9 +417,6 @@ class Program
         searchEntry.OnSearchChanged += (searchEntry, e) =>
         {
             string currentText = searchEntry.GetText();
-            // 1. MANAGE VIEW SHEET TOGGLE LOGIC
-            // Only drop back to the manage tab if the search string is completely empty
-            // AND the user has explicitly clicked away or hit escape to unfocus the search bar.
             if (!searchEntry.HasFocus)
             {
                 searchEntry.GrabFocus();
@@ -458,7 +431,6 @@ class Program
             }
             else
             {
-                // If there is text, OR if it's empty but still focused, keep the install/search view active
                 if (internalTabsStack.GetVisibleChildName() != "install_tab")
                 {
                     internalTabsStack.SetVisibleChildName("install_tab");
@@ -470,7 +442,6 @@ class Program
                 }
             }
 
-            // SAFETY CHECK: Ensure a profile has actually loaded first
             if (profile == null)
                 return;
 
@@ -478,26 +449,20 @@ class Program
             if (string.IsNullOrEmpty(query))
                 return;
 
-            // Cancel any pending search task immediately because the user is still actively typing
             searchCts?.Cancel();
             searchCts = new CancellationTokenSource();
             var token = searchCts.Token;
 
-            // Launch the async pipeline off of the main user interface thread
             Task.Run(
                 async () =>
                 {
                     try
                     {
-                        // 1. RUN THE SLOW SEARCH ON THE WORKER THREAD
-                        // Executing this block in the background keeps your text typing inputs butter-smooth
                         var searchResults = (await profile.Search(query, token)).ToArray();
 
                         if (token.IsCancellationRequested)
                             return;
 
-                        // 2. DISPATCH THE VISUAL UI POPULATION BACK TO THE MAIN GTK THREAD
-                        // GTK4 requires all widget rendering updates to happen safely on the primary loop
                         GLib.Functions.TimeoutAdd(
                             0,
                             0,
@@ -567,10 +532,7 @@ class Program
                             }
                         );
                     }
-                    catch (TaskCanceledException)
-                    {
-                        // Graceful exit path when a user types another character mid-flight
-                    }
+                    catch (TaskCanceledException) { }
                     catch (Exception ex)
                     {
                         Cog.Error($"Async search pipeline error: {ex}");
@@ -583,6 +545,16 @@ class Program
         var installPage = internalTabsStack.AddNamed(installTabBox, "install_tab");
         installPage.SetTitle("Browse");
         installPage.SetIconName("list-add-symbolic");
+
+        // ================= FINAL WRAPPING AND ASSEMBLY =================
+        // 1. Pack the top-level layout box layout inside our new container type
+        var navigationPage = Adw.NavigationPage.New(layoutBox, "configure_profile");
+
+        // 2. Trigger the refresh action handler dynamically when the page gets popped
+        navigationPage.OnHiding += (s, e) =>
+        {
+            onBackNavigated();
+        };
 
         // ================= POPULATE LOGIC LOOP =================
         updateConfigCallback = (lazyProfile) =>
@@ -740,7 +712,7 @@ class Program
 
         updateConfig = updateConfigCallback;
 
-        return layoutBox;
+        return navigationPage;
     }
 
     // ================= STATIC UI HELPERS TO PREVENT DUPLICATION =================
