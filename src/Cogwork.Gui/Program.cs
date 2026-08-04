@@ -2,6 +2,10 @@ global using static Cogwork.Core.CogworkCoreLogger;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+
+[assembly: SupportedOSPlatform("Linux")]
 
 namespace Cogwork.Gui;
 
@@ -9,6 +13,58 @@ class Program
 {
     public static int Main(string[] args)
     {
+        NativeLibrary.SetDllImportResolver(
+            typeof(JavaScriptCore.Context).Assembly,
+            (libraryName, assembly, searchPath) =>
+            {
+                Console.WriteLine(libraryName);
+                if (libraryName.Equals("JavaScriptCore", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (NativeLibrary.TryLoad("libjavascriptcoregtk-6.0.so", out var handle))
+                    {
+                        return handle;
+                    }
+
+                    if (NativeLibrary.TryLoad("libjavascriptcoregtk-6.0.so.1", out handle))
+                    {
+                        return handle;
+                    }
+                }
+                return IntPtr.Zero;
+            }
+        );
+        NativeLibrary.SetDllImportResolver(
+            typeof(WebKit.WebView).Assembly,
+            (libraryName, assembly, searchPath) =>
+            {
+                Console.WriteLine(libraryName);
+                if (libraryName.Equals("WebKit", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (NativeLibrary.TryLoad("libwebkitgtk-6.0.so", out var handle))
+                    {
+                        return handle;
+                    }
+                    if (NativeLibrary.TryLoad("libwebkitgtk-6.0.so.4", out handle))
+                    {
+                        return handle;
+                    }
+                }
+                else if (libraryName.Equals("JavaScriptCore", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (NativeLibrary.TryLoad("libjavascriptcoregtk-6.0.so", out var handle))
+                    {
+                        return handle;
+                    }
+
+                    if (NativeLibrary.TryLoad("libjavascriptcoregtk-6.0.so.1", out handle))
+                    {
+                        return handle;
+                    }
+                }
+                return IntPtr.Zero;
+            }
+        );
+
         var app = Adw.Application.New("io.github.hamunii.cogwork", Gio.ApplicationFlags.FlagsNone);
 
         app.OnActivate += (sender, e) =>
@@ -451,6 +507,10 @@ class Program
         modSourceLabel.SetWrap(true);
         modContent.Append(modSourceLabel);
 
+        var markdownPreviewer = MarkdownPreviewer.NewWithProperties([]);
+        markdownPreviewer.SetSizeRequest(-1, 100);
+        modContent.Append(markdownPreviewer);
+
         var modDependencies = CreateSection(
             modContent,
             "Dependencies",
@@ -511,6 +571,20 @@ class Program
             modLabel.SetText(packageVersion.Package.FullName);
             modDescriptionLabel.SetText(packageVersion.Description);
             modSourceLabel.SetText($"Source: {packageVersion.Package.Source.Id}");
+
+            string sampleMarkdown = """
+                # Document Title
+
+                | Feature | Support Status | Speed |
+                | :--- | :---: | :--- |
+                | **Tables** | Fully Rendered | Blazing |
+                | **Images** | Embedded | Instant |
+
+                Here is a preview image loaded via local paths:
+                ![Graphic](https://monodetour.github.io/logo.webp)
+                """;
+
+            markdownPreviewer.Render(sampleMarkdown);
 
             ClearList(modDependencies);
             if (packageVersion.MarkedDependencies.Length == 0)
