@@ -571,20 +571,7 @@ class Program
             modLabel.SetText(packageVersion.Package.FullName);
             modDescriptionLabel.SetText(packageVersion.Description);
             modSourceLabel.SetText($"Source: {packageVersion.Package.Source.Id}");
-
-            string sampleMarkdown = """
-                # Document Title
-
-                | Feature | Support Status | Speed |
-                | :--- | :---: | :--- |
-                | **Tables** | Fully Rendered | Blazing |
-                | **Images** | Embedded | Instant |
-
-                Here is a preview image loaded via local paths:
-                ![Graphic](https://monodetour.github.io/logo.webp)
-                """;
-
-            markdownPreviewer.Render(sampleMarkdown);
+            markdownPreviewer.Render(packageVersion.GetReadmeAsync().Result);
 
             ClearList(modDependencies);
             if (packageVersion.MarkedDependencies.Length == 0)

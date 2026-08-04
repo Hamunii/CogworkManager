@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Data;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Net;
@@ -96,6 +97,18 @@ public sealed class LocalPackageSource : PackageSource
         }
 
         return Task.FromResult(true);
+    }
+
+    public override async Task<string> GetReadmeAsync(
+        VisualPackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var dir =
+            await ExtractAsync(packageVersion, cancellationToken)
+            ?? throw new InvalidOperationException($"Local package should always be installed");
+
+        return await File.ReadAllTextAsync(Path.Combine(dir, "README.md"), cancellationToken);
     }
 
     internal static bool NeedsReinstall(VisualPackageVersion packageVersion) =>
@@ -615,7 +628,61 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         Cog.Debug($"Download complete for: {downloadUrl}");
         return true;
     }
+
+    public override async Task<string> GetReadmeAsync(
+        VisualPackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var version = packageVersion.Version.ToString();
+        var installPathRoot = CogworkPaths.GetPackagesSubDirectory(
+            PackageInstallSubDirectory,
+            packageVersion.FullName
+        );
+
+        var directoryPath = Path.Combine(installPathRoot, version);
+        var readme = Path.Combine(directoryPath, "README.md");
+        var readmeTodo = readme + ".todo";
+
+        if (File.Exists(readme))
+        {
+            return await File.ReadAllTextAsync(readme, cancellationToken);
+        }
+
+        var author = packageVersion.Author;
+        var name = packageVersion.Name;
+        var downloadUrl =
+            $"https://thunderstore.io/api/experimental/package/{author}/{name}/{version}/readme/";
+
+        using MemoryStream memoryStream = new();
+
+        HttpClient client = Utils.SharedHttpClient;
+        var statusCode = await client.DownloadAsync(
+            downloadUrl,
+            memoryStream,
+            default,
+            cancellationToken
+        );
+
+        if (!statusCode.IsSuccess)
+        {
+            Cog.Error($"Error downloading package readme '{packageVersion}': " + statusCode);
+            return "failed to fetch readme";
+        }
+        memoryStream.Position = 0;
+        var markdown = JsonSerializer.Deserialize(memoryStream, JsonGen.Default.PackageMarkdown);
+
+        Directory.CreateDirectory(directoryPath);
+        await File.WriteAllTextAsync(readmeTodo, markdown.Markdown, cancellationToken);
+
+        File.Move(readmeTodo, readme);
+        return markdown.Markdown;
+    }
 }
+
+public readonly record struct PackageMarkdown(
+    [property: JsonPropertyName("markdown")] string Markdown
+);
 
 public abstract class PackageSource
 {
@@ -859,4 +926,9 @@ public abstract class PackageSource
         File.Delete(zipPath);
         return directoryPath;
     }
+
+    public abstract Task<string> GetReadmeAsync(
+        VisualPackageVersion packageVersion,
+        CancellationToken cancellationToken = default
+    );
 }

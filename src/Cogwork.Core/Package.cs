@@ -791,6 +791,9 @@ public sealed partial record PackageVersion
     public Task<string?> ExtractAsync(CancellationToken cancellationToken = default) =>
         Package.Source.Service.ExtractAsync((VisualPackageVersion)this, cancellationToken);
 
+    public Task<string> GetReadmeAsync(CancellationToken cancellationToken = default) =>
+        Package.Source.Service.GetReadmeAsync((VisualPackageVersion)this, cancellationToken);
+
     void CollectDependencies(HashSet<PackageVersion> actualDependencies)
     {
         foreach (var dependency in MarkedDependencies)
