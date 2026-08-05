@@ -294,8 +294,14 @@ class Program
 
                 launchButton.OnClicked += (s, e) =>
                 {
-                    // Connect this to your launching function mechanism
-                    Console.WriteLine($"Quick launching game profile: {profile.DisplayName}");
+                    // TODO: Proper API
+                    _ = Cli.Program.Main([
+                        "launch",
+                        "--game",
+                        profile.Game.Slug,
+                        "--profile",
+                        profile.Id,
+                    ]);
                 };
 
                 row.AddSuffix(launchButton);

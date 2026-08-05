@@ -530,10 +530,16 @@ public sealed class ModList
         lock (idToModListLock)
         {
             if (IdToModList.TryGetValue(profileId, out var modList))
+            {
+                Cog.Debug($"Got existing profile '{profileId}'");
                 return modList;
+            }
 
             if (!ProfileExists(game, profileId, out var path))
+            {
+                Cog.Debug($"Profile doesn't exist: '{profileId}'");
                 return default;
+            }
 
             var data = ModListData.LoadSavedData(path, JsonGen.Default.ModListData);
             var lockFile = ModListLockFile.LoadSavedData(
@@ -541,6 +547,7 @@ public sealed class ModList
                 JsonGen.Default.ModListLockFile
             );
             modList = CreateFromData(game, profileId, data, lockFile);
+            Cog.Debug($"Loaded new profile '{profileId}'");
             return modList;
         }
     }

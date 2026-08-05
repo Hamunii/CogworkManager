@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="$(SolutionRoot)src/Cogwork.Core/Cogwork.Core.csproj" />
     <Using Include="Cogwork.Core" />
+    <ProjectReference Include="$(SolutionRoot)src/Cogwork.Cli/Cogwork.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>

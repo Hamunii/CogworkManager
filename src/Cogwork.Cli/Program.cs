@@ -20,7 +20,7 @@ using ZLinq;
 
 namespace Cogwork.Cli;
 
-static class Program
+public static class Program
 {
     static readonly Option<string> optionGameOverride = new("--game", "-g")
     {
@@ -65,7 +65,7 @@ static class Program
         Description = "Get output of a command without performing any task with consequences",
     };
 
-    static async Task<int> Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         try
         {
@@ -297,9 +297,10 @@ static class Program
             {
                 Command profileLocationOpen = new("open", "Open active profile location");
                 profileLocation.Subcommands.Add(profileLocationOpen);
+                LazyModList? lazy = null!;
                 profileLocationOpen.Validators.Add(result =>
                 {
-                    if (!TryGetActiveGameAndProfile(result, out _, out var profile))
+                    if (!TryGetActiveGameAndProfile(result, out _, out lazy))
                         return;
 
                     if (DBusAddress.Session is null)
@@ -310,9 +311,6 @@ static class Program
                 });
                 profileLocationOpen.SetAction(async result =>
                 {
-                    if (!TryGetActiveGameAndProfile(null, out _, out var profile))
-                        return;
-
                     using var connection = new DBusConnection(DBusAddress.Session!);
                     await connection.ConnectAsync();
 
@@ -322,7 +320,7 @@ static class Program
                         "/org/freedesktop/portal/desktop"
                     );
 
-                    var bytes = Encoding.UTF8.GetBytes(profile.ProfileFilesDirectory);
+                    var bytes = Encoding.UTF8.GetBytes(lazy.ProfileFilesDirectory);
                     int rawHandle;
 
                     unsafe
@@ -843,9 +841,11 @@ static class Program
         launch.Options.Add(optionDry);
         rootCommand.Subcommands.Add(launch);
         {
+            LazyModList? lazyProfile = null!;
+
             launch.Validators.Add(result =>
             {
-                if (!TryGetActiveGameAndProfile(result, out var game, out var lazyProfile))
+                if (!TryGetActiveGameAndProfile(result, out var game, out lazyProfile))
                     return;
 
                 if (!result.GetValue(optionDry))
@@ -872,8 +872,7 @@ static class Program
             launch.SetAction(
                 async Task<int> (result, ct) =>
                 {
-                    if (!TryGetActiveGameAndProfile(null, out var game, out var lazyProfile))
-                        return 1;
+                    var game = lazyProfile.Game;
 
                     var steamExePath = GetExecutablePath("steam");
                     if (steamExePath is not { } s)
@@ -998,7 +997,7 @@ static class Program
 
                     AnsiConsole.MarkupLineInterpolated(
                         CultureInfo.InvariantCulture,
-                        $"[blue]Launch arguments:[/] {startInfo.FileName} \"{string.Join("\" \"", startInfo.ArgumentList)}\""
+                        $"[blue]Launch arguments:[/] \"{startInfo.FileName}\" \"{string.Join("\" \"", startInfo.ArgumentList)}\""
                     );
 
                     if (result.GetValue(optionDry))
@@ -1190,7 +1189,7 @@ static class Program
     }
 
     private static bool TryGetActiveGameAndProfile(
-        SymbolResult? result,
+        SymbolResult result,
         [NotNullWhen(true)] out Game? game,
         [NotNullWhen(true)] out LazyModList? profile
     )
