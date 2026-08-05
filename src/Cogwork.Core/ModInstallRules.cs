@@ -66,7 +66,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         return package.Author.Name switch
         {
-            "BepInEx" => modList.Game != Game.Silksong, // Default
+            "BepInEx" => true, // Default
             "bbepis" => true, // Risk of Rain 2
             "denikson" => true, // Valheim
             "silksong_modding" => true, // Silksong
@@ -256,6 +256,11 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         CancellationToken cancellationToken = default
     )
     {
+        if (ShouldIgnorePackage(modList, packageVersion))
+        {
+            return new FileInstalls([], []);
+        }
+
         var path = await packageVersion.ExtractAsync(cancellationToken);
         if (path is null)
         {
@@ -273,6 +278,10 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         return new FileInstalls(mapped, []);
     }
+
+    private static bool ShouldIgnorePackage(ModList modList, VisualPackageVersion packageVersion) =>
+        modList.Game == Game.Silksong // Silksong has a replacement package, and these are incompatible.
+        && packageVersion.FullName.Equals("BepInEx-BepInExPack_Silksong", StringComparison.Ordinal);
 
     private static string GetInstallRoot(
         ModList modList,
