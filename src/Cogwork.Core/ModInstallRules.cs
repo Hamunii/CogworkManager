@@ -343,7 +343,10 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         // Then we just delete the fake mapped files from our real filesystem.
         string installRoot = GetInstallRoot(modList, packageVersion, profileFilesDirectory);
-        DeleteDirectoryContentsBasedOnSource(fakeFs, installRoot);
+        if (fakeFs.Directory.Exists(installRoot))
+        {
+            DeleteDirectoryContentsBasedOnSource(fakeFs, installRoot);
+        }
 
         return null;
     }
