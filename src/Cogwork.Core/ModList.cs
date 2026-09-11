@@ -357,6 +357,7 @@ public sealed class ModList
     readonly LazyModList _lazy;
     readonly Action<ModList, Dictionary<PackageReference, PackageVersionReference>> _onNewAddedList;
     readonly Action _onResolved;
+    bool _wasUpdated = true;
 
     internal ModList(
         LazyModList lazyModList,
@@ -593,6 +594,13 @@ public sealed class ModList
         lockDepFile.Save(_lazy.ProfilePackageLockCachePath);
     }
 
+    public bool WasUpdated()
+    {
+        var wasUpdated = _wasUpdated;
+        _wasUpdated = false;
+        return wasUpdated;
+    }
+
     public bool Add(Package package, DependencyVersionResolution context) =>
         Add(package.Latest, context);
 
@@ -746,6 +754,7 @@ public sealed class ModList
 
         _lazy.SaveData();
         SaveLockFile();
+        _wasUpdated = true;
     }
 
     public void UpdatePackages()

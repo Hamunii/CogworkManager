@@ -512,7 +512,7 @@ class Program
         modContent.Append(markdownPreviewer);
 
         var sectionModDeps = new Section(modContent, "Dependencies", "None.");
-        var modDependencies = sectionDeps.Content;
+        var modDependencies = sectionModDeps.Content;
 
         var modPage = Adw.NavigationPage.New(modBox, "mod_page");
         modPage.OnHiding += (navPage, args) =>
@@ -572,11 +572,11 @@ class Program
             ClearList(modDependencies);
             if (packageVersion.MarkedDependencies.Length == 0)
             {
-                sectionDeps.ToggleVisibility(false);
+                sectionModDeps.ToggleVisibility(false);
             }
             else
             {
-                sectionDeps.ToggleVisibility(true);
+                sectionModDeps.ToggleVisibility(true);
 
                 foreach (var dep in packageVersion.MarkedDependencies)
                 {
@@ -729,6 +729,11 @@ class Program
             windowTitle.SetTitle(GLib.Markup.EscapeText(lazyProfile.DisplayName));
             windowTitle.SetSubtitle(GLib.Markup.EscapeText(lazyProfile.Game.Name));
 
+            if (!profile.WasUpdated())
+            {
+                return;
+            }
+
             ClearList(addedListBox);
 
             // --- Helper Action: Build Direct/Added Mod Row ---
@@ -857,6 +862,9 @@ class Program
                 {
                     sectionRecent.ToggleVisibility(false);
                 }
+
+                // Reset state because we know it's good.
+                _ = profile.WasUpdated();
             };
 
             rebuildDependenciesAction(profile);
@@ -870,13 +878,35 @@ class Program
     private static Gtk.Button CreateAddOrRemoveButton(ModList profile, PackageReference package)
     {
         Gtk.Button btn = CreateActionButton("list-add-symbolic", "Placeholder");
-        ToggleButtonAddOrRemoveState(profile, package, btn);
+        SetVisualButtonAddOrRemoveState(profile, package, btn);
 
         btn.OnClicked += (btnSender, btnArgs) =>
         {
             ToggleButtonAddOrRemoveState(profile, package, btn);
         };
         return btn;
+    }
+
+    private static bool SetVisualButtonAddOrRemoveState(
+        ModList profile,
+        PackageReference package,
+        Gtk.Button btn
+    )
+    {
+        if (profile.Added.ContainsKey(package))
+        {
+            btn.SetIconName("list-remove-symbolic");
+            btn.SetCssClasses(["destructive-action", "flat"]);
+            btn.SetTooltipText($"Remove {package.FullName}");
+            return false;
+        }
+        else
+        {
+            btn.SetIconName("list-add-symbolic");
+            btn.SetCssClasses(["flat"]);
+            btn.SetTooltipText($"Remove {package.FullName}");
+            return true;
+        }
     }
 
     private static void ToggleButtonAddOrRemoveState(
@@ -888,17 +918,13 @@ class Program
         if (!profile.Added.ContainsKey(package))
         {
             profile.Add(package, DependencyVersionResolution.Latest);
-            btn.SetIconName("list-remove-symbolic");
-            btn.SetCssClasses(["destructive-action"]);
-            btn.SetTooltipText($"Remove {package.FullName}");
         }
         else
         {
             profile.Remove([package]);
-            btn.SetIconName("list-add-symbolic");
-            btn.SetCssClasses([]);
-            btn.SetTooltipText($"Remove {package.FullName}");
         }
+
+        SetVisualButtonAddOrRemoveState(profile, package, btn);
     }
 
     // ================= STATIC UI HELPERS TO PREVENT DUPLICATION =================
