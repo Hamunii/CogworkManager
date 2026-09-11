@@ -13,7 +13,8 @@ A WIP generic mod package manager built for mod developers.
 > - Native from Steam: Manually set `./run_bepinex.sh %command%`
 > - Native from direct: Should work out of the box, assuming the game runs without Steam's Linux runtime
 >
-> Note that for now "direct" launch is only possible from the cli, via argument `--direct` for `cogman launch`.
+> Note that for now "direct" launch is only possible from the cli, via argument `--direct` for `cogman launch`.  
+> See [TODO.md](./TODO.md) for more info on what's missing.
 
 <details>
 <summary>Why yet another mod manager?</summary>
