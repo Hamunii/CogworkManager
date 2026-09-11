@@ -699,7 +699,7 @@ public sealed partial record Package
         {
             sb.AppendLine(CultureInfo.InvariantCulture, $"  {version.Version}: {{");
             sb.AppendLine("    dependencies: [");
-            foreach (var dependency in version.MarkedDependencies)
+            foreach (var dependency in version.DependencyStrings)
             {
                 sb.AppendLine(CultureInfo.InvariantCulture, $"      {dependency}");
             }
@@ -733,67 +733,6 @@ public readonly record struct PackageVersionWithSource(
 public sealed partial record PackageVersion
 {
     [JsonIgnore]
-    public PackageVersion[] MarkedDependencies =>
-        field ??= [
-            .. DependencyStrings
-                .Select(fullNameWithVersion =>
-                {
-                    if (
-                        !Package.TryGetPackage(
-                            Package.Source.SourceIndex,
-                            fullNameWithVersion,
-                            out var package,
-                            hasVersion: true,
-                            out var version,
-                            out var source,
-                            Package.Source
-                        )
-                    )
-                    {
-                        if (source is null)
-                        {
-                            Cog.Debug(
-                                $"Package for '{fullNameWithVersion}' was not found in any sources: "
-                                    + string.Join(
-                                        ", ",
-                                        Package.Source.SourceIndex.Sources.Select(x => x.ToString())
-                                    )
-                            );
-                        }
-                        else
-                        {
-                            Cog.Debug(
-                                $"Package for '{fullNameWithVersion}' in '{source}' was not found."
-                            );
-                        }
-                        return null;
-                    }
-
-                    if (!package.TryGetVersion(version!.Value, out var packageVersion))
-                    {
-                        Cog.Error(
-                            $"Package '{fullNameWithVersion}' exists but has no versions in '{source}'."
-                        );
-                        return null;
-                    }
-
-                    return packageVersion;
-                })
-                .Where(x => x is { })!,
-        ];
-
-    [JsonIgnore]
-    public PackageVersion[] AllDependencies
-    {
-        get
-        {
-            HashSet<PackageVersion> actualDependencies = [];
-            CollectDependencies(actualDependencies);
-            return field = [.. actualDependencies];
-        }
-    }
-
-    [JsonIgnore]
     public PackageVersionNumber Version { get; set; }
 
     [JsonInclude]
@@ -819,6 +758,9 @@ public sealed partial record PackageVersion
     [JsonPropertyName("description")]
     public string Description { get; }
 
+    [JsonIgnore]
+    PackageVersion[]? _markedDependencies;
+
     public PackageVersion(
         Author author,
         string name,
@@ -842,6 +784,51 @@ public sealed partial record PackageVersion
         DependencyStrings = dependencyStrings;
     }
 
+    public PackageVersion[] MarkedDependencies(PackageSourceIndex index) =>
+        _markedDependencies ??= [
+            .. DependencyStrings.Select(ResolvePackageVersion(index)).Where(x => x is { })!,
+        ];
+
+    private Func<string, PackageVersion?> ResolvePackageVersion(PackageSourceIndex index) =>
+        fullNameWithVersion =>
+        {
+            if (
+                !Package.TryGetPackage(
+                    index,
+                    fullNameWithVersion,
+                    out var package,
+                    hasVersion: true,
+                    out var version,
+                    out var source,
+                    Package.Source
+                )
+            )
+            {
+                if (source is null)
+                {
+                    Cog.Debug(
+                        $"Package for '{fullNameWithVersion}' was not found in any sources: "
+                            + string.Join(", ", index.Sources.Select(x => x.ToString()))
+                    );
+                }
+                else
+                {
+                    Cog.Debug($"Package for '{fullNameWithVersion}' in '{source}' was not found.");
+                }
+                return null;
+            }
+
+            if (!package.TryGetVersion(version!.Value, out var packageVersion))
+            {
+                Cog.Error(
+                    $"Package '{fullNameWithVersion}' exists but has no versions in '{source}'."
+                );
+                return null;
+            }
+
+            return packageVersion;
+        };
+
     public string GetFullName() => $"{Author}-{Name}";
 
     public PackageVersion WithVersion(PackageVersionNumber version)
@@ -858,36 +845,44 @@ public sealed partial record PackageVersion
     public Task<string> GetReadmeAsync(CancellationToken cancellationToken = default) =>
         Package.Source.Service.GetReadmeAsync((VisualPackageVersion)this, cancellationToken);
 
-    void CollectDependencies(HashSet<PackageVersion> actualDependencies)
+    public PackageVersion[] AllDependencies(PackageSourceIndex index)
     {
-        foreach (var dependency in MarkedDependencies)
+        HashSet<PackageVersion> actualDependencies = [];
+        CollectDependencies(actualDependencies, index);
+        return [.. actualDependencies];
+    }
+
+    void CollectDependencies(HashSet<PackageVersion> actualDependencies, PackageSourceIndex index)
+    {
+        foreach (var dependency in MarkedDependencies(index))
         {
             if (actualDependencies.Add(dependency))
             {
-                dependency.CollectDependencies(actualDependencies);
+                dependency.CollectDependencies(actualDependencies, index);
             }
         }
     }
 
     public void CollectAllDependenciesToMap(
         Dictionary<PackageReference, PackageVersionReference> map,
-        DependencyVersionResolution context
+        DependencyVersionResolution context,
+        PackageSourceIndex index
     )
     {
-        var dominant = Package.Source.SourceIndex.GetDominantPackage(this);
+        var dominant = index.GetDominantPackage(this);
 
         switch (context)
         {
             case DependencyVersionResolution.Requested:
                 if (map.AddOrUpdateToHigherVersion(dominant))
                 {
-                    CollectRequestedDependenciesToMapRecursive(map);
+                    CollectRequestedDependenciesToMapRecursive(map, index);
                 }
                 break;
             case DependencyVersionResolution.Latest:
                 if (map.AddOrUpdateToHigherVersion(dominant))
                 {
-                    CollectLatestDependenciesToMapRecursive(map);
+                    CollectLatestDependenciesToMapRecursive(map, index);
                 }
                 break;
             default:
@@ -896,53 +891,57 @@ public sealed partial record PackageVersion
     }
 
     void CollectRequestedDependenciesToMapRecursive(
-        Dictionary<PackageReference, PackageVersionReference> map
+        Dictionary<PackageReference, PackageVersionReference> map,
+        PackageSourceIndex index
     )
     {
-        foreach (var dependency in MarkedDependencies)
+        foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = Package.Source.SourceIndex.GetDominantPackage(dependency);
+            var dominant = index.GetDominantPackage(dependency);
 
             if (map.AddOrUpdateToHigherVersion(dominant))
             {
-                dominant.CollectRequestedDependenciesToMapRecursive(map);
+                dominant.CollectRequestedDependenciesToMapRecursive(map, index);
             }
         }
     }
 
     void CollectLatestDependenciesToMapRecursive(
-        Dictionary<PackageReference, PackageVersionReference> map
+        Dictionary<PackageReference, PackageVersionReference> map,
+        PackageSourceIndex index
     )
     {
-        foreach (var dependency in MarkedDependencies)
+        foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = Package.Source.SourceIndex.GetDominantPackage(dependency.Package);
+            var dominant = index.GetDominantPackage(dependency.Package);
             var latest = dominant.Latest;
 
             if (map.AddOrUpdateToHigherVersion(latest))
             {
-                latest.CollectLatestDependenciesToMapRecursive(map);
+                latest.CollectLatestDependenciesToMapRecursive(map, index);
             }
         }
     }
 
     public void CollectAllDependenciesToDestination(
         Dictionary<PackageReference, PackageVersionReference> map,
-        Dictionary<PackageReference, PackageVersionReference> destination
+        Dictionary<PackageReference, PackageVersionReference> destination,
+        PackageSourceIndex index
     )
     {
         var higher = map.GetHigherVersion(this);
-        higher.CollectDependenciesToDestinationRecursive(map, destination);
+        higher.CollectDependenciesToDestinationRecursive(map, destination, index);
     }
 
     void CollectDependenciesToDestinationRecursive(
         Dictionary<PackageReference, PackageVersionReference> map,
-        Dictionary<PackageReference, PackageVersionReference> destination
+        Dictionary<PackageReference, PackageVersionReference> destination,
+        PackageSourceIndex index
     )
     {
-        foreach (var dependency in MarkedDependencies)
+        foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = Package.Source.SourceIndex.GetDominantPackage(dependency);
+            var dominant = index.GetDominantPackage(dependency);
 
             var higher = map.GetHigherVersion(dominant);
             if (
@@ -952,7 +951,7 @@ public sealed partial record PackageVersion
                 )
             )
             {
-                higher.CollectDependenciesToDestinationRecursive(map, destination);
+                higher.CollectDependenciesToDestinationRecursive(map, destination, index);
             }
         }
     }

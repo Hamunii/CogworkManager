@@ -726,14 +726,14 @@ public sealed class ModList
         // Pass 1: collect highest available package versions to map.
         foreach (var added in Added)
         {
-            added.Value.Resolve().CollectAllDependenciesToMap(map, context);
+            added.Value.Resolve().CollectAllDependenciesToMap(map, context, SourceIndex);
         }
 
         // If any existing dependency is higher version than would be transitively from Added,
         // we want to keep those versions.
         foreach (var dependency in Dependencies)
         {
-            dependency.Value.Resolve().CollectAllDependenciesToMap(map, context);
+            dependency.Value.Resolve().CollectAllDependenciesToMap(map, context, SourceIndex);
         }
 
         Dictionary<PackageReference, PackageVersionReference> allDependencies = [];
@@ -741,7 +741,9 @@ public sealed class ModList
         // Pass 2: use the map to collect only dependencies of packages with highest versions.
         foreach (var added in Added)
         {
-            added.Value.Resolve().CollectAllDependenciesToDestination(map, allDependencies);
+            added
+                .Value.Resolve()
+                .CollectAllDependenciesToDestination(map, allDependencies, SourceIndex);
         }
 
         foreach (var added in Added)

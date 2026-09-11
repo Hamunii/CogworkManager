@@ -175,8 +175,6 @@ public sealed class PackageSourceIndex
 
     public void AddIfNotExists(PackageSource packageSource)
     {
-        packageSource.SourceIndex = this;
-
         ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
             sourceCache,
             packageSource.Id,
@@ -200,7 +198,6 @@ public sealed class PackageSourceIndex
 
     public void Add(PackageSource packageSource)
     {
-        packageSource.SourceIndex = this;
         PackageSources.Add(packageSource);
 
         if (Thunderstore is null && packageSource.Service is ThunderstoreCommunity)

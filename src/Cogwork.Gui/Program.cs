@@ -570,7 +570,7 @@ class Program
             markdownPreviewer.Render(packageVersion.GetReadmeAsync().Result);
 
             ClearList(modDependencies);
-            if (packageVersion.MarkedDependencies.Length == 0)
+            if (packageVersion.MarkedDependencies(profile.SourceIndex).Length == 0)
             {
                 sectionModDeps.ToggleVisibility(false);
             }
@@ -578,7 +578,7 @@ class Program
             {
                 sectionModDeps.ToggleVisibility(true);
 
-                foreach (var dep in packageVersion.MarkedDependencies)
+                foreach (var dep in packageVersion.MarkedDependencies(profile.SourceIndex))
                 {
                     var row = CreateBaseRow(
                         (PackageVersionReference)dep,

@@ -696,7 +696,6 @@ public abstract class PackageSource
         public DateTime LastFetch { get; set; }
     }
 
-    public PackageSourceIndex SourceIndex { get; internal set; } = null!;
     public PackageSource Service => this;
     protected List<Package> Packages { get; set; } = [];
     public abstract Uri Uri { get; }
