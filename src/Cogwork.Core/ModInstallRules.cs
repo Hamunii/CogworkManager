@@ -93,7 +93,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         string outputPath
     )
     {
-        List<string> mapped = [];
+        HashSet<string> mapped = [];
 
         if (IsBepInExPackage(modList, packageVersion))
         {
@@ -112,7 +112,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         string directoryPath,
         string outputPath,
         bool foundWinhttpDll,
-        List<string> mappedFiles
+        HashSet<string> mappedFiles
     )
     {
         Fs.Directory.CreateDirectory(outputPath);
@@ -165,7 +165,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         VisualPackageVersion package,
         string directoryPath,
         string outputPath,
-        List<string> mappedFiles
+        HashSet<string> mappedFiles
     )
     {
         foreach (
@@ -216,7 +216,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         }
     }
 
-    void MoveOrMergeOverwrite(string sourceDirName, string destDirName, List<string> mappedFiles)
+    void MoveOrMergeOverwrite(string sourceDirName, string destDirName, HashSet<string> mappedFiles)
     {
         if (!Fs.Directory.Exists(destDirName))
         {
@@ -243,8 +243,15 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         Fs.Directory.Delete(sourceDirName);
     }
 
-    private void MoveFile(List<string> mappedFiles, string file, string dest)
+    private void MoveFile(HashSet<string> mappedFiles, string file, string dest)
     {
+        if (mappedFiles.Contains(dest))
+        {
+            Cog.Information(
+                $"Conflict in mapping package files to profile: '{dest}' already mapped; not overwriting it."
+            );
+            return;
+        }
         Fs.File.Move(file, dest);
         mappedFiles.Add(dest);
     }

@@ -252,7 +252,8 @@ class Program
         contentStack.SetMarginEnd(24);
         clamp.SetChild(contentStack);
 
-        var listBox = CreateSection(contentStack, "Profiles", out _);
+        var sectionProfiles = new Section(contentStack, "Profiles");
+        var listBox = sectionProfiles.Content;
 
         updateContentCallback = (selectedGame) =>
         {
@@ -398,19 +399,16 @@ class Program
         contentStack.SetMarginEnd(24);
         clampManage.SetChild(contentStack);
 
-        var addedListBox = CreateSection(
+        var sectionAdded = new Section(
             contentStack,
             "Added",
-            "No added mods. Type to search mods.",
-            out var addedSectionLabel,
-            out var addedEmptyLabel
+            "No added mods. Type to search mods."
         );
-        var depsListBox = CreateSection(contentStack, "Dependencies", out var depsSectionLabel);
-        var recentListBox = CreateSection(
-            contentStack,
-            "Recently Removed",
-            out var recentSectionLabel
-        );
+        var addedListBox = sectionAdded.Content;
+        var sectionDeps = new Section(contentStack, "Dependencies");
+        var depsListBox = sectionDeps.Content;
+        var sectionRecent = new Section(contentStack, "Recently Removed");
+        var recentListBox = sectionRecent.Content;
 
         var managePage = internalTabsStack.AddNamed(manageTabBox, "manage_tab");
         managePage.SetTitle("Manage");
@@ -438,13 +436,8 @@ class Program
         stackInstall.SetMarginEnd(24);
         clampInstall.SetChild(stackInstall);
 
-        var installListBox = CreateSection(
-            stackInstall,
-            "Search Results",
-            "No matches.",
-            out var resultsLabel,
-            out var noMatchesLabel
-        );
+        var sectionSearchResults = new Section(stackInstall, "Search Results", "No matches.");
+        var installListBox = sectionSearchResults.Content;
 
         var shortcutController = Gtk.ShortcutController.New();
 
@@ -491,7 +484,8 @@ class Program
         modContent.SetMarginEnd(24);
         clampMod.SetChild(modContent);
 
-        var modDependant = CreateSection(modContent, "Dependant", out var modDependantLabel);
+        var sectionDependant = new Section(modContent, "Dependant");
+        var modDependant = sectionDependant.Content;
 
         var modLabel = Gtk.Label.New("mod_name");
         modLabel.AddCssClass("heading");
@@ -517,13 +511,8 @@ class Program
         markdownPreviewer.SetSizeRequest(-1, 100);
         modContent.Append(markdownPreviewer);
 
-        var modDependencies = CreateSection(
-            modContent,
-            "Dependencies",
-            "None.",
-            out var modDepLabel,
-            out var modNoneLabel
-        );
+        var sectionModDeps = new Section(modContent, "Dependencies", "None.");
+        var modDependencies = sectionDeps.Content;
 
         var modPage = Adw.NavigationPage.New(modBox, "mod_page");
         modPage.OnHiding += (navPage, args) =>
@@ -554,11 +543,11 @@ class Program
 
             if (dependants.Count == 0)
             {
-                ToggleSectionVisibility(modDependantLabel, modDependant, false);
+                sectionDependant.ToggleVisibility(false);
             }
             else
             {
-                ToggleSectionVisibility(modDependantLabel, modDependant, true);
+                sectionDependant.ToggleVisibility(true);
 
                 var dep = dependants.Peek();
                 var row = CreateBaseRow(
@@ -582,11 +571,11 @@ class Program
             ClearList(modDependencies);
             if (packageVersion.MarkedDependencies.Length == 0)
             {
-                ToggleSectionVisibility(modDepLabel, modNoneLabel, modDependencies, false);
+                sectionDeps.ToggleVisibility(false);
             }
             else
             {
-                ToggleSectionVisibility(modDepLabel, modNoneLabel, modDependencies, true);
+                sectionDeps.ToggleVisibility(true);
 
                 foreach (var dep in packageVersion.MarkedDependencies)
                 {
@@ -685,25 +674,18 @@ class Program
 
                                 if (searchResults.Length == 0)
                                 {
-                                    ToggleSectionVisibility(
-                                        resultsLabel,
-                                        noMatchesLabel,
-                                        installListBox,
-                                        false
-                                    );
+                                    sectionSearchResults.ToggleVisibility(false);
                                     return false;
                                 }
-                                ToggleSectionVisibility(
-                                    resultsLabel,
-                                    noMatchesLabel,
-                                    installListBox,
-                                    true
-                                );
+                                sectionSearchResults.ToggleVisibility(true);
 
                                 foreach (var package in searchResults)
                                 {
                                     var row = CreateBaseRow(package.Latest, OnClicked);
-                                    var btn = CreateAddOrRemoveButton(profile, (PackageReference)package);
+                                    var btn = CreateAddOrRemoveButton(
+                                        profile,
+                                        (PackageReference)package
+                                    );
                                     row.AddSuffix(btn);
                                     installListBox.Append(row);
                                 }
@@ -764,12 +746,7 @@ class Program
                     rebuildDependenciesAction?.Invoke(currentProfile);
                     if (profile.Added.Count == 0)
                     {
-                        ToggleSectionVisibility(
-                            addedSectionLabel,
-                            addedEmptyLabel,
-                            addedListBox,
-                            false
-                        );
+                        sectionAdded.ToggleVisibility(false);
                         // Ensure focus doesn't disappear by moving it where there are elements
                         recentListBox.GrabFocus();
                     }
@@ -778,7 +755,7 @@ class Program
                 row.AddSuffix(removeButton);
                 addedListBox.Append(row);
                 rebuildDependenciesAction?.Invoke(currentProfile);
-                ToggleSectionVisibility(addedSectionLabel, addedEmptyLabel, addedListBox, true);
+                sectionAdded.ToggleVisibility(true);
             };
 
             // --- Populate Added Mods ---
@@ -789,7 +766,7 @@ class Program
             }
             else
             {
-                ToggleSectionVisibility(addedSectionLabel, addedEmptyLabel, addedListBox, false);
+                sectionAdded.ToggleVisibility(false);
             }
 
             // --- Rebuild Loop for Dependencies ---
@@ -829,11 +806,11 @@ class Program
                         row.AddSuffix(addButton);
                         depsListBox.Append(row);
                     }
-                    ToggleSectionVisibility(depsSectionLabel, depsListBox, true);
+                    sectionDeps.ToggleVisibility(true);
                 }
                 else
                 {
-                    ToggleSectionVisibility(depsSectionLabel, depsListBox, false);
+                    sectionDeps.ToggleVisibility(false);
                 }
 
                 ClearList(recentListBox);
@@ -875,11 +852,11 @@ class Program
                         row.AddSuffix(addButton);
                         recentListBox.Append(row);
                     }
-                    ToggleSectionVisibility(recentSectionLabel, recentListBox, true);
+                    sectionRecent.ToggleVisibility(true);
                 }
                 else
                 {
-                    ToggleSectionVisibility(recentSectionLabel, recentListBox, false);
+                    sectionRecent.ToggleVisibility(false);
                 }
             };
 
@@ -920,6 +897,80 @@ class Program
     }
 
     // ================= STATIC UI HELPERS TO PREVENT DUPLICATION =================
+
+    private static Adw.ActionRow CreateBaseRow(
+        PackageVersion packageVersion,
+        Action<PackageVersion> onClicked
+    )
+    {
+        var package = packageVersion.Package;
+
+        var row = Adw.ActionRow.New();
+        row.SetTitle($"{GLib.Markup.EscapeText(package.FullName)} v{packageVersion.Version}");
+        row.SetSubtitle(GLib.Markup.EscapeText(packageVersion.Description));
+        row.SetActivatable(true);
+
+        row.OnActivated += (s, e) =>
+        {
+            onClicked(packageVersion);
+        };
+        return row;
+    }
+
+    private static Gtk.Button CreateActionButton(
+        string iconName,
+        string tooltip,
+        string? extraClass = null
+    )
+    {
+        var button = Gtk.Button.NewFromIconName(iconName);
+        button.AddCssClass("flat");
+        if (!string.IsNullOrEmpty(extraClass))
+            button.AddCssClass(extraClass);
+        button.SetValign(Gtk.Align.Center);
+        button.SetTooltipText(tooltip);
+        return button;
+    }
+
+    private static void ClearList(Gtk.ListBox listBox)
+    {
+        while (listBox.GetFirstChild() != null)
+            listBox.Remove(listBox.GetFirstChild()!);
+    }
+}
+
+record class Section
+{
+    public Gtk.ListBox Content { get; }
+    readonly Gtk.Label heading;
+    readonly Gtk.Label? headingEmpty;
+
+    public Section(Gtk.Box parent, string heading)
+    {
+        Content = CreateSection(parent, heading, out var labelHeading);
+        this.heading = labelHeading;
+    }
+
+    public Section(Gtk.Box parent, string heading, string headingEmpty)
+    {
+        Content = CreateSection(
+            parent,
+            heading,
+            headingEmpty,
+            out var labelHeading,
+            out var labelEmpty
+        );
+        this.heading = labelHeading;
+        this.headingEmpty = labelEmpty;
+    }
+
+    public void ToggleVisibility(bool visible)
+    {
+        if (headingEmpty is { })
+            ToggleSectionVisibility(heading, headingEmpty, Content, visible);
+        else
+            ToggleSectionVisibility(heading, Content, visible);
+    }
 
     private static Gtk.ListBox CreateSection(
         Gtk.Box parent,
@@ -965,46 +1016,6 @@ class Program
         parent.Append(emptyLabelWidget);
         parent.Append(listBox);
         return listBox;
-    }
-
-    private static Adw.ActionRow CreateBaseRow(
-        PackageVersion packageVersion,
-        Action<PackageVersion> onClicked
-    )
-    {
-        var package = packageVersion.Package;
-
-        var row = Adw.ActionRow.New();
-        row.SetTitle($"{GLib.Markup.EscapeText(package.FullName)} v{packageVersion.Version}");
-        row.SetSubtitle(GLib.Markup.EscapeText(packageVersion.Description));
-        row.SetActivatable(true);
-
-        row.OnActivated += (s, e) =>
-        {
-            onClicked(packageVersion);
-        };
-        return row;
-    }
-
-    private static Gtk.Button CreateActionButton(
-        string iconName,
-        string tooltip,
-        string? extraClass = null
-    )
-    {
-        var button = Gtk.Button.NewFromIconName(iconName);
-        button.AddCssClass("flat");
-        if (!string.IsNullOrEmpty(extraClass))
-            button.AddCssClass(extraClass);
-        button.SetValign(Gtk.Align.Center);
-        button.SetTooltipText(tooltip);
-        return button;
-    }
-
-    private static void ClearList(Gtk.ListBox listBox)
-    {
-        while (listBox.GetFirstChild() != null)
-            listBox.Remove(listBox.GetFirstChild()!);
     }
 
     private static void ToggleSectionVisibility(Gtk.Label label, Gtk.ListBox list, bool visible)
