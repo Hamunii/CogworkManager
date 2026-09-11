@@ -342,21 +342,25 @@ public sealed class ModList
     public Game Game => _lazy.Game;
     internal static Dictionary<string, LazyModList> IdToModList { get; } = [];
     public PackageSourceIndex SourceIndex => _lazy.SourceIndex;
-    public Dictionary<Package, PackageVersion> Added { get; } = [];
-    public Dictionary<Package, PackageVersion> Dependencies { get; private set; } = [];
-    public IEnumerable<KeyValuePair<Package, PackageVersion>> AllPackages =>
+    public Dictionary<PackageReference, PackageVersionReference> Added { get; } = [];
+    public Dictionary<PackageReference, PackageVersionReference> Dependencies
+    {
+        get;
+        private set;
+    } = [];
+    public IEnumerable<KeyValuePair<PackageReference, PackageVersionReference>> AllPackages =>
         Added.Concat(Dependencies);
-    public Dictionary<Package, PackageVersion> RecentlyRemoved { get; } = [];
+    public Dictionary<PackageReference, PackageVersionReference> RecentlyRemoved { get; } = [];
     public HashSet<string> LostPackageIds { get; } = [];
-    public HashSet<Package> LostPackages { get; } = [];
+    public HashSet<PackageReference> LostPackages { get; } = [];
     public LazyModList Lazy => _lazy;
     readonly LazyModList _lazy;
-    readonly Action<ModList, Dictionary<Package, PackageVersion>> _onNewAddedList;
+    readonly Action<ModList, Dictionary<PackageReference, PackageVersionReference>> _onNewAddedList;
     readonly Action _onResolved;
 
     internal ModList(
         LazyModList lazyModList,
-        Action<ModList, Dictionary<Package, PackageVersion>> onNewAddedDictionary,
+        Action<ModList, Dictionary<PackageReference, PackageVersionReference>> onNewAddedDictionary,
         Action onResolved
     )
     {
@@ -384,7 +388,7 @@ public sealed class ModList
                     Cog.Information(
                         $"Imported missing package '{dep.PackageVersion}' (packages in source '{source.Id}': {source.nameToPackage.Count})"
                     );
-                    LostPackages.Add(package);
+                    LostPackages.Add((PackageReference)package);
                 }
             }
         }
@@ -438,7 +442,10 @@ public sealed class ModList
                     )
                 )
                 {
-                    Dependencies.Add(packageVersion.Package, packageVersion);
+                    Dependencies.Add(
+                        (PackageReference)packageVersion.Package,
+                        (PackageVersionReference)packageVersion
+                    );
                 }
             }
         }
@@ -611,7 +618,9 @@ public sealed class ModList
                     return package!;
                 })
                 .Where(x =>
-                    x is { } && !ReferenceEquals(x, packageVersion.Package) && Added.ContainsKey(x)
+                    x is { }
+                    && !ReferenceEquals(x, packageVersion.Package)
+                    && Added.ContainsKey((PackageReference)x)
                 );
 
             if (sameNamePackages.Any())
@@ -636,6 +645,10 @@ public sealed class ModList
 
     public (PackageVersion[] uninstalled, PackageVersion[] failedToUninstall) Remove(
         IEnumerable<Package> packages
+    ) => Remove(packages.Select(x => (PackageReference)x));
+
+    public (PackageVersion[] uninstalled, PackageVersion[] failedToUninstall) Remove(
+        IEnumerable<PackageReference> packages
     )
     {
         Cog.Debug(
@@ -674,7 +687,7 @@ public sealed class ModList
             )
         )
         {
-            var packageVersion = dependency.Value;
+            var packageVersion = dependency.Value.Resolve();
 
             var visualPackageVersion = (VisualPackageVersion)packageVersion;
             _ = _lazy
@@ -700,27 +713,27 @@ public sealed class ModList
 
     void DirtyRebuildDependencies(DependencyVersionResolution context)
     {
-        Dictionary<Package, PackageVersion> map = [];
+        Dictionary<PackageReference, PackageVersionReference> map = [];
 
         // Pass 1: collect highest available package versions to map.
         foreach (var added in Added)
         {
-            added.Value.CollectAllDependenciesToMap(map, context);
+            added.Value.Resolve().CollectAllDependenciesToMap(map, context);
         }
 
         // If any existing dependency is higher version than would be transitively from Added,
         // we want to keep those versions.
         foreach (var dependency in Dependencies)
         {
-            dependency.Value.CollectAllDependenciesToMap(map, context);
+            dependency.Value.Resolve().CollectAllDependenciesToMap(map, context);
         }
 
-        Dictionary<Package, PackageVersion> allDependencies = [];
+        Dictionary<PackageReference, PackageVersionReference> allDependencies = [];
 
         // Pass 2: use the map to collect only dependencies of packages with highest versions.
         foreach (var added in Added)
         {
-            added.Value.CollectAllDependenciesToDestination(map, allDependencies);
+            added.Value.Resolve().CollectAllDependenciesToDestination(map, allDependencies);
         }
 
         foreach (var added in Added)
@@ -739,9 +752,9 @@ public sealed class ModList
     {
         foreach (var dependency in Dependencies)
         {
-            Dependencies[dependency.Key] = dependency.Key.Latest;
+            Dependencies[dependency.Key] = (PackageVersionReference)dependency.Key.Resolve().Latest;
         }
-        Add(Added.Keys.Select(x => x.Latest), DependencyVersionResolution.Latest);
+        Add(Added.Keys.Select(x => x.Resolve().Latest), DependencyVersionResolution.Latest);
     }
 
     public Task<(
@@ -756,8 +769,10 @@ public sealed class ModList
         return Task.WhenAll(
             AllPackages.Select(async package =>
             {
-                var progress = progressFactory?.Invoke(package.Value) ?? default;
-                var isDownloaded = package.Value.IsDownloaded();
+                var packageVersion = package.Value.Resolve();
+
+                var progress = progressFactory?.Invoke(packageVersion) ?? default;
+                var isDownloaded = packageVersion.IsDownloaded();
                 if (!isDownloaded)
                 {
                     if (
@@ -770,7 +785,7 @@ public sealed class ModList
                 }
 
                 return (
-                    package.Value,
+                    packageVersion,
                     isDownloaded,
                     await package.Key.Source.Service.DownloadPackageAsync(
                         package.Value,
@@ -806,7 +821,7 @@ public sealed class ModList
         var packages = await Task.WhenAll(
             AllPackages.Select(async package =>
             {
-                var visualPackageVersion = (VisualPackageVersion)package.Value;
+                var visualPackageVersion = (VisualPackageVersion)package.Value.Resolve();
 
                 if (
                     !isInstalled.TryGetValue(
@@ -909,25 +924,25 @@ public static class ModListExtensions
     /// <see langword="true"/> if value was added or updated; otherwise <see langword="false"/>.
     /// </returns>
     public static bool AddOrUpdateToHigherVersion(
-        this Dictionary<Package, PackageVersion> dictionary,
+        this Dictionary<PackageReference, PackageVersionReference> dictionary,
         PackageVersion package
     )
     {
         ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
             dictionary,
-            package.Package,
+            (PackageReference)package.Package,
             out var exists
         );
 
         if (!exists)
         {
-            value = package;
+            value = (PackageVersionReference)package;
             return true;
         }
 
-        if (package.Version.IsHigherThan(value!.Version))
+        if (package.Version.IsHigherThan(value.Version))
         {
-            value = package;
+            value = (PackageVersionReference)package;
             return true;
         }
 
@@ -935,11 +950,11 @@ public static class ModListExtensions
     }
 
     public static PackageVersion GetHigherVersion(
-        this Dictionary<Package, PackageVersion> dictionary,
+        this Dictionary<PackageReference, PackageVersionReference> dictionary,
         PackageVersion package
     )
     {
-        if (!dictionary.TryGetValue(package.Package, out var value))
+        if (!dictionary.TryGetValue((PackageReference)package.Package, out var value))
         {
             return package;
         }

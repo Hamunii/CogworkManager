@@ -28,7 +28,7 @@ public sealed class LocalPackageSource : PackageSource
     public string PackageIndexPath { get; } =
         Path.Combine(CogworkPaths.GetPackagesSubDirectory("local"), "local-index.json");
 
-    bool _isLoaded;
+    DateTime _lastFetch;
 
     public override bool IsPackageDownloaded(
         VisualPackageVersion packageVersion,
@@ -170,7 +170,7 @@ public sealed class LocalPackageSource : PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        if (_isLoaded)
+        if (_lastFetch > DateTime.Now - TimeSpan.FromSeconds(2))
         {
             Cog.Debug("Local package index is already fetched");
             return true;
@@ -182,7 +182,12 @@ public sealed class LocalPackageSource : PackageSource
             return true;
         }
 
-        using var fileStream = File.Open(PackageIndexPath, FileMode.Open);
+        using var fileStream = File.Open(
+            PackageIndexPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read
+        );
         var packages = JsonSerializer.Deserialize(fileStream, JsonGen.Default.ListPackage);
         if (packages is null)
         {
@@ -193,7 +198,7 @@ public sealed class LocalPackageSource : PackageSource
         ProcessPackages(packages);
         Packages = packages;
 
-        _isLoaded = true;
+        _lastFetch = DateTime.Now;
         Cog.Debug("Fetched local package index");
         return true;
     }
@@ -307,7 +312,7 @@ public sealed class LocalPackageSource : PackageSource
 
         Cog.Information($"Imported package '{packageVersion}'");
 
-        _isLoaded = true;
+        _lastFetch = DateTime.Now;
         return null;
     }
 }

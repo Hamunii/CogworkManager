@@ -569,7 +569,7 @@ class Program
                         OnClicked2(pk);
                     }
                 );
-                var btn = CreateAddOrRemoveButton(profile, dep.Package);
+                var btn = CreateAddOrRemoveButton(profile, (PackageReference)dep.Package);
                 row.AddSuffix(btn);
                 modDependant.Append(row);
             }
@@ -598,7 +598,7 @@ class Program
                             OnClicked2(pk);
                         }
                     );
-                    var btn = CreateAddOrRemoveButton(profile, dep.Package);
+                    var btn = CreateAddOrRemoveButton(profile, (PackageReference)dep.Package);
                     row.AddSuffix(btn);
                     modDependencies.Append(row);
                 }
@@ -703,7 +703,7 @@ class Program
                                 foreach (var package in searchResults)
                                 {
                                     var row = CreateBaseRow(package.Latest, OnClicked);
-                                    var btn = CreateAddOrRemoveButton(profile, package);
+                                    var btn = CreateAddOrRemoveButton(profile, (PackageReference)package);
                                     row.AddSuffix(btn);
                                     installListBox.Append(row);
                                 }
@@ -799,7 +799,7 @@ class Program
 
                 if (activeProfile.Dependencies.Count > 0)
                 {
-                    foreach (var dep in activeProfile.Dependencies.Values)
+                    foreach (var dep in activeProfile.Dependencies.Values.Select(x => x.Resolve()))
                     {
                         // FIXED: Passing dep.Value directly down into CreateBaseRow configuration
                         var row = CreateBaseRow(dep, OnClicked);
@@ -840,7 +840,9 @@ class Program
 
                 if (activeProfile.RecentlyRemoved.Count > 0)
                 {
-                    foreach (var dep in activeProfile.RecentlyRemoved.Values)
+                    foreach (
+                        var dep in activeProfile.RecentlyRemoved.Values.Select(x => x.Resolve())
+                    )
                     {
                         // FIXED: Passing dep.Value directly down into CreateBaseRow configuration
                         var row = CreateBaseRow(dep, OnClicked);
@@ -889,7 +891,7 @@ class Program
         return navigationPage;
     }
 
-    private static Gtk.Button CreateAddOrRemoveButton(ModList profile, Package package)
+    private static Gtk.Button CreateAddOrRemoveButton(ModList profile, PackageReference package)
     {
         Gtk.Button? btn = null;
         if (!profile.Added.ContainsKey(package))

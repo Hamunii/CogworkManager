@@ -467,7 +467,7 @@ public static class Program
 
                 var searches = result.GetValue(modsRemoveArgument)?.Split(' ');
 
-                List<Package> removable = searches is null ? added : [];
+                List<PackageReference> removable = searches is null ? added : [];
                 List<string> matches = [];
                 foreach (var search in searches ?? [])
                 {
@@ -499,7 +499,7 @@ public static class Program
                         {
                             throw new UnreachableException();
                         }
-                        removable.Add(package);
+                        removable.Add((PackageReference)package);
                     }
                 }
 
@@ -510,7 +510,7 @@ public static class Program
                 }
 
                 var packagesToRemove = AnsiConsole.Prompt(
-                    new MultiSelectionPrompt<Package>()
+                    new MultiSelectionPrompt<PackageReference>()
                         .Title("Select [green]packages[/] to remove")
                         .UseConverter(x => x.FullName)
                         .AddChoices(removable)
@@ -626,12 +626,12 @@ public static class Program
 
                         // This is for printing output after everything is downloaded.
                         var whatHappened = profile
-                            .AllPackages.AsValueEnumerable()
+                            .AllPackages
                             .Select(x =>
                                 (
-                                    oldVersion: x.Value,
-                                    newVersion: x.Key.Latest,
-                                    newWasAlreadyDownloaded: x.Key.Latest.IsDownloaded()
+                                    oldVersion: x.Value.Resolve(),
+                                    newVersion: x.Key.Resolve().Latest,
+                                    newWasAlreadyDownloaded: x.Key.Resolve().Latest.IsDownloaded()
                                 )
                             )
                             .ToArray();
@@ -639,8 +639,8 @@ public static class Program
                         profile.UpdatePackages();
 
                         var toDownload = profile
-                            .AllPackages.AsValueEnumerable()
-                            .Where(x => !x.Value.IsDownloaded());
+                            .AllPackages
+                            .Where(x => !x.Value.Resolve().IsDownloaded());
 
                         var downloadTasks = toDownload
                             .Select(x =>

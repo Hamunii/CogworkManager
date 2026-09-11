@@ -389,6 +389,65 @@ sealed partial class PackageList
     public List<Package> Values { get; set; } = [];
 }
 
+public readonly record struct PackageReference
+{
+    public readonly string FullName { get; }
+    public readonly PackageSource Source { get; }
+
+    public PackageReference(string fullName, PackageSource source)
+    {
+        FullName = fullName;
+        Source = source;
+    }
+
+    public string ToStringSimpleWithSource() => $"{FullName}/{Source.Id}";
+
+    public readonly Package Resolve() => (Package)this;
+
+    public static explicit operator PackageReference(Package packageVersion) =>
+        new(packageVersion.FullName, packageVersion.Source);
+
+    public static implicit operator Package(PackageReference reference) =>
+        reference.Source.nameToPackage[reference.FullName];
+}
+
+public readonly record struct PackageVersionReference
+{
+    public readonly string FullName { get; }
+    public readonly PackageVersionNumber Version { get; }
+    public readonly PackageSource Source { get; }
+
+    public PackageVersionReference(
+        string fullName,
+        PackageVersionNumber version,
+        PackageSource source
+    )
+    {
+        FullName = fullName;
+        Version = version;
+        Source = source;
+    }
+
+    public readonly PackageVersion Resolve() => (PackageVersion)this;
+
+    public static explicit operator PackageVersionReference(PackageVersion packageVersion) =>
+        new(packageVersion.GetFullName(), packageVersion.Version, packageVersion.Package.Source);
+
+    public static implicit operator PackageVersion(PackageVersionReference reference)
+    {
+        if (
+            !reference
+                .Source.nameToPackage[reference.FullName]
+                .TryGetVersion(reference.Version, out var packageVersion)
+        )
+        {
+            throw new InvalidOperationException($"No versions found for: {reference}");
+        }
+
+        return packageVersion;
+    }
+}
+
 public sealed partial record Package
 {
     [JsonInclude]
@@ -806,7 +865,7 @@ public sealed partial record PackageVersion
     }
 
     public void CollectAllDependenciesToMap(
-        Dictionary<Package, PackageVersion> map,
+        Dictionary<PackageReference, PackageVersionReference> map,
         DependencyVersionResolution context
     )
     {
@@ -831,7 +890,7 @@ public sealed partial record PackageVersion
         }
     }
 
-    void CollectRequestedDependenciesToMapRecursive(Dictionary<Package, PackageVersion> map)
+    void CollectRequestedDependenciesToMapRecursive(Dictionary<PackageReference, PackageVersionReference> map)
     {
         foreach (var dependency in MarkedDependencies)
         {
@@ -844,7 +903,7 @@ public sealed partial record PackageVersion
         }
     }
 
-    void CollectLatestDependenciesToMapRecursive(Dictionary<Package, PackageVersion> map)
+    void CollectLatestDependenciesToMapRecursive(Dictionary<PackageReference, PackageVersionReference> map)
     {
         foreach (var dependency in MarkedDependencies)
         {
@@ -859,8 +918,8 @@ public sealed partial record PackageVersion
     }
 
     public void CollectAllDependenciesToDestination(
-        Dictionary<Package, PackageVersion> map,
-        Dictionary<Package, PackageVersion> destination
+        Dictionary<PackageReference, PackageVersionReference> map,
+        Dictionary<PackageReference, PackageVersionReference> destination
     )
     {
         var higher = map.GetHigherVersion(this);
@@ -868,8 +927,8 @@ public sealed partial record PackageVersion
     }
 
     void CollectDependenciesToDestinationRecursive(
-        Dictionary<Package, PackageVersion> map,
-        Dictionary<Package, PackageVersion> destination
+        Dictionary<PackageReference, PackageVersionReference> map,
+        Dictionary<PackageReference, PackageVersionReference> destination
     )
     {
         foreach (var dependency in MarkedDependencies)
@@ -877,7 +936,7 @@ public sealed partial record PackageVersion
             var dominant = Package.Source.SourceIndex.GetDominantPackage(dependency);
 
             var higher = map.GetHigherVersion(dominant);
-            if (destination.TryAdd(higher.Package, higher))
+            if (destination.TryAdd((PackageReference)higher.Package, (PackageVersionReference)higher))
             {
                 higher.CollectDependenciesToDestinationRecursive(map, destination);
             }
