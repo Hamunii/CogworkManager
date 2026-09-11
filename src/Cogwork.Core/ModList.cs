@@ -601,6 +601,11 @@ public sealed class ModList
         return wasUpdated;
     }
 
+    public void MarkDirty()
+    {
+        _wasUpdated = true;
+    }
+
     public bool Add(Package package, DependencyVersionResolution context) =>
         Add(package.Latest, context);
 

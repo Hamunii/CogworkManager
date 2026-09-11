@@ -11,6 +11,8 @@ namespace Cogwork.Core;
 
 public sealed class PackageSourceIndex
 {
+    static readonly Dictionary<string, PackageSource> s_SourceCache = [];
+
     /// <summary>
     /// The package source which is resolved when a package source is not defined.
     /// This should be Thunderstore, if Thunderstore is present.
@@ -24,7 +26,6 @@ public sealed class PackageSourceIndex
     [JsonIgnore]
     List<PackageSource> PackageSources { get; } = [];
 
-    readonly Dictionary<string, PackageSource> sourceCache = [];
     readonly Dictionary<string, Package> dominantPackages = [];
 
     public PackageSourceIndex() { }
@@ -90,6 +91,8 @@ public sealed class PackageSourceIndex
     public bool TryImportFromUri(Uri uri, [NotNullWhen(true)] out PackageSource? source) =>
         TryParseFromUri(uri, out source, this);
 
+    // This is a horrible method.
+    // It adds source to index if index is defined.
     public static bool TryParseFromUri(
         Uri uri,
         [NotNullWhen(true)] out PackageSource? source,
@@ -109,18 +112,10 @@ public sealed class PackageSourceIndex
                         return true;
                     }
 
-                    ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
-                        index.sourceCache,
+                    source = index.AddIfNotExists(
                         $"cogman:sources/local",
-                        out var exists
+                        () => new LocalPackageSource()
                     );
-                    if (!exists)
-                    {
-                        value = new LocalPackageSource();
-                        index.Add(value);
-                    }
-
-                    source = value!;
                     return true;
                 }
                 break;
@@ -151,18 +146,10 @@ public sealed class PackageSourceIndex
                         return true;
                     }
 
-                    ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
-                        index.sourceCache,
+                    source = index.AddIfNotExists(
                         $"https://thunderstore.io/c/{game.Slug}/",
-                        out var exists
+                        () => new ThunderstoreCommunity(game)
                     );
-                    if (!exists)
-                    {
-                        value = new ThunderstoreCommunity(game);
-                        index.Add(value);
-                    }
-
-                    source = value!;
                     return true;
                 }
 
@@ -173,27 +160,37 @@ public sealed class PackageSourceIndex
         return false;
     }
 
-    public void AddIfNotExists(PackageSource packageSource)
+    public PackageSource AddIfNotExists(PackageSource packageSource) =>
+        AddIfNotExists(packageSource.Id, () => packageSource);
+
+    public PackageSource AddIfNotExists(string id, Func<PackageSource> getPackageSource)
     {
         ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
-            sourceCache,
-            packageSource.Id,
+            s_SourceCache,
+            id,
             out var exists
         );
 
         if (exists)
         {
-            Cog.Debug($"Package source already exists {packageSource.Id} {new StackTrace(true)}");
-            return;
+            if (!PackageSources.Contains(value!))
+            {
+                PackageSources.Add(value!);
+                return value!;
+            }
+
+            Cog.Debug($"Package source already exists {id} {new StackTrace(true)}");
+            return value!;
         }
 
-        value = packageSource;
-        PackageSources.Add(packageSource);
+        value = getPackageSource();
+        PackageSources.Add(value);
 
-        if (Thunderstore is null && packageSource.Service is ThunderstoreCommunity)
+        if (Thunderstore is null && value.Service is ThunderstoreCommunity)
         {
-            Thunderstore = packageSource;
+            Thunderstore = value;
         }
+        return value;
     }
 
     public void Add(PackageSource packageSource)

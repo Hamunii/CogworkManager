@@ -721,6 +721,11 @@ class Program
             onBackNavigated();
         };
 
+        navigationPage.OnHidden += (s, e) =>
+        {
+            profile?.MarkDirty();
+        };
+
         // ================= POPULATE LOGIC LOOP =================
         updateConfigCallback = (lazyProfile) =>
         {
