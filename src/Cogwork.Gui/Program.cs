@@ -416,7 +416,7 @@ class Program
 
         // ================= STATE PERSISTENCE HOOKS =================
         Action<ModList>? rebuildDependenciesAction = null;
-        Action<PackageVersion, ModList>? appendDirectRowAction = null;
+        Action<PackageVersionReference, ModList>? appendDirectRowAction = null;
 
         // ================= TAB 2: INSTALL MODS (NEW VIEW) =================
         var installTabBox = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
@@ -537,7 +537,7 @@ class Program
             dependants.Clear();
         };
 
-        void OnClicked2(PackageVersion packageVersion)
+        void OnClicked2(PackageVersionReference reference)
         {
             ClearList(modDependant);
 
@@ -551,7 +551,7 @@ class Program
 
                 var dep = dependants.Peek();
                 var row = CreateBaseRow(
-                    dep,
+                    (PackageVersionReference)dep,
                     pk =>
                     {
                         dependants.Pop();
@@ -563,9 +563,10 @@ class Program
                 modDependant.Append(row);
             }
 
-            modLabel.SetText(packageVersion.Package.FullName);
+            var packageVersion = reference.Resolve();
+            modLabel.SetText(reference.FullName);
             modDescriptionLabel.SetText(packageVersion.Description);
-            modSourceLabel.SetText($"Source: {packageVersion.Package.Source.Id}");
+            modSourceLabel.SetText($"Source: {reference.Source.Id}");
             markdownPreviewer.Render(packageVersion.GetReadmeAsync().Result);
 
             ClearList(modDependencies);
@@ -580,7 +581,7 @@ class Program
                 foreach (var dep in packageVersion.MarkedDependencies)
                 {
                     var row = CreateBaseRow(
-                        dep,
+                        (PackageVersionReference)dep,
                         (pk) =>
                         {
                             dependants.Push(packageVersion);
@@ -594,7 +595,7 @@ class Program
             }
         }
 
-        void OnClicked(PackageVersion packageVersion)
+        void OnClicked(PackageVersionReference packageVersion)
         {
             // dependants.Push(packageVersion);
             OnClicked2(packageVersion);
@@ -681,7 +682,10 @@ class Program
 
                                 foreach (var package in searchResults)
                                 {
-                                    var row = CreateBaseRow(package.Latest, OnClicked);
+                                    var row = CreateBaseRow(
+                                        (PackageVersionReference)package.Latest,
+                                        OnClicked
+                                    );
                                     var btn = CreateAddOrRemoveButton(
                                         profile,
                                         (PackageReference)package
@@ -735,13 +739,13 @@ class Program
 
                 var removeButton = CreateActionButton(
                     "list-remove-symbolic",
-                    $"Remove {mod.Package.FullName}",
+                    $"Remove {mod.FullName}",
                     "destructive-action"
                 );
 
                 removeButton.OnClicked += (s, e) =>
                 {
-                    currentProfile.Remove([mod.Package]);
+                    currentProfile.Remove([mod.Package()]);
                     addedListBox.Remove(row);
                     rebuildDependenciesAction?.Invoke(currentProfile);
                     if (profile.Added.Count == 0)
@@ -776,14 +780,11 @@ class Program
 
                 if (activeProfile.Dependencies.Count > 0)
                 {
-                    foreach (var dep in activeProfile.Dependencies.Values.Select(x => x.Resolve()))
+                    foreach (var dep in activeProfile.Dependencies.Values)
                     {
                         // FIXED: Passing dep.Value directly down into CreateBaseRow configuration
                         var row = CreateBaseRow(dep, OnClicked);
-                        var addButton = CreateActionButton(
-                            "go-up-symbolic",
-                            $"Add {dep.Package.FullName}"
-                        );
+                        var addButton = CreateActionButton("go-up-symbolic", $"Add {dep.FullName}");
 
                         addButton.OnClicked += (s, e) =>
                         {
@@ -817,15 +818,13 @@ class Program
 
                 if (activeProfile.RecentlyRemoved.Count > 0)
                 {
-                    foreach (
-                        var dep in activeProfile.RecentlyRemoved.Values.Select(x => x.Resolve())
-                    )
+                    foreach (var dep in activeProfile.RecentlyRemoved.Values)
                     {
                         // FIXED: Passing dep.Value directly down into CreateBaseRow configuration
                         var row = CreateBaseRow(dep, OnClicked);
                         var addButton = CreateActionButton(
                             "list-add-symbolic",
-                            $"Add {dep.Package.FullName}"
+                            $"Add {dep.FullName}"
                         );
 
                         addButton.OnClicked += (s, e) =>
@@ -870,49 +869,53 @@ class Program
 
     private static Gtk.Button CreateAddOrRemoveButton(ModList profile, PackageReference package)
     {
-        Gtk.Button? btn = null;
-        if (!profile.Added.ContainsKey(package))
-            btn = CreateActionButton("list-add-symbolic", "Add");
-        else
-            btn = CreateActionButton("list-remove-symbolic", "Remove", "destructive-action");
+        Gtk.Button btn = CreateActionButton("list-add-symbolic", "Placeholder");
+        ToggleButtonAddOrRemoveState(profile, package, btn);
 
         btn.OnClicked += (btnSender, btnArgs) =>
         {
-            if (!profile.Added.ContainsKey(package))
-            {
-                profile.Add(package, DependencyVersionResolution.Latest);
-                btn.SetIconName("list-remove-symbolic");
-                btn.SetCssClasses(["destructive-action"]);
-                btn.SetTooltipText("Remove");
-            }
-            else
-            {
-                profile.Remove([package]);
-                btn.SetIconName("list-add-symbolic");
-                btn.SetCssClasses([]);
-                btn.SetTooltipText("Add");
-            }
+            ToggleButtonAddOrRemoveState(profile, package, btn);
         };
         return btn;
+    }
+
+    private static void ToggleButtonAddOrRemoveState(
+        ModList profile,
+        PackageReference package,
+        Gtk.Button btn
+    )
+    {
+        if (!profile.Added.ContainsKey(package))
+        {
+            profile.Add(package, DependencyVersionResolution.Latest);
+            btn.SetIconName("list-remove-symbolic");
+            btn.SetCssClasses(["destructive-action"]);
+            btn.SetTooltipText($"Remove {package.FullName}");
+        }
+        else
+        {
+            profile.Remove([package]);
+            btn.SetIconName("list-add-symbolic");
+            btn.SetCssClasses([]);
+            btn.SetTooltipText($"Remove {package.FullName}");
+        }
     }
 
     // ================= STATIC UI HELPERS TO PREVENT DUPLICATION =================
 
     private static Adw.ActionRow CreateBaseRow(
-        PackageVersion packageVersion,
-        Action<PackageVersion> onClicked
+        PackageVersionReference reference,
+        Action<PackageVersionReference> onClicked
     )
     {
-        var package = packageVersion.Package;
-
         var row = Adw.ActionRow.New();
-        row.SetTitle($"{GLib.Markup.EscapeText(package.FullName)} v{packageVersion.Version}");
-        row.SetSubtitle(GLib.Markup.EscapeText(packageVersion.Description));
+        row.SetTitle($"{GLib.Markup.EscapeText(reference.FullName)} v{reference.Version}");
+        row.SetSubtitle(GLib.Markup.EscapeText(reference.Resolve().Description));
         row.SetActivatable(true);
 
         row.OnActivated += (s, e) =>
         {
-            onClicked(packageVersion);
+            onClicked(reference);
         };
         return row;
     }

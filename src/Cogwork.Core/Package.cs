@@ -430,6 +430,11 @@ public readonly record struct PackageVersionReference
 
     public readonly PackageVersion Resolve() => (PackageVersion)this;
 
+    public readonly PackageReference Package() => (PackageReference)this;
+
+    public static explicit operator PackageReference(PackageVersionReference reference) =>
+        new(reference.FullName, reference.Source);
+
     public static explicit operator PackageVersionReference(PackageVersion packageVersion) =>
         new(packageVersion.GetFullName(), packageVersion.Version, packageVersion.Package.Source);
 
@@ -890,7 +895,9 @@ public sealed partial record PackageVersion
         }
     }
 
-    void CollectRequestedDependenciesToMapRecursive(Dictionary<PackageReference, PackageVersionReference> map)
+    void CollectRequestedDependenciesToMapRecursive(
+        Dictionary<PackageReference, PackageVersionReference> map
+    )
     {
         foreach (var dependency in MarkedDependencies)
         {
@@ -903,7 +910,9 @@ public sealed partial record PackageVersion
         }
     }
 
-    void CollectLatestDependenciesToMapRecursive(Dictionary<PackageReference, PackageVersionReference> map)
+    void CollectLatestDependenciesToMapRecursive(
+        Dictionary<PackageReference, PackageVersionReference> map
+    )
     {
         foreach (var dependency in MarkedDependencies)
         {
@@ -936,7 +945,12 @@ public sealed partial record PackageVersion
             var dominant = Package.Source.SourceIndex.GetDominantPackage(dependency);
 
             var higher = map.GetHigherVersion(dominant);
-            if (destination.TryAdd((PackageReference)higher.Package, (PackageVersionReference)higher))
+            if (
+                destination.TryAdd(
+                    (PackageReference)higher.Package,
+                    (PackageVersionReference)higher
+                )
+            )
             {
                 higher.CollectDependenciesToDestinationRecursive(map, destination);
             }
