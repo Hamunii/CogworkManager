@@ -137,7 +137,10 @@ public sealed class Game
         };
 
     public static Game Repo { get; } =
-        new("R.E.P.O.", "repo", new BepInExModInstallRules()) { Platforms = new() };
+        new("R.E.P.O.", "repo", new BepInExModInstallRules())
+        {
+            Platforms = new() { Steam = new() { Id = 3241660 } },
+        };
 
     // public static Game Test { get; } =
     //     new("Test", "test", new BepInExModInstallRules(), new TestPackageSource())
@@ -145,7 +148,10 @@ public sealed class Game
     //         Platforms = new(),
     //     };
     public static Game Ror2 { get; } =
-        new("Risk of Rain 2", "risk-of-rain-2", new BepInExModInstallRules()) { Platforms = new() };
+        new("Risk of Rain 2", "risk-of-rain-2", new BepInExModInstallRules())
+        {
+            Platforms = new() { Steam = new() { Id = 632360 } },
+        };
 
     public static List<Game> SupportedGames { get; } =
     [
