@@ -63,12 +63,10 @@ public readonly record struct FileInstalls(string[] Installed, string[] Ignored)
     }
 }
 
-public readonly record struct ServiceUri(Uri Uri);
-
 public readonly record struct ModListData(
     string? DisplayName,
     string? OverrideGamePath,
-    IEnumerable<ServiceUri>? Sources,
+    IEnumerable<PackageSourceId>? Sources,
     IEnumerable<string>? PackageIds
 ) : ISaveWithJson;
 
@@ -238,7 +236,7 @@ public sealed class LazyModList
         ModListData modListData = new()
         {
             DisplayName = DisplayName,
-            Sources = SourceIndex.Sources.Select(x => new ServiceUri(x.Service.Uri)),
+            Sources = SourceIndex.Sources.Select(x => x.Uri),
             PackageIds = AddedPackageIds,
         };
 
@@ -512,7 +510,7 @@ public sealed class ModList
             DisplayName = data.DisplayName ?? profileId,
             OverrideGamePath = data.OverrideGamePath,
             SourceIndex =
-                data.Sources is { } ? new(data.Sources.Select(x => x.Uri))
+                data.Sources is { } ? new(data.Sources)
                 : game.DefaultSource is { } ? new(game.DefaultSource)
                 : new(),
         };
@@ -589,7 +587,7 @@ public sealed class ModList
         lockFile.Save(_lazy.ProfilePackageLockPath);
 
         ModListLockDependencyFile lockDepFile = new(
-            AllPackages.Select(x => new PackageVersionWithSource(x.Key.Source.Id, x.Value))
+            AllPackages.Select(x => new PackageVersionWithSource(x.Key.Source.Uri, x.Value))
         );
         lockDepFile.Save(_lazy.ProfilePackageLockCachePath);
     }

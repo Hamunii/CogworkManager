@@ -11,7 +11,7 @@ namespace Cogwork.Core;
 
 public sealed class PackageSourceIndex
 {
-    static readonly Dictionary<string, PackageSource> s_SourceCache = [];
+    static readonly Dictionary<PackageSourceId, PackageSource> s_SourceCache = [];
 
     /// <summary>
     /// The package source which is resolved when a package source is not defined.
@@ -35,7 +35,7 @@ public sealed class PackageSourceIndex
         AddIfNotExists(packageSource);
     }
 
-    public PackageSourceIndex(IEnumerable<Uri> uris) => Import(uris);
+    public PackageSourceIndex(IEnumerable<PackageSourceId> uris) => Import(uris);
 
     public void MakePackageDominant(Package package)
     {
@@ -76,9 +76,9 @@ public sealed class PackageSourceIndex
         return dominantVersion;
     }
 
-    public void Import(IEnumerable<Uri> uris)
+    public void Import(IEnumerable<PackageSourceId> uris)
     {
-        foreach (var uri in uris.AsValueEnumerable())
+        foreach (var uri in uris)
         {
             if (!TryImportFromUri(uri, out var packageSource))
             {
@@ -88,82 +88,65 @@ public sealed class PackageSourceIndex
         }
     }
 
-    public bool TryImportFromUri(Uri uri, [NotNullWhen(true)] out PackageSource? source) =>
-        TryParseFromUri(uri, out source, this);
+    public bool TryImportFromUri(
+        PackageSourceId uri,
+        [NotNullWhen(true)] out PackageSource? source
+    ) => TryParseSourceIdAndImportIfIndexIsNotNull(uri, out source, this);
 
     // This is a horrible method.
-    // It adds source to index if index is defined.
-    public static bool TryParseFromUri(
-        Uri uri,
+    public static bool TryParseSourceIdAndImportIfIndexIsNotNull(
+        PackageSourceId uri,
         [NotNullWhen(true)] out PackageSource? source,
         PackageSourceIndex? index = null
     )
     {
         source = default;
 
-        switch (uri.Scheme)
+        switch (uri.Site)
         {
-            case "cogman":
-                if (uri.AbsolutePath == "sources/local")
+            case "local":
+                if (uri.GameSlug != string.Empty)
                 {
-                    if (index is null)
-                    {
-                        source = new LocalPackageSource();
-                        return true;
-                    }
-
-                    source = index.AddIfNotExists(
-                        $"cogman:sources/local",
-                        () => new LocalPackageSource()
-                    );
+                    throw new NotImplementedException("Local source can't specify game yet.");
+                }
+                if (index is null)
+                {
+                    source = new LocalPackageSource();
                     return true;
                 }
-                break;
+
+                source = index.AddIfNotExists(uri, () => new LocalPackageSource());
+                return true;
             // case "test":
             //     source = new(new TestPackageSource());
             //     return true;
-        }
-
-        switch (uri.Authority)
-        {
             case "thunderstore.io":
-                var span = uri.AbsolutePath.AsSpan();
-                var split = span.Split('/');
-
-                split.MoveNext(); // skip /
-                split.MoveNext(); // skip c
-                split.MoveNext();
-
-                var slug = span[split.Current];
-                Cog.Verbose($"slug from uri: {slug} | {uri.AbsolutePath} | {uri}");
-
-                var nameToGame = Game.NameToGame.GetAlternateLookup<ReadOnlySpan<char>>();
-                if (nameToGame.TryGetValue(slug, out var game))
+            case "thunderstore.dev":
+                if (!uri.TryGetGame(out var game))
                 {
-                    if (index is null)
-                    {
-                        source = new ThunderstoreCommunity(game);
-                        return true;
-                    }
+                    Cog.Debug($"Couldn't find game by name '{uri.GameSlug}'");
+                }
 
-                    source = index.AddIfNotExists(
-                        $"https://thunderstore.io/c/{game.Slug}/",
-                        () => new ThunderstoreCommunity(game)
-                    );
+                if (index is null)
+                {
+                    source = new ThunderstoreCommunity(uri.GameSlug);
                     return true;
                 }
 
-                Cog.Warning($"Couldn't find game by name '{slug}'");
-                break;
+                source = index.AddIfNotExists(
+                    uri,
+                    () => new ThunderstoreCommunity(uri.GameSlug)
+                );
+                return true;
         }
 
         return false;
     }
 
     public PackageSource AddIfNotExists(PackageSource packageSource) =>
-        AddIfNotExists(packageSource.Id, () => packageSource);
+        AddIfNotExists(packageSource.Uri, () => packageSource);
 
-    public PackageSource AddIfNotExists(string id, Func<PackageSource> getPackageSource)
+    public PackageSource AddIfNotExists(PackageSourceId id, Func<PackageSource> getPackageSource)
     {
         ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
             s_SourceCache,

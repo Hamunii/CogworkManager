@@ -14,7 +14,7 @@ public readonly record struct VisualPackageVersion
     public string Name { get; }
     public string FullName { get; }
     public PackageVersionNumber Version { get; }
-    public string? Source { get; }
+    public PackageSourceId? Source { get; }
 
     public VisualPackageVersion(KeyValuePair<string, PackageVersionNumber> keyValuePair)
         : this(keyValuePair.Key, keyValuePair.Value) { }
@@ -44,7 +44,7 @@ public readonly record struct VisualPackageVersion
         }
 
         var right = span[everythingButSource.Current.Start..];
-        Source = right.ToString();
+        Source = PackageSourceId.Parse(right.ToString());
     }
 
     public VisualPackageVersion(string packageId, PackageVersionNumber version)
@@ -66,7 +66,7 @@ public readonly record struct VisualPackageVersion
         if (everythingButSource.MoveNext())
         {
             var right = span[everythingButSource.Current.Start..];
-            Source = right.ToString();
+            Source = PackageSourceId.Parse(right.ToString());
         }
     }
 
@@ -75,7 +75,7 @@ public readonly record struct VisualPackageVersion
         string name,
         string fullName,
         PackageVersionNumber version,
-        string? source
+        PackageSourceId? source
     )
     {
         Author = author;
@@ -92,17 +92,15 @@ public readonly record struct VisualPackageVersion
 
     public Task<string?> ExtractAsync(CancellationToken cancellationToken = default)
     {
-        if (Source is null)
+        if (Source is not { } sourceId)
         {
             Cog.Warning($"Source was null for '{ToString()}'" + new StackTrace(true));
             return Task.FromResult<string?>(null);
         }
 
-        var uri = new Uri(Source);
-
-        if (!PackageSourceIndex.TryParseFromUri(uri, out var source))
+        if (!PackageSourceIndex.TryParseSourceIdAndImportIfIndexIsNotNull(sourceId, out var source))
         {
-            Cog.Warning($"No package source found for '{uri}'" + new StackTrace(true));
+            Cog.Warning($"No package source found for '{sourceId}'" + new StackTrace(true));
             return Task.FromResult<string?>(null);
         }
 
@@ -113,17 +111,15 @@ public readonly record struct VisualPackageVersion
     {
         directoryPath = null;
 
-        if (Source is null)
+        if (Source is not { } sourceId)
         {
             Cog.Warning($"Source was null for '{ToString()}'" + new StackTrace(true));
             return null;
         }
 
-        var uri = new Uri(Source);
-
-        if (!PackageSourceIndex.TryParseFromUri(uri, out var source))
+        if (!PackageSourceIndex.TryParseSourceIdAndImportIfIndexIsNotNull(sourceId, out var source))
         {
-            Cog.Warning($"No package source found for '{uri}'" + new StackTrace(true));
+            Cog.Warning($"No package source found for '{sourceId}'" + new StackTrace(true));
             return null;
         }
 
@@ -143,7 +139,7 @@ public readonly record struct VisualPackageVersion
             package.Name,
             package.FullName,
             packageVersion.Version,
-            package.Source.Service.Id
+            package.Source.Uri
         );
     }
 }
@@ -713,17 +709,15 @@ public sealed partial record Package
 }
 
 public readonly record struct PackageVersionWithSource(
-    string SourceId,
+    PackageSourceId SourceId,
     PackageVersion PackageVersion
 )
 {
     public readonly PackageSource? GetSourceOrNull(PackageSourceIndex index)
     {
-        Uri uri = new(SourceId);
-
-        if (!PackageSourceIndex.TryParseFromUri(uri, out var source, index))
+        if (!PackageSourceIndex.TryParseSourceIdAndImportIfIndexIsNotNull(SourceId, out var source, index))
         {
-            Cog.Warning($"No package source found for '{uri}'" + new StackTrace(true));
+            Cog.Warning($"No package source found for '{SourceId}'" + new StackTrace(true));
             return null;
         }
         return source;

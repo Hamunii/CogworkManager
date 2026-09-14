@@ -21,7 +21,7 @@ public sealed class LocalPackageSource : PackageSource
     /// </summary>
     public static LocalPackageSource UnconnectedShared { get; } = new();
 
-    public override Uri Uri { get; } = new("cogman:sources/local");
+    public override PackageSourceId Uri { get; } = new("local", string.Empty);
 
     public override string Id => field ??= Uri.ToString();
 
@@ -317,18 +317,18 @@ public sealed class LocalPackageSource : PackageSource
     }
 }
 
-public sealed class ThunderstoreCommunity(Game game) : PackageSource
+public sealed class ThunderstoreCommunity(string gameSlug) : PackageSource
 {
     [JsonIgnore]
     public string PackageIndexBaseDirectory =>
-        field ??= CogworkPaths.GetCacheIndexSubDirectory(game.Slug, "thunderstore");
+        field ??= CogworkPaths.GetCacheIndexSubDirectory(gameSlug, "thunderstore");
 
     public string PackageIndexIndexDirectory =>
         field ??= CogworkPaths.CombineAndCreate(PackageIndexBaseDirectory, "index");
 
     public string PackageInstallSubDirectory { get; } = "thunderstore";
 
-    public override Uri Uri { get; } = new($"https://thunderstore.io/c/{game.Slug}/");
+    public override PackageSourceId Uri { get; } = new("thunderstore.io", gameSlug);
     public override string Id => field ??= Uri.ToString();
 
     public string PackageIndexCacheLocation =>
@@ -343,6 +343,9 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
     readonly Lock _totalBytesLock = new();
     readonly Lock _totalContentLengthLock = new();
     bool isImported;
+
+    public ThunderstoreCommunity(Game game)
+        : this(game.Slug) { }
 
     public bool IsIncompleteIndexCache() =>
         Directory
@@ -427,7 +430,7 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        var url = $"https://thunderstore.io/c/{game.Slug}/api/v1/package-listing-index/";
+        var url = $"https://thunderstore.io/c/{gameSlug}/api/v1/package-listing-index/";
 
         Cog.Information("Fetching: " + url);
 
@@ -685,6 +688,29 @@ public sealed class ThunderstoreCommunity(Game game) : PackageSource
     }
 }
 
+[JsonConverter(typeof(PackageSourceIdConverter))]
+public readonly record struct PackageSourceId(string Site, string GameSlug)
+{
+    public static PackageSourceId Parse(string sourceId)
+    {
+        var split = sourceId.Split('/');
+        if (split.Length > 2)
+            throw new ArgumentException(
+                $"Argument '{sourceId}' must have at max one divider ('/')"
+            );
+
+        var site = split[0];
+        var game = split.Length < 2 ? string.Empty : split[1];
+
+        return new(site, game);
+    }
+
+    public bool TryGetGame([NotNullWhen(true)] out Game? game) =>
+        Game.NameToGame.TryGetValue(GameSlug, out game);
+
+    public override string ToString() => GameSlug == string.Empty ? Site : $"{Site}/{GameSlug}";
+}
+
 public readonly record struct PackageMarkdown(
     [property: JsonPropertyName("markdown")] string Markdown
 );
@@ -698,7 +724,7 @@ public abstract class PackageSource
 
     public PackageSource Service => this;
     protected List<Package> Packages { get; set; } = [];
-    public abstract Uri Uri { get; }
+    public abstract PackageSourceId Uri { get; }
     public abstract string Id { get; }
 
     internal ConcurrentDictionary<string, Package> nameToPackage = [];

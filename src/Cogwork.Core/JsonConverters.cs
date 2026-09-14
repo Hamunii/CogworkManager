@@ -114,3 +114,18 @@ public class AuthorConverter : JsonConverter<Author>
         writer.WriteStringValue(value.Name);
     }
 }
+
+public class PackageSourceIdConverter : JsonConverter<PackageSourceId>
+{
+    public override PackageSourceId Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    ) => PackageSourceId.Parse(reader.GetString()!);
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        PackageSourceId value,
+        JsonSerializerOptions options
+    ) => writer.WriteStringValue(value.ToString());
+}
