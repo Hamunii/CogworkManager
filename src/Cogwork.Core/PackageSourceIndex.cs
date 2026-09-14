@@ -25,7 +25,7 @@ public sealed class PackageSourceIndex
 
     public PackageSourceIndex(PackageSource packageSource)
     {
-        AddIfNotExists(packageSource);
+        Add(packageSource);
     }
 
     public PackageSourceIndex(IEnumerable<PackageSourceId> uris) => Import(uris);
@@ -73,24 +73,27 @@ public sealed class PackageSourceIndex
     {
         foreach (var uri in uris)
         {
-            if (!TryImportFromUri(uri, out var packageSource))
+            if (!TryImportFromUri(uri, out _))
             {
                 Cog.Warning($"Could not parse package source uri: '{uri}'");
             }
-            // if (!PackageSources.Any(x => uri == x.Service.Uri)) { }
         }
     }
 
-    public bool TryImportFromUri(
+    public bool TryImportFromUri(PackageSourceId uri) => TryImportFromUri(uri, out _);
+
+    public bool TryImportFromUri(PackageSourceId uri, [NotNullWhen(true)] out PackageSource? source)
+    {
+        if (!TryParseSourceId(uri, out source))
+            return false;
+
+        Add(source);
+        return true;
+    }
+
+    public static bool TryParseSourceId(
         PackageSourceId uri,
         [NotNullWhen(true)] out PackageSource? source
-    ) => TryParseSourceIdAndImportIfIndexIsNotNull(uri, out source, this);
-
-    // This is a horrible method.
-    public static bool TryParseSourceIdAndImportIfIndexIsNotNull(
-        PackageSourceId uri,
-        [NotNullWhen(true)] out PackageSource? source,
-        PackageSourceIndex? index = null
     )
     {
         source = default;
@@ -102,13 +105,8 @@ public sealed class PackageSourceIndex
                 {
                     throw new NotImplementedException("Local source can't specify game yet.");
                 }
-                if (index is null)
-                {
-                    source = LocalPackageSource.Instance;
-                    return true;
-                }
 
-                source = index.AddIfNotExists(uri, () => LocalPackageSource.Instance);
+                source = GetOrCreateSource(uri, () => LocalPackageSource.Instance);
                 return true;
             // case "test":
             //     source = new(new TestPackageSource());
@@ -120,23 +118,17 @@ public sealed class PackageSourceIndex
                     Cog.Debug($"Couldn't find game by name '{uri.GameSlug}'");
                 }
 
-                if (index is null)
-                {
-                    source = new ThunderstoreCommunity(uri.GameSlug);
-                    return true;
-                }
-
-                source = index.AddIfNotExists(uri, () => new ThunderstoreCommunity(uri.GameSlug));
+                source = GetOrCreateSource(uri, () => new ThunderstoreCommunity(uri.GameSlug));
                 return true;
         }
 
         return false;
     }
 
-    public PackageSource AddIfNotExists(PackageSource packageSource) =>
-        AddIfNotExists(packageSource.Uri, () => packageSource);
+    static PackageSource GetOrCreateSource(PackageSource source) =>
+        GetOrCreateSource(source.Uri, () => source);
 
-    public PackageSource AddIfNotExists(PackageSourceId id, Func<PackageSource> getPackageSource)
+    static PackageSource GetOrCreateSource(PackageSourceId id, Func<PackageSource> getPackageSource)
     {
         ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
             s_SourceCache,
@@ -146,22 +138,21 @@ public sealed class PackageSourceIndex
 
         if (exists)
         {
-            if (!PackageSources.Contains(value!))
-            {
-                PackageSources.Add(value!);
-                return value!;
-            }
-
-            // Cog.Debug($"Package source already exists {id} {new StackTrace(true)}");
             return value!;
         }
 
         value = getPackageSource();
-        PackageSources.Add(value);
         return value;
     }
 
-    public void Add(PackageSource packageSource) => PackageSources.Add(packageSource);
+    public void Add(PackageSource packageSource)
+    {
+        if (!PackageSources.Contains(packageSource))
+        {
+            GetOrCreateSource(packageSource);
+            PackageSources.Add(packageSource);
+        }
+    }
 
     public bool Remove(PackageSource packageSource) => PackageSources.Remove(packageSource);
 

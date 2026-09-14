@@ -98,7 +98,7 @@ public readonly record struct VisualPackageVersion
             return Task.FromResult<string?>(null);
         }
 
-        if (!PackageSourceIndex.TryParseSourceIdAndImportIfIndexIsNotNull(sourceId, out var source))
+        if (!PackageSourceIndex.TryParseSourceId(sourceId, out var source))
         {
             Cog.Warning($"No package source found for '{sourceId}'" + new StackTrace(true));
             return Task.FromResult<string?>(null);
@@ -117,7 +117,7 @@ public readonly record struct VisualPackageVersion
             return null;
         }
 
-        if (!PackageSourceIndex.TryParseSourceIdAndImportIfIndexIsNotNull(sourceId, out var source))
+        if (!PackageSourceIndex.TryParseSourceId(sourceId, out var source))
         {
             Cog.Warning($"No package source found for '{sourceId}'" + new StackTrace(true));
             return null;
@@ -706,7 +706,7 @@ public readonly record struct PackageVersionWithSource(
 {
     public readonly PackageSource? GetSourceOrNull(PackageSourceIndex index)
     {
-        if (!PackageSourceIndex.TryParseSourceIdAndImportIfIndexIsNotNull(SourceId, out var source, index))
+        if (!PackageSourceIndex.TryParseSourceId(SourceId, out var source))
         {
             Cog.Warning($"No package source found for '{SourceId}'" + new StackTrace(true));
             return null;

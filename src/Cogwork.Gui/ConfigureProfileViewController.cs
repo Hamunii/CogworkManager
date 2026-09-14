@@ -160,7 +160,9 @@ public class ConfigureProfileViewController : IDisposable
         var localSourceRow = SwitchRow.New();
         prefSourcesGroup.Add(localSourceRow);
         localSourceRow.SetTitle("Enable Local Package Source");
-        localSourceRow.SetSubtitle("Allows adding packages imported to the local package source. Useful for developers.");
+        localSourceRow.SetSubtitle(
+            "Allows adding packages imported to the local package source. Useful for developers."
+        );
         localSourceRow.SetActive(lazyProfile.SourceIndex.Sources.Any(x => x is LocalPackageSource));
         localSourceRow.OnNotify += (s, e) =>
         {
@@ -169,7 +171,7 @@ public class ConfigureProfileViewController : IDisposable
                 bool isActive = localSourceRow.GetActive();
 
                 if (isActive)
-                    lazyProfile.SourceIndex.AddIfNotExists(LocalPackageSource.Instance);
+                    lazyProfile.SourceIndex.TryImportFromUri(LocalPackageSource.Instance.Uri);
                 else
                     lazyProfile.SourceIndex.Remove(LocalPackageSource.Instance);
 
