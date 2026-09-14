@@ -153,49 +153,40 @@ public class ConfigureProfileViewController : IDisposable
         );
         prefWindow.Add(gamePreferences);
 
-        var prefGroup = PreferencesGroup.New();
-        prefGroup.SetTitle("Profile Overrides");
-        prefPage.Add(prefGroup);
+        var prefSourcesGroup = PreferencesGroup.New();
+        prefSourcesGroup.SetTitle("Package Sources");
+        prefPage.Add(prefSourcesGroup);
 
-        var expanderRow = ExpanderRow.New();
-        expanderRow.SetTitle("Override Game Path");
-        expanderRow.SetSubtitle("Provide a custom directory path for this profile");
-
-        // --- CRITICAL FIX 1: Explicitly render the native GNOME toggle switch ---
-        expanderRow.SetShowEnableSwitch(true);
-
-        var entryRow = EntryRow.New();
-        entryRow.SetTitle("Path to game root directory");
-        entryRow.SetText(
-            _lazyProfile.OverrideGamePath ?? _lazyProfile.Game.Config.PreferredPath ?? ""
-        );
-        expanderRow.AddRow(entryRow);
-        prefGroup.Add(expanderRow);
-
-        // --- Create and attach a flat browse button on the right edge of the text box ---
-        var browseButton = Button.NewFromIconName("folder-open-symbolic");
-        browseButton.SetValign(Align.Center);
-        browseButton.AddCssClass("flat");
-        browseButton.SetTooltipText("Browse for directory...");
-        entryRow.AddSuffix(browseButton);
-        ButtonOnClickedSelectGameRootDirectory(browseButton, entryRow, prefWindow);
-
-        // Seed the initial configuration state
-        bool hasOverride = lazyProfile.IsOverrideGamePathEnabled;
-
-        // --- CRITICAL FIX 2: Bind to enable-expansion properties to align with the toggle switch
-        expanderRow.SetEnableExpansion(hasOverride);
-        expanderRow.SetExpanded(hasOverride);
-
-        // Sync toggle clicks to immediately open/close the container rows
-        expanderRow.OnNotify += (s, e) =>
+        var localSourceRow = SwitchRow.New();
+        prefSourcesGroup.Add(localSourceRow);
+        localSourceRow.SetTitle("Enable Local Package Source");
+        localSourceRow.SetSubtitle("Allows adding packages imported to the local package source. Useful for developers.");
+        localSourceRow.SetActive(lazyProfile.SourceIndex.Sources.Any(x => x is LocalPackageSource));
+        localSourceRow.OnNotify += (s, e) =>
         {
-            // When user interacts with the toggle, sync expansion states
-            if (e.Pspec.GetName() == "enable-expansion")
+            if (e.Pspec.GetName() == "active")
             {
-                expanderRow.SetExpanded(expanderRow.GetEnableExpansion());
+                bool isActive = localSourceRow.GetActive();
+
+                if (isActive)
+                    lazyProfile.SourceIndex.AddIfNotExists(LocalPackageSource.Instance);
+                else
+                    lazyProfile.SourceIndex.Remove(LocalPackageSource.Instance);
+
+                lazyProfile.SaveData();
             }
         };
+
+        var prefOverridesGroup = PreferencesGroup.New();
+        prefOverridesGroup.SetTitle("Profile Overrides");
+        prefPage.Add(prefOverridesGroup);
+
+        ExpanderRow expanderRow = CreateOverrideGamePathSetting(
+            lazyProfile,
+            prefWindow,
+            prefOverridesGroup,
+            out var entryRow
+        );
 
         // Auto-save logic on window close sequence
         prefWindow.OnCloseRequest += (s, e) =>
@@ -221,6 +212,51 @@ public class ConfigureProfileViewController : IDisposable
         };
 
         prefWindow.Present();
+    }
+
+    private ExpanderRow CreateOverrideGamePathSetting(
+        LazyModList lazyProfile,
+        PreferencesWindow prefWindow,
+        PreferencesGroup prefGroup,
+        out EntryRow entryRow
+    )
+    {
+        var expanderRow = ExpanderRow.New();
+        expanderRow.SetTitle("Override Game Path");
+        expanderRow.SetSubtitle("Provide a custom directory path for this profile");
+        expanderRow.SetShowEnableSwitch(true);
+
+        entryRow = EntryRow.New();
+        entryRow.SetTitle("Path to game root directory");
+        entryRow.SetText(
+            _lazyProfile.OverrideGamePath ?? _lazyProfile.Game.Config.PreferredPath ?? ""
+        );
+        expanderRow.AddRow(entryRow);
+        prefGroup.Add(expanderRow);
+
+        var browseButton = Button.NewFromIconName("folder-open-symbolic");
+        browseButton.SetValign(Align.Center);
+        browseButton.AddCssClass("flat");
+        browseButton.SetTooltipText("Browse for directory...");
+        entryRow.AddSuffix(browseButton);
+        ButtonOnClickedSelectGameRootDirectory(browseButton, entryRow, prefWindow);
+
+        // Seed the initial configuration state
+        bool hasOverride = lazyProfile.IsOverrideGamePathEnabled;
+
+        expanderRow.SetEnableExpansion(hasOverride);
+        expanderRow.SetExpanded(hasOverride);
+
+        // Sync toggle clicks to immediately open/close the container rows
+        expanderRow.OnNotify += (s, e) =>
+        {
+            // When user interacts with the toggle, sync expansion states
+            if (e.Pspec.GetName() == "enable-expansion")
+            {
+                expanderRow.SetExpanded(expanderRow.GetEnableExpansion());
+            }
+        };
+        return expanderRow;
     }
 
     internal static void ButtonOnClickedSelectGameRootDirectory(

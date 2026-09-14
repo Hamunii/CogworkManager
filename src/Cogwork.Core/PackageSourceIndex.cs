@@ -104,11 +104,11 @@ public sealed class PackageSourceIndex
                 }
                 if (index is null)
                 {
-                    source = new LocalPackageSource();
+                    source = LocalPackageSource.Instance;
                     return true;
                 }
 
-                source = index.AddIfNotExists(uri, () => new LocalPackageSource());
+                source = index.AddIfNotExists(uri, () => LocalPackageSource.Instance);
                 return true;
             // case "test":
             //     source = new(new TestPackageSource());
@@ -126,10 +126,7 @@ public sealed class PackageSourceIndex
                     return true;
                 }
 
-                source = index.AddIfNotExists(
-                    uri,
-                    () => new ThunderstoreCommunity(uri.GameSlug)
-                );
+                source = index.AddIfNotExists(uri, () => new ThunderstoreCommunity(uri.GameSlug));
                 return true;
         }
 
@@ -155,7 +152,7 @@ public sealed class PackageSourceIndex
                 return value!;
             }
 
-            Cog.Debug($"Package source already exists {id} {new StackTrace(true)}");
+            // Cog.Debug($"Package source already exists {id} {new StackTrace(true)}");
             return value!;
         }
 
@@ -164,10 +161,9 @@ public sealed class PackageSourceIndex
         return value;
     }
 
-    public void Add(PackageSource packageSource)
-    {
-        PackageSources.Add(packageSource);
-    }
+    public void Add(PackageSource packageSource) => PackageSources.Add(packageSource);
+
+    public bool Remove(PackageSource packageSource) => PackageSources.Remove(packageSource);
 
     public async Task<IEnumerable<Package>> GetAllPackagesAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,

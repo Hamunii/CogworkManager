@@ -809,7 +809,7 @@ public static class Program
                 sourceImportArgument.Validators.Add(result =>
                 {
                     var path = result.GetValueOrDefault<string>();
-                    var error = LocalPackageSource.UnconnectedShared.ImportPackage(path);
+                    var error = LocalPackageSource.Instance.ImportPackage(path);
                     if (error is { })
                     {
                         result.AddError(error);
