@@ -575,16 +575,7 @@ public sealed partial record Package
         }
 
         var service = fullNameX[fullSplit.Current.Start..];
-        if (service.Equals("ts", StringComparison.Ordinal))
-        {
-            source = sourceIndex.Thunderstore;
-            if (source is null)
-            {
-                Cog.Warning($"No default package source available for '{fullName}'");
-                return false;
-            }
-        }
-        else if (TryGetPackageSource(sourceIndex, service, out var packageSource))
+        if (TryGetPackageSource(sourceIndex, service, out var packageSource))
         {
             source = packageSource;
         }

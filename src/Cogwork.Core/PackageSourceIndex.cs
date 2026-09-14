@@ -13,13 +13,6 @@ public sealed class PackageSourceIndex
 {
     static readonly Dictionary<PackageSourceId, PackageSource> s_SourceCache = [];
 
-    /// <summary>
-    /// The package source which is resolved when a package source is not defined.
-    /// This should be Thunderstore, if Thunderstore is present.
-    /// </summary>
-    [JsonIgnore]
-    public PackageSource? Thunderstore { get; private set; }
-
     [JsonIgnore]
     public ReadOnlyCollection<PackageSource> Sources => field ??= new(PackageSources);
 
@@ -168,22 +161,12 @@ public sealed class PackageSourceIndex
 
         value = getPackageSource();
         PackageSources.Add(value);
-
-        if (Thunderstore is null && value.Service is ThunderstoreCommunity)
-        {
-            Thunderstore = value;
-        }
         return value;
     }
 
     public void Add(PackageSource packageSource)
     {
         PackageSources.Add(packageSource);
-
-        if (Thunderstore is null && packageSource.Service is ThunderstoreCommunity)
-        {
-            Thunderstore = packageSource;
-        }
     }
 
     public async Task<IEnumerable<Package>> GetAllPackagesAsync(
