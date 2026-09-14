@@ -220,7 +220,7 @@ class Program
     // and pass the target configPage down into the initialization lifecycle.
     private static Adw.NavigationPage CreateProfileView(
         Adw.NavigationView navView,
-        Adw.NavigationPage configPage, // Accept the destination page reference
+        Adw.NavigationPage configPage,
         Action<LazyModList> onProfileSelected,
         out Action<Game> updateContentCallback
     )
@@ -230,11 +230,6 @@ class Program
         var header = Adw.HeaderBar.New();
         var windowTitle = Adw.WindowTitle.New("Loading Profiles...", "");
         header.SetTitleWidget(windowTitle);
-
-        // Adw.HeaderBar will now automatically inject a back arrow button
-        // when this page is pushed onto an Adw.NavigationView stack.
-        // It also handles trackpad/touchscreen swipe-to-back gestures natively.
-
         layoutBox.Append(header);
 
         var scroll = Gtk.ScrolledWindow.New();
@@ -255,11 +250,12 @@ class Program
         var sectionProfiles = new Section(contentStack, "Profiles");
         var listBox = sectionProfiles.Content;
 
-        updateContentCallback = (selectedGame) =>
+        void UpdatePage(Game selectedGame)
         {
             windowTitle.SetTitle(selectedGame.Name);
             windowTitle.SetSubtitle("Select mod profile");
 
+            // Clear existing list items
             while (listBox.GetFirstChild() != null)
             {
                 listBox.Remove(listBox.GetFirstChild()!);
@@ -275,27 +271,19 @@ class Program
                     $"{addedCount} added, {depCount} {(depCount == 1 ? "dependency" : "dependencies")}"
                 );
 
-                // Make the row itself mimic a giant button
                 row.SetActivatable(true);
-
-                // Trigger view swap to config page when clicking the row body
                 row.OnActivated += (s, e) =>
                 {
                     onProfileSelected(profile);
-
-                    // 2. REPLACED: Push the page target onto the view stack natively
-                    // instead of calling string-based view switching.
                     navView.Push(configPage);
                 };
 
-                // Add quick button to launch the game on the right side
+                // Left launch button
                 var launchButton = Gtk.Button.NewFromIconName("media-playback-start-symbolic");
                 launchButton.SetValign(Gtk.Align.Center);
                 launchButton.SetTooltipText($"Launch with {profile.DisplayName}");
-
                 launchButton.OnClicked += (s, e) =>
                 {
-                    // TODO: Proper API
                     _ = Cli.Program.Main([
                         "launch",
                         "--game",
@@ -304,13 +292,169 @@ class Program
                         profile.Id,
                     ]);
                 };
-
                 row.AddSuffix(launchButton);
+
+                var actionGroup = Gio.SimpleActionGroup.New();
+                row.InsertActionGroup("row", actionGroup);
+
+                // 2. Define Rename Profile Action
+                var renameAction = Gio.SimpleAction.New("rename", null);
+                renameAction.OnActivate += (s, e) =>
+                {
+                    if (layoutBox.GetRoot() is not Gtk.Window rootWindow)
+                        return;
+
+                    var dialog = Adw.AlertDialog.New(
+                        "Rename Profile",
+                        $"Enter a new name for '{profile.DisplayName}'."
+                    );
+                    var entryRow = Adw.EntryRow.New();
+                    entryRow.SetTitle("New Name");
+                    entryRow.SetText(profile.DisplayName);
+                    entryRow.SetMaxLength(50);
+                    entryRow.SetActivatesDefault(true);
+
+                    var dialogListBox = Gtk.ListBox.New();
+                    dialogListBox.SetSelectionMode(Gtk.SelectionMode.None);
+                    dialogListBox.AddCssClass("boxed-list");
+                    dialogListBox.Append(entryRow);
+                    dialog.SetExtraChild(dialogListBox);
+
+                    dialog.AddResponse("cancel", "Cancel");
+                    dialog.AddResponse("rename", "Rename");
+                    dialog.SetDefaultResponse("rename");
+                    dialog.SetCloseResponse("cancel");
+                    dialog.SetResponseAppearance("rename", Adw.ResponseAppearance.Suggested);
+
+                    dialog.OnResponse += (ds, ra) =>
+                    {
+                        if (ra.Response == "rename")
+                        {
+                            string newName = entryRow.GetText().Trim();
+                            if (
+                                !string.IsNullOrWhiteSpace(newName)
+                                && newName != profile.DisplayName
+                            )
+                            {
+                                profile.Rename(newName);
+                                UpdatePage(selectedGame);
+                            }
+                        }
+                    };
+
+                    dialog.Present(rootWindow);
+                    entryRow.GrabFocus();
+                };
+                actionGroup.AddAction(renameAction);
+
+                // 3. Define Delete Profile Action
+                var deleteAction = Gio.SimpleAction.New("delete", null);
+                deleteAction.OnActivate += (s, e) =>
+                {
+                    if (layoutBox.GetRoot() is not Gtk.Window rootWindow)
+                        return;
+
+                    var dialog = Adw.AlertDialog.New(
+                        "Delete Profile?",
+                        $"Are you sure you want to permanently delete '{profile.DisplayName}'? This action cannot be undone."
+                    );
+
+                    dialog.AddResponse("cancel", "Cancel");
+                    dialog.AddResponse("delete", "Delete");
+                    dialog.SetDefaultResponse("cancel");
+                    dialog.SetCloseResponse("cancel");
+
+                    // Mark the execution path with a red "Destructive" context state color
+                    dialog.SetResponseAppearance("delete", Adw.ResponseAppearance.Destructive);
+
+                    dialog.OnResponse += (ds, ra) =>
+                    {
+                        if (ra.Response == "delete")
+                        {
+                            profile.Delete();
+                            UpdatePage(selectedGame);
+                        }
+                    };
+
+                    dialog.Present(rootWindow);
+                };
+                actionGroup.AddAction(deleteAction);
+
+                // 4. Map actions structurally to a context dropdown list
+                var menuModel = Gio.Menu.New();
+                menuModel.Append("Rename Profile", "row.rename");
+                menuModel.Append("Delete Profile", "row.delete");
+
+                // 5. Build the Menu Button and attach it as a trailing layout suffix
+                var menuButton = Gtk.MenuButton.New();
+                menuButton.SetIconName("view-more-symbolic"); // standard "three dots" icon
+                menuButton.SetValign(Gtk.Align.Center);
+                menuButton.SetMenuModel(menuModel);
+                menuButton.AddCssClass("flat"); // removes borders for a clean flat look
+
+                row.AddSuffix(menuButton);
                 listBox.Append(row);
             }
-        };
 
-        // 3. Return the entire layout wrapped inside a clean NavigationPage instance
+            // Append the "Add Profile" action row
+            var addProfileRow = Adw.ActionRow.New();
+            addProfileRow.SetTitle("Create New Profile...");
+            addProfileRow.SetActivatable(true);
+            var plusIcon = Gtk.Image.NewFromIconName("list-add-symbolic");
+            addProfileRow.AddPrefix(plusIcon);
+            listBox.Append(addProfileRow);
+
+            addProfileRow.OnActivated += (s, e) =>
+            {
+                if (layoutBox.GetRoot() is not Gtk.Window rootWindow)
+                    return;
+
+                var dialog = Adw.AlertDialog.New(
+                    "Create Profile",
+                    "Enter a name for your new mod profile."
+                );
+                var entryRow = Adw.EntryRow.New();
+                entryRow.SetTitle("Profile Name");
+                entryRow.SetMaxLength(50);
+                entryRow.SetActivatesDefault(true);
+
+                var dialogListBox = Gtk.ListBox.New();
+                dialogListBox.SetSelectionMode(Gtk.SelectionMode.None);
+                dialogListBox.AddCssClass("boxed-list");
+                dialogListBox.Append(entryRow);
+                dialog.SetExtraChild(dialogListBox);
+
+                dialog.AddResponse("cancel", "Cancel");
+                dialog.AddResponse("create", "Create");
+                dialog.SetDefaultResponse("create");
+                dialog.SetCloseResponse("cancel");
+                dialog.SetResponseAppearance("create", Adw.ResponseAppearance.Suggested);
+
+                dialog.OnResponse += (dialogSender, responseArgs) =>
+                {
+                    if (responseArgs.Response == "create")
+                    {
+                        string profileName = entryRow.GetText().Trim();
+                        if (string.IsNullOrWhiteSpace(profileName))
+                        {
+                            var profileCount = selectedGame.EnumerateProfiles().Count();
+                            profileName = $"New Profile {profileCount + 1}";
+                        }
+
+                        Console.WriteLine(
+                            $"Creating profile: {profileName} for {selectedGame.Name}"
+                        );
+                        ModList.CreateNew(selectedGame, profileName);
+                        UpdatePage(selectedGame);
+                    }
+                };
+
+                dialog.Present(rootWindow);
+                entryRow.GrabFocus();
+            };
+        }
+        updateContentCallback = UpdatePage;
+
         return Adw.NavigationPage.New(layoutBox, "profiles");
     }
 

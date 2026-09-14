@@ -81,7 +81,7 @@ public readonly record struct ModListLockDependencyFile(
 
 public sealed class LazyModList
 {
-    public required string DisplayName { get; init; }
+    public string DisplayName { get; private set; }
     public string Id { get; }
     public string DisambiguatedDisplayName
     {
@@ -150,11 +150,13 @@ public sealed class LazyModList
 
     internal LazyModList(
         string profileId,
+        string displayName,
         IEnumerable<string>? addedPackageIds,
         ModListLockFile lockFile
     )
     {
         Id = profileId;
+        DisplayName = displayName;
         AddedPackageIds = addedPackageIds ?? [];
 
         Cog.Verbose("Resolved packages:");
@@ -241,6 +243,22 @@ public sealed class LazyModList
         };
 
         modListData.Save(ProfileSaveDataPath);
+    }
+
+    public void Rename(string newName)
+    {
+        DisplayName = newName;
+        SaveData();
+    }
+
+    public void Delete()
+    {
+        lock (ModList.idToModListLock)
+        {
+            ModList.IdToModList.Remove(Id);
+            var profilePath = CogworkPaths.GetProfilesSubDirectoryNoCreate(Game, Id);
+            Directory.Delete(profilePath, recursive: true);
+        }
     }
 
     public string ProfilePackageLockPath => field ??= GetProfilePackageLockPath(Game, Id);
@@ -458,10 +476,9 @@ public sealed class ModList
 
     public static LazyModList CreateNew(Game game, string name)
     {
-        var modList = new LazyModList(GetUniqueProfileId(game, name), null, default)
+        var modList = new LazyModList(GetUniqueProfileId(game, name), name, null, default)
         {
             Game = game,
-            DisplayName = name,
             OverrideGamePath = null,
             SourceIndex = game.DefaultSource is { } ? new(game.DefaultSource) : new(),
         };
@@ -481,10 +498,10 @@ public sealed class ModList
         }
 
         var safeName = nameSpan.ToString();
-        var profilesDir = CogworkPaths.GetProfilesSubDirectory(game, "");
+        var profilesDir = CogworkPaths.GetProfilesDirectory(game);
         var wouldBePath = Path.Combine(profilesDir, safeName);
         int num = 1;
-        while (File.Exists(wouldBePath))
+        while (Directory.Exists(wouldBePath))
         {
             num++;
             wouldBePath = Path.Combine(profilesDir, safeName + num);
@@ -504,10 +521,14 @@ public sealed class ModList
         ModListLockFile lockFile
     )
     {
-        var modList = new LazyModList(profileId, data.PackageIds, lockFile)
+        var modList = new LazyModList(
+            profileId,
+            data.DisplayName ?? profileId,
+            data.PackageIds,
+            lockFile
+        )
         {
             Game = game,
-            DisplayName = data.DisplayName ?? profileId,
             OverrideGamePath = data.OverrideGamePath,
             SourceIndex =
                 data.Sources is { } ? new(data.Sources)
