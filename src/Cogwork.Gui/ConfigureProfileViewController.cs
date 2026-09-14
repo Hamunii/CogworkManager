@@ -56,7 +56,7 @@ public class ConfigureProfileViewController : IDisposable
         header.PackStart(_searchToggleButton);
         layoutBox.Append(header);
 
-        AddHeaderHamburgerMenu(header);
+        AddHeaderSettingsButton(header);
 
         // 2. Search Box Setup
         _searchBar = SearchBar.New();
@@ -117,35 +117,22 @@ public class ConfigureProfileViewController : IDisposable
         Page.OnHidden += (s, e) => _currentProfile?.MarkDirty();
     }
 
-    void AddHeaderHamburgerMenu(Adw.HeaderBar header)
+    void AddHeaderSettingsButton(Adw.HeaderBar header)
     {
-        var actionGroup = Gio.SimpleActionGroup.New();
+        var settingsButton = Button.NewFromIconName("emblem-system-symbolic");
+        settingsButton.SetValign(Align.Center);
+        settingsButton.AddCssClass("flat");
+        settingsButton.SetTooltipText("Profile and Game Settings");
 
-        // Fix action name mismatch: Aligned to "profile-settings"
-        var profilePreferences = Gio.SimpleAction.New("profile-preferences", null);
-        profilePreferences.OnActivate += (s, e) =>
+        settingsButton.OnClicked += (s, e) =>
         {
-            // Ensure you pass your active lazy profile handle context here
-            OpenProfilePreferences(_lazyProfile);
+            OpenProfileSettings(_lazyProfile);
         };
-        actionGroup.AddAction(profilePreferences);
 
-        var menuModel = Gio.Menu.New();
-        menuModel.Append("Profile Preferences", "menu.profile-preferences");
-
-        var menuButton = MenuButton.New();
-        menuButton.SetIconName("open-menu-symbolic"); // standard hamburger icon
-        menuButton.SetValign(Align.Center);
-        menuButton.SetMenuModel(menuModel);
-        menuButton.AddCssClass("flat");
-
-        // CRITICAL: Insert the action group right into the button to route popover clicks
-        menuButton.InsertActionGroup("menu", actionGroup);
-
-        header.PackEnd(menuButton);
+        header.PackEnd(settingsButton);
     }
 
-    void OpenProfilePreferences(LazyModList lazyProfile)
+    void OpenProfileSettings(LazyModList lazyProfile)
     {
         if (Page.GetRoot() is not Gtk.Window rootWindow)
             return;
@@ -156,12 +143,18 @@ public class ConfigureProfileViewController : IDisposable
         prefWindow.SetModal(true);
 
         var prefPage = PreferencesPage.New();
-        prefPage.SetTitle("Profile Preferences");
+        prefPage.SetTitle("Profile");
         prefPage.SetIconName("emblem-system-symbolic");
         prefWindow.Add(prefPage);
 
+        var gamePreferences = ProfilesViewController.CreateSettingsPage(
+            lazyProfile.Game,
+            prefWindow
+        );
+        prefWindow.Add(gamePreferences);
+
         var prefGroup = PreferencesGroup.New();
-        prefGroup.SetTitle("Path Configuration");
+        prefGroup.SetTitle("Profile Overrides");
         prefPage.Add(prefGroup);
 
         var expanderRow = ExpanderRow.New();
@@ -185,44 +178,7 @@ public class ConfigureProfileViewController : IDisposable
         browseButton.AddCssClass("flat");
         browseButton.SetTooltipText("Browse for directory...");
         entryRow.AddSuffix(browseButton);
-
-        // --- FIXED: Modern, clean C# async/await Folder Dialog ---
-        browseButton.OnClicked += async (s, e) =>
-        {
-            var fileDialog = FileDialog.New();
-            fileDialog.SetTitle("Select Custom Game Directory");
-
-            // Seed the initial folder if the typed path is already valid on disk
-            string currentText = entryRow.GetText().Trim();
-            if (!string.IsNullOrEmpty(currentText) && Directory.Exists(currentText))
-            {
-                try
-                {
-                    var initialFolderFile = Gio.FileHelper.NewForPath(currentText);
-                    fileDialog.SetInitialFolder(initialFolderFile);
-                }
-                catch
-                { /* Fall back gracefully if path parsing fails */
-                }
-            }
-
-            try
-            {
-                // Await the task wrapper natively on the UI thread execution loop
-                Gio.File? chosenFile = await fileDialog.SelectFolderAsync(prefWindow);
-
-                if (chosenFile != null)
-                {
-                    string selectedDirectoryPath = chosenFile.GetPath() ?? string.Empty;
-                    entryRow.SetText(selectedDirectoryPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                // GirCore throws an exception here if the user cancels or closes the dialog box
-                Console.WriteLine($"Folder selection cancelled or failed: {ex.Message}");
-            }
-        };
+        ButtonOnClickedSelectGameRootDirectory(browseButton, entryRow, prefWindow);
 
         // Seed the initial configuration state
         bool hasOverride = lazyProfile.IsOverrideGamePathEnabled;
@@ -265,6 +221,51 @@ public class ConfigureProfileViewController : IDisposable
         };
 
         prefWindow.Present();
+    }
+
+    internal static void ButtonOnClickedSelectGameRootDirectory(
+        Button browseButton,
+        EntryRow entryRow,
+        PreferencesWindow prefWindow
+    )
+    {
+        // --- FIXED: Modern, clean C# async/await Folder Dialog ---
+        browseButton.OnClicked += async (s, e) =>
+        {
+            var fileDialog = FileDialog.New();
+            fileDialog.SetTitle("Select Game Root Directory");
+
+            // Seed the initial folder if the typed path is already valid on disk
+            string currentText = entryRow.GetText().Trim();
+            if (!string.IsNullOrEmpty(currentText) && Directory.Exists(currentText))
+            {
+                try
+                {
+                    var initialFolderFile = Gio.FileHelper.NewForPath(currentText);
+                    fileDialog.SetInitialFolder(initialFolderFile);
+                }
+                catch
+                { /* Fall back gracefully if path parsing fails */
+                }
+            }
+
+            try
+            {
+                // Await the task wrapper natively on the UI thread execution loop
+                Gio.File? chosenFile = await fileDialog.SelectFolderAsync(prefWindow);
+
+                if (chosenFile != null)
+                {
+                    string selectedDirectoryPath = chosenFile.GetPath() ?? string.Empty;
+                    entryRow.SetText(selectedDirectoryPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                // GirCore throws an exception here if the user cancels or closes the dialog box
+                Console.WriteLine($"Folder selection cancelled or failed: {ex.Message}");
+            }
+        };
     }
 
     public void UpdateConfiguration(LazyModList lazyProfile)

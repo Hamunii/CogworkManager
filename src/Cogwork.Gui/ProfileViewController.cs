@@ -35,6 +35,8 @@ public class ProfilesViewController
         header.SetTitleWidget(_windowTitle);
         layoutBox.Append(header);
 
+        AddHeaderSettingsButton(header);
+
         var scroll = ScrolledWindow.New();
         scroll.SetVexpand(true);
         layoutBox.Append(scroll);
@@ -146,6 +148,85 @@ public class ProfilesViewController
 
         // 4. Build fresh, isolated "Add Profile Row" at the bottom of the list
         AppendAddProfileRow();
+    }
+
+    void AddHeaderSettingsButton(Adw.HeaderBar header)
+    {
+        var settingsButton = Button.NewFromIconName("emblem-system-symbolic");
+        settingsButton.SetValign(Align.Center);
+        settingsButton.AddCssClass("flat");
+        settingsButton.SetTooltipText("Game Settings");
+
+        settingsButton.OnClicked += (s, e) =>
+        {
+            OpenGameSettings(_selectedGame!);
+        };
+
+        header.PackEnd(settingsButton);
+    }
+
+    void OpenGameSettings(Game game)
+    {
+        if (Page.GetRoot() is not Gtk.Window rootWindow)
+            return;
+
+        var prefWindow = PreferencesWindow.New();
+        prefWindow.SetTransientFor(rootWindow);
+        prefWindow.SetDefaultSize(800, 500);
+        prefWindow.SetModal(true);
+        prefWindow.SetTitle("Game Settings");
+
+        var gamePreferences = CreateSettingsPage(game, prefWindow);
+        prefWindow.Add(gamePreferences);
+
+        prefWindow.Present();
+    }
+
+    public static PreferencesPage CreateSettingsPage(
+        Game selectedGame,
+        PreferencesWindow preferencesWindow
+    )
+    {
+        ArgumentNullException.ThrowIfNull(selectedGame);
+        ArgumentNullException.ThrowIfNull(preferencesWindow);
+
+        var page = PreferencesPage.New();
+        page.SetTitle($"Game");
+        page.SetIconName("input-gaming-symbolic");
+
+        var configGroup = PreferencesGroup.New();
+        configGroup.SetTitle("Game Path");
+        page.Add(configGroup);
+
+        var gamePath = EntryRow.New();
+        gamePath.SetTitle("Path to game root directory");
+        gamePath.SetText(selectedGame.Config.PreferredPath ?? "");
+        configGroup.Add(gamePath);
+
+        var browseButton = Button.NewFromIconName("folder-open-symbolic");
+        browseButton.SetValign(Align.Center);
+        browseButton.AddCssClass("flat");
+        browseButton.SetTooltipText("Browse for directory...");
+        gamePath.AddSuffix(browseButton);
+
+        ConfigureProfileViewController.ButtonOnClickedSelectGameRootDirectory(
+            browseButton,
+            gamePath,
+            preferencesWindow
+        );
+
+        preferencesWindow.OnCloseRequest += (s, e) =>
+        {
+            string finalGamePath = gamePath.GetText().Trim();
+            if (selectedGame.Config.PreferredPath != finalGamePath)
+            {
+                selectedGame.Config.PreferredPath = finalGamePath;
+                selectedGame.Config.Save(selectedGame.GameConfigLocation);
+            }
+            return false;
+        };
+
+        return page;
     }
 
     private void AppendAddProfileRow()
