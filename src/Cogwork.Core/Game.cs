@@ -148,7 +148,7 @@ public sealed class Game
     //         Platforms = new(),
     //     };
     public static Game Ror2 { get; } =
-        new("Risk of Rain 2", "risk-of-rain-2", new BepInExModInstallRules())
+        new("Risk of Rain 2", "riskofrain2", new BepInExModInstallRules())
         {
             Platforms = new() { Steam = new() { Id = 632360 } },
         };
