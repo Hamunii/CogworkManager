@@ -66,6 +66,7 @@ public readonly record struct FileInstalls(string[] Installed, string[] Ignored)
 public readonly record struct ModListData(
     string? DisplayName,
     string? OverrideGamePath,
+    bool IsOverrideGamePathEnabled,
     IEnumerable<PackageSourceId>? Sources,
     IEnumerable<string>? PackageIds
 ) : ISaveWithJson;
@@ -90,8 +91,12 @@ public sealed class LazyModList
     }
     public required PackageSourceIndex SourceIndex { get; init; }
     public required Game Game { get; init; }
-    public string? GamePath => OverrideGamePath ?? Game.Config.PreferredPath;
+    public string? GamePath =>
+        IsOverrideGamePathEnabled
+            ? OverrideGamePath ?? Game.Config.PreferredPath
+            : Game.Config.PreferredPath;
     public required string? OverrideGamePath { get; set; }
+    public required bool IsOverrideGamePathEnabled { get; set; }
     public IEnumerable<string> AddedPackageIds { get; private set; }
     public Dictionary<string, PackageVersionNumber>? ResolvedAdded
     {
@@ -235,12 +240,13 @@ public sealed class LazyModList
 
     public void SaveData()
     {
-        ModListData modListData = new()
-        {
-            DisplayName = DisplayName,
-            Sources = SourceIndex.Sources.Select(x => x.Uri),
-            PackageIds = AddedPackageIds,
-        };
+        ModListData modListData = new(
+            DisplayName,
+            OverrideGamePath,
+            IsOverrideGamePathEnabled,
+            SourceIndex.Sources.Select(x => x.Uri),
+            AddedPackageIds
+        );
 
         modListData.Save(ProfileSaveDataPath);
     }
@@ -480,6 +486,7 @@ public sealed class ModList
         {
             Game = game,
             OverrideGamePath = null,
+            IsOverrideGamePathEnabled = false,
             SourceIndex = game.DefaultSource is { } ? new(game.DefaultSource) : new(),
         };
 
@@ -530,6 +537,7 @@ public sealed class ModList
         {
             Game = game,
             OverrideGamePath = data.OverrideGamePath,
+            IsOverrideGamePathEnabled = data.IsOverrideGamePathEnabled,
             SourceIndex =
                 data.Sources is { } ? new(data.Sources)
                 : game.DefaultSource is { } ? new(game.DefaultSource)

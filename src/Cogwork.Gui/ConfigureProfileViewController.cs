@@ -8,7 +8,8 @@ public class ConfigureProfileViewController : IDisposable
     // --- State & Context Data Layer ---
     private readonly NavigationView _navView;
     private readonly Action _onBackNavigated;
-    private ModList _currentProfile = null!;
+    private LazyModList _lazyProfile = null!;
+    private ModList? _currentProfile;
     private CancellationTokenSource? _searchCts;
     private readonly Stack<PackageVersion> _dependants = new();
 
@@ -54,6 +55,8 @@ public class ConfigureProfileViewController : IDisposable
         _searchToggleButton.SetIconName("edit-find-symbolic");
         header.PackStart(_searchToggleButton);
         layoutBox.Append(header);
+
+        AddHeaderHamburgerMenu(header);
 
         // 2. Search Box Setup
         _searchBar = SearchBar.New();
@@ -114,8 +117,159 @@ public class ConfigureProfileViewController : IDisposable
         Page.OnHidden += (s, e) => _currentProfile?.MarkDirty();
     }
 
+    void AddHeaderHamburgerMenu(Adw.HeaderBar header)
+    {
+        var actionGroup = Gio.SimpleActionGroup.New();
+
+        // Fix action name mismatch: Aligned to "profile-settings"
+        var profilePreferences = Gio.SimpleAction.New("profile-preferences", null);
+        profilePreferences.OnActivate += (s, e) =>
+        {
+            // Ensure you pass your active lazy profile handle context here
+            OpenProfilePreferences(_lazyProfile);
+        };
+        actionGroup.AddAction(profilePreferences);
+
+        var menuModel = Gio.Menu.New();
+        menuModel.Append("Profile Preferences", "menu.profile-preferences");
+
+        var menuButton = MenuButton.New();
+        menuButton.SetIconName("open-menu-symbolic"); // standard hamburger icon
+        menuButton.SetValign(Align.Center);
+        menuButton.SetMenuModel(menuModel);
+        menuButton.AddCssClass("flat");
+
+        // CRITICAL: Insert the action group right into the button to route popover clicks
+        menuButton.InsertActionGroup("menu", actionGroup);
+
+        header.PackEnd(menuButton);
+    }
+
+    void OpenProfilePreferences(LazyModList lazyProfile)
+    {
+        if (Page.GetRoot() is not Gtk.Window rootWindow)
+            return;
+
+        var prefWindow = PreferencesWindow.New();
+        prefWindow.SetTransientFor(rootWindow);
+        prefWindow.SetDefaultSize(800, 500);
+        prefWindow.SetModal(true);
+
+        var prefPage = PreferencesPage.New();
+        prefPage.SetTitle("Profile Preferences");
+        prefPage.SetIconName("emblem-system-symbolic");
+        prefWindow.Add(prefPage);
+
+        var prefGroup = PreferencesGroup.New();
+        prefGroup.SetTitle("Path Configuration");
+        prefPage.Add(prefGroup);
+
+        var expanderRow = ExpanderRow.New();
+        expanderRow.SetTitle("Override Game Path");
+        expanderRow.SetSubtitle("Provide a custom directory path for this profile");
+
+        // --- CRITICAL FIX 1: Explicitly render the native GNOME toggle switch ---
+        expanderRow.SetShowEnableSwitch(true);
+
+        var entryRow = EntryRow.New();
+        entryRow.SetTitle("Path to game root directory");
+        entryRow.SetText(
+            _lazyProfile.OverrideGamePath ?? _lazyProfile.Game.Config.PreferredPath ?? ""
+        );
+        expanderRow.AddRow(entryRow);
+        prefGroup.Add(expanderRow);
+
+        // --- Create and attach a flat browse button on the right edge of the text box ---
+        var browseButton = Button.NewFromIconName("folder-open-symbolic");
+        browseButton.SetValign(Align.Center);
+        browseButton.AddCssClass("flat");
+        browseButton.SetTooltipText("Browse for directory...");
+        entryRow.AddSuffix(browseButton);
+
+        // --- FIXED: Modern, clean C# async/await Folder Dialog ---
+        browseButton.OnClicked += async (s, e) =>
+        {
+            var fileDialog = FileDialog.New();
+            fileDialog.SetTitle("Select Custom Game Directory");
+
+            // Seed the initial folder if the typed path is already valid on disk
+            string currentText = entryRow.GetText().Trim();
+            if (!string.IsNullOrEmpty(currentText) && Directory.Exists(currentText))
+            {
+                try
+                {
+                    var initialFolderFile = Gio.FileHelper.NewForPath(currentText);
+                    fileDialog.SetInitialFolder(initialFolderFile);
+                }
+                catch
+                { /* Fall back gracefully if path parsing fails */
+                }
+            }
+
+            try
+            {
+                // Await the task wrapper natively on the UI thread execution loop
+                Gio.File? chosenFile = await fileDialog.SelectFolderAsync(prefWindow);
+
+                if (chosenFile != null)
+                {
+                    string selectedDirectoryPath = chosenFile.GetPath() ?? string.Empty;
+                    entryRow.SetText(selectedDirectoryPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                // GirCore throws an exception here if the user cancels or closes the dialog box
+                Console.WriteLine($"Folder selection cancelled or failed: {ex.Message}");
+            }
+        };
+
+        // Seed the initial configuration state
+        bool hasOverride = lazyProfile.IsOverrideGamePathEnabled;
+
+        // --- CRITICAL FIX 2: Bind to enable-expansion properties to align with the toggle switch
+        expanderRow.SetEnableExpansion(hasOverride);
+        expanderRow.SetExpanded(hasOverride);
+
+        // Sync toggle clicks to immediately open/close the container rows
+        expanderRow.OnNotify += (s, e) =>
+        {
+            // When user interacts with the toggle, sync expansion states
+            if (e.Pspec.GetName() == "enable-expansion")
+            {
+                expanderRow.SetExpanded(expanderRow.GetEnableExpansion());
+            }
+        };
+
+        // Auto-save logic on window close sequence
+        prefWindow.OnCloseRequest += (s, e) =>
+        {
+            string? finalPath = null;
+
+            var isExpand = expanderRow.GetEnableExpansion();
+            finalPath = entryRow.GetText().Trim();
+            if (finalPath == string.Empty)
+                finalPath = null;
+
+            if (
+                lazyProfile.OverrideGamePath != finalPath
+                || lazyProfile.IsOverrideGamePathEnabled != isExpand
+            )
+            {
+                lazyProfile.OverrideGamePath = finalPath;
+                lazyProfile.IsOverrideGamePathEnabled = isExpand;
+                lazyProfile.SaveData();
+            }
+
+            return false;
+        };
+
+        prefWindow.Present();
+    }
+
     public void UpdateConfiguration(LazyModList lazyProfile)
     {
+        _lazyProfile = lazyProfile;
         _currentProfile = lazyProfile.GetModListAsync().Result;
 
         _windowTitle.SetTitle(GLib.Markup.EscapeText(lazyProfile.DisplayName));
@@ -401,7 +555,7 @@ public class ConfigureProfileViewController : IDisposable
                     RenderModDetailsView(pk);
                 }
             );
-            var btn = CreateAddOrRemoveButton(_currentProfile, (PackageReference)dep.Package);
+            var btn = CreateAddOrRemoveButton(_currentProfile!, (PackageReference)dep.Package);
             row.AddSuffix(btn);
             _sectionDependant.Content.Append(row);
         }
