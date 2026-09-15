@@ -90,7 +90,7 @@ public sealed class LazyModList
         set;
     }
     public required PackageSourceIndex SourceIndex { get; init; }
-    public required Game Game { get; init; }
+    public Game Game { get; }
     public string? GamePath =>
         IsOverrideGamePathEnabled
             ? OverrideGamePath ?? Game.Config.PreferredPath
@@ -156,12 +156,14 @@ public sealed class LazyModList
     internal LazyModList(
         string profileId,
         string displayName,
+        Game game,
         IEnumerable<string>? addedPackageIds,
         ModListLockFile lockFile
     )
     {
         Id = profileId;
         DisplayName = displayName;
+        Game = game;
         AddedPackageIds = addedPackageIds ?? [];
 
         Cog.Verbose("Resolved packages:");
@@ -182,9 +184,9 @@ public sealed class LazyModList
                 Cog.Verbose(dep.ToString());
         }
 
-        lock (ModList.idToModListLock)
+        lock (Game.idToModListLock)
         {
-            ModList.IdToModList.Add(profileId, this);
+            Game.IdToModList.Add(profileId, this);
         }
     }
 
@@ -259,9 +261,9 @@ public sealed class LazyModList
 
     public void Delete()
     {
-        lock (ModList.idToModListLock)
+        lock (Game.idToModListLock)
         {
-            ModList.IdToModList.Remove(Id);
+            Game.IdToModList.Remove(Id);
             var profilePath = CogworkPaths.GetProfilesSubDirectoryNoCreate(Game, Id);
             Directory.Delete(profilePath, recursive: true);
         }
@@ -360,9 +362,7 @@ public sealed class LazyModList
 
 public sealed class ModList
 {
-    internal static readonly Lock idToModListLock = new();
     public Game Game => _lazy.Game;
-    internal static Dictionary<string, LazyModList> IdToModList { get; } = [];
     public PackageSourceIndex SourceIndex => _lazy.SourceIndex;
     public Dictionary<PackageReference, PackageVersionReference> Added { get; } = [];
     public Dictionary<PackageReference, PackageVersionReference> Dependencies
@@ -483,9 +483,8 @@ public sealed class ModList
 
     public static LazyModList CreateNew(Game game, string name)
     {
-        var modList = new LazyModList(GetUniqueProfileId(game, name), name, null, default)
+        var modList = new LazyModList(GetUniqueProfileId(game, name), name, game, null, default)
         {
-            Game = game,
             OverrideGamePath = null,
             IsOverrideGamePathEnabled = false,
             SourceIndex = game.DefaultSource is { } ? new(game.DefaultSource) : new(),
@@ -532,11 +531,11 @@ public sealed class ModList
         var modList = new LazyModList(
             profileId,
             data.DisplayName ?? profileId,
+            game,
             data.PackageIds,
             lockFile
         )
         {
-            Game = game,
             OverrideGamePath = data.OverrideGamePath,
             IsOverrideGamePathEnabled = data.IsOverrideGamePathEnabled,
             SourceIndex =
@@ -563,9 +562,9 @@ public sealed class ModList
     /// </summary>
     public static LazyModList? GetFromId(Game game, string profileId)
     {
-        lock (idToModListLock)
+        lock (game.idToModListLock)
         {
-            if (IdToModList.TryGetValue(profileId, out var modList))
+            if (game.IdToModList.TryGetValue(profileId, out var modList))
             {
                 Cog.Debug($"Got existing profile '{profileId}'");
                 return modList;

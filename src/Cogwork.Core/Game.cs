@@ -111,6 +111,9 @@ public sealed class Game
     public IModInstallRules InstallRules { get; }
     public PackageSource? DefaultSource { get; }
 
+    internal Dictionary<string, LazyModList> IdToModList { get; } = [];
+    internal readonly Lock idToModListLock = new();
+
     internal Game(
         string name,
         string slug,
