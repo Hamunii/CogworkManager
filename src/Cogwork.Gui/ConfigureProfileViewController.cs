@@ -163,7 +163,9 @@ public class ConfigureProfileViewController : IDisposable
         localSourceRow.SetSubtitle(
             "Allows adding packages imported to the local package source. Useful for developers."
         );
-        localSourceRow.SetActive(lazyProfile.SourceIndex.Sources.Any(x => x is LocalPackageSource));
+        localSourceRow.SetActive(
+            lazyProfile.SourceIndex.Sources.Any(x => x.Visible && x.Source is LocalPackageSource)
+        );
         localSourceRow.OnNotify += (s, e) =>
         {
             if (e.Pspec.GetName() == "active")

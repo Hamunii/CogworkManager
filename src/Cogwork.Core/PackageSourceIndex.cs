@@ -9,15 +9,19 @@ using ZLinq;
 
 namespace Cogwork.Core;
 
+
+/// <param name="Visible">Visibility to package fetching methods.</param>
+public readonly record struct UserSource(bool Visible, PackageSource Source);
+
 public sealed class PackageSourceIndex
 {
     static readonly Dictionary<PackageSourceId, PackageSource> s_SourceCache = [];
 
     [JsonIgnore]
-    public ReadOnlyCollection<PackageSource> Sources => field ??= new(PackageSources);
+    public ReadOnlyCollection<UserSource> Sources => field ??= new(PackageSources);
 
     [JsonIgnore]
-    List<PackageSource> PackageSources { get; } = [];
+    List<UserSource> PackageSources { get; } = [];
 
     readonly Dictionary<string, Package> dominantPackages = [];
 
@@ -145,16 +149,24 @@ public sealed class PackageSourceIndex
         return value;
     }
 
-    public void Add(PackageSource packageSource)
+    public void AddHidden(PackageSource packageSource)
     {
-        if (!PackageSources.Contains(packageSource))
-        {
-            GetOrCreateSource(packageSource);
-            PackageSources.Add(packageSource);
-        }
+        if (PackageSources.Any(x => x.Source == packageSource))
+            return;
+
+        GetOrCreateSource(packageSource);
+        PackageSources.Add(new(Visible: false, packageSource));
     }
 
-    public bool Remove(PackageSource packageSource) => PackageSources.Remove(packageSource);
+    public void Add(PackageSource packageSource)
+    {
+        GetOrCreateSource(packageSource);
+        Remove(packageSource);
+        PackageSources.Add(new(Visible: true, packageSource));
+    }
+
+    public bool Remove(PackageSource packageSource) =>
+        PackageSources.RemoveAll(x => x.Visible && x.Source == packageSource) != 0;
 
     public async Task<IEnumerable<Package>> GetAllPackagesAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,
@@ -163,7 +175,8 @@ public sealed class PackageSourceIndex
     {
         Cog.Information($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Select(x => x.GetPackagesAsync(progressFactory, cancellationToken))
+            .Where(x => x.Visible)
+            .Select(x => x.Source.GetPackagesAsync(progressFactory, cancellationToken))
             .ToArray();
 
         await Task.WhenAll(fetchTasks);
@@ -177,7 +190,10 @@ public sealed class PackageSourceIndex
     {
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Select(x => x.FetchPackageIndexAutomaticAsync(progressFactory, cancellationToken))
+            .Where(x => x.Visible)
+            .Select(x =>
+                x.Source.FetchPackageIndexAutomaticAsync(progressFactory, cancellationToken)
+            )
             .ToArray();
 
         await Task.WhenAll(fetchTasks);
@@ -190,7 +206,8 @@ public sealed class PackageSourceIndex
     {
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Select(x => x.FetchPackageIndexManualAsync(progressFactory, cancellationToken))
+            .Where(x => x.Visible)
+            .Select(x => x.Source.FetchPackageIndexManualAsync(progressFactory, cancellationToken))
             .ToArray();
 
         await Task.WhenAll(fetchTasks);

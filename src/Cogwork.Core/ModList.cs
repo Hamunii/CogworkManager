@@ -244,7 +244,7 @@ public sealed class LazyModList
             DisplayName,
             OverrideGamePath,
             IsOverrideGamePathEnabled,
-            SourceIndex.Sources.Select(x => x.Uri),
+            SourceIndex.Sources.Where(x => x.Visible).Select(x => x.Source.Uri),
             AddedPackageIds
         );
 
@@ -413,6 +413,7 @@ public sealed class ModList
                     );
                     LostPackages.Add((PackageReference)package);
                 }
+                SourceIndex.AddHidden(source);
             }
         }
 
@@ -654,7 +655,11 @@ public sealed class ModList
             var sameNamePackages = SourceIndex
                 .Sources.Select(x =>
                 {
-                    _ = Package.TryGetPackage(x, packageVersion.Package.FullName, out var package);
+                    _ = Package.TryGetPackage(
+                        x.Source,
+                        packageVersion.Package.FullName,
+                        out var package
+                    );
                     return package!;
                 })
                 .Where(x =>

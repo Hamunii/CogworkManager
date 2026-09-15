@@ -399,7 +399,11 @@ public static class Program
                     .SourceIndex.Sources.Select(
                         (source) =>
                         {
-                            _ = Package.TryGetPackage(source, selected, out var packageFromSource);
+                            _ = Package.TryGetPackage(
+                                source.Source,
+                                selected,
+                                out var packageFromSource
+                            );
                             return packageFromSource!;
                         }
                     )
@@ -626,8 +630,7 @@ public static class Program
 
                         // This is for printing output after everything is downloaded.
                         var whatHappened = profile
-                            .AllPackages
-                            .Select(x =>
+                            .AllPackages.Select(x =>
                                 (
                                     oldVersion: x.Value.Resolve(),
                                     newVersion: x.Key.Resolve().Latest,
@@ -638,9 +641,9 @@ public static class Program
 
                         profile.UpdatePackages();
 
-                        var toDownload = profile
-                            .AllPackages
-                            .Where(x => !x.Value.Resolve().IsDownloaded());
+                        var toDownload = profile.AllPackages.Where(x =>
+                            !x.Value.Resolve().IsDownloaded()
+                        );
 
                         var downloadTasks = toDownload
                             .Select(x =>

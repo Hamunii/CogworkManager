@@ -562,7 +562,7 @@ public sealed partial record Package
 
         if (!fullSplit.MoveNext())
         {
-            foreach (var so in sourceIndex.Sources)
+            foreach (var (_, so) in sourceIndex.Sources)
             {
                 var dict = so.nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>();
                 if (dict.TryGetValue(name, out package))
@@ -596,7 +596,7 @@ public sealed partial record Package
         [NotNullWhen(true)] out PackageSource? packageSource
     )
     {
-        foreach (var source in sourceIndex.Sources.AsValueEnumerable())
+        foreach (var (_, source) in sourceIndex.Sources)
         {
             if (service.Equals(source.Service.Id, StringComparison.Ordinal))
             {
