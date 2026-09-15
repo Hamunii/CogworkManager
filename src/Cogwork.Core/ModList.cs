@@ -406,7 +406,7 @@ public sealed class ModList
                     continue;
                 }
 
-                if (source.TryImportUniquePackage(dep.PackageVersion, out var package))
+                if (source.TryImportHiddenUniquePackage(dep.PackageVersion, out var package))
                 {
                     Cog.Information(
                         $"Imported missing package '{dep.PackageVersion}' (packages in source '{source.Id}': {source.nameToPackage.Count})"

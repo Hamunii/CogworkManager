@@ -869,7 +869,7 @@ public abstract class PackageSource
         nameToPackage[package.FullName] = package;
     }
 
-    public bool TryImportUniquePackage(
+    public bool TryImportHiddenUniquePackage(
         PackageVersion packageVersion,
         [NotNullWhen(true)] out Package? package
     )
