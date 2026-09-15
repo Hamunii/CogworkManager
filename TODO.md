@@ -2,10 +2,10 @@
 
 - Creating, renaming and deleting profiles
   - [ ] Cli
-  - [ ] Gui
+  - [x] Gui
 - Setting game path override per profile
   - [ ] Cli
-  - [ ] Gui
+  - [x] Gui
 - Launching game as direct
   - [x] Cli
   - [ ] Gui
