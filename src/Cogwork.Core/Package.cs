@@ -428,6 +428,8 @@ public readonly record struct PackageVersionReference
 
     public readonly PackageReference Package() => (PackageReference)this;
 
+    public override string ToString() => $"{FullName}-{Version}/{Source.Id}";
+
     public static explicit operator PackageReference(PackageVersionReference reference) =>
         new(reference.FullName, reference.Source);
 

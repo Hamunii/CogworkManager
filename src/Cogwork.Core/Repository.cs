@@ -604,13 +604,9 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
 
                     anyDownloadFailed = true;
                     if (e.Cancelled)
-                    {
                         Cog.Warning($"Cancelled fetching package index url '{fileInfo.url}'");
-                    }
                     else if (e.Error is { } ex)
-                    {
                         Cog.Error($"Error fetching package index url '{fileInfo.url}': {ex}");
-                    }
                 };
 
                 await downloader.DownloadFileTaskAsync(
@@ -686,33 +682,27 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         var downloadUrl = GetPackageDownloadUrl(visualPackageVersion);
         Cog.Debug($"Attempting to download: {downloadUrl}");
 
-        var inProgressLocation = zipFileLocation + ".next";
+        var downloader = new DownloadService(Utils.SharedDownloadConfiguration);
+        downloader.TrackDownloadProgress(progress);
+
+        var success = true;
+        downloader.DownloadFileCompleted += (_, e) =>
         {
-            using var fileStream = new FileStream(
-                inProgressLocation,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None
-            );
-
-            HttpClient client = Utils.SharedHttpClient;
-            var statusCode = await client.DownloadAsync(
-                downloadUrl,
-                fileStream,
-                progress,
-                cancellationToken
-            );
-
-            if (!statusCode.IsSuccess)
+            if (!e.Cancelled && e.Error is null)
             {
-                Cog.Error($"Error downloading package '{packageVersion}': " + statusCode);
-                return false;
+                Cog.Debug($"Download complete for: {downloadUrl}");
+                return;
             }
-        }
-        File.Move(inProgressLocation, zipFileLocation);
 
-        Cog.Debug($"Download complete for: {downloadUrl}");
-        return true;
+            success = false;
+            if (e.Cancelled)
+                Cog.Warning($"Cancelled downloading package '{packageVersion}'");
+            else if (e.Error is { } ex)
+                Cog.Error($"Error downloading package '{packageVersion}': {ex}");
+        };
+
+        await downloader.DownloadFileTaskAsync(downloadUrl, zipFileLocation, cancellationToken);
+        return success;
     }
 
     public override async Task<string> GetReadmeAsync(
