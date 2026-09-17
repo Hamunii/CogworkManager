@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Cogwork.Core.Extensions;
+using Downloader;
 using ZLinq;
 
 namespace Cogwork.Core;
@@ -359,7 +360,7 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
     public bool IsIncompleteIndexCache() =>
         Directory
             .EnumerateFiles(PackageIndexIndexDirectory)
-            .Any(x => x.EndsWith(".todo", StringComparison.Ordinal));
+            .Any(x => x.EndsWith(".next", StringComparison.Ordinal));
 
     public string PackageIndexLocation(string hash) =>
         Path.Combine(PackageIndexIndexDirectory, hash);
@@ -444,6 +445,7 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         Cog.Information("Fetching: " + url);
 
         HttpClient client = Utils.SharedHttpClient;
+        var config = Utils.SharedDownloadConfiguration;
 
         if (await FetchPackageListingsAsync(url, client, cancellationToken) is not { } listings)
         {
@@ -453,9 +455,10 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         if (
             !await DownloadIndexesAsync(
                 progress,
-                client,
+                config,
                 listings.allPackageIndexUrls,
-                listings.newPackageIndexUrls
+                listings.newPackageIndexUrls,
+                cancellationToken
             )
         )
         {
@@ -499,7 +502,11 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         allPackageIndexUrls = [.. strings.Select(url => (url, url.Split('/')[^1]))];
         newPackageIndexUrls =
         [
-            .. allPackageIndexUrls.Where(x => !File.Exists(PackageIndexLocation(x.fileName))),
+            .. allPackageIndexUrls.Where(x =>
+            {
+                var filePath = PackageIndexLocation(x.fileName);
+                return !(File.Exists(filePath) || File.Exists(filePath + ".next"));
+            }),
         ];
 
         Cog.Debug(
@@ -510,100 +517,135 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
 
     private async Task<bool> DownloadIndexesAsync(
         ProgressContext progress,
-        HttpClient client,
+        DownloadConfiguration downloadConfig,
         (string url, string fileName)[] allPackageIndexUrls,
-        (string url, string fileName)[] newPackageIndexUrls
+        (string url, string fileName)[] newPackageIndexUrls,
+        CancellationToken cancellationToken = default
     )
     {
         Cog.Debug(
             $"Downloading {newPackageIndexUrls.Length} package indexes to {PackageIndexIndexDirectory}"
         );
 
-        var progresses = new double[newPackageIndexUrls.Length];
-        double combinedTotalBytes = 0;
+        long combinedTotalBytes = 0;
         long totalContentLength = 0;
-        int i = 0;
-        var tasks = newPackageIndexUrls.Select(
-            async Task<HttpStatusCode> (x) =>
-            {
-                using var zipFileStream = new FileStream(
-                    PackageIndexLocation(x.fileName) + ".todo",
-                    FileMode.Create,
-                    FileAccess.Write,
-                    FileShare.None
-                );
+        bool anyDownloadFailed = false;
 
-                ProgressContext progressContext = progress;
+        if (progress.Progress is { } combinedProgress && progress.OnContentLengthKnown is { })
+        {
+            Cog.Debug("Fetching combined downloadable index size");
+
+            await Parallel.ForEachAsync(
+                newPackageIndexUrls,
+                new ParallelOptions()
+                {
+                    MaxDegreeOfParallelism = 32, // enough for all package listings at once
+                    CancellationToken = cancellationToken,
+                },
+                async (fileInfo, cancellationToken) =>
+                {
+                    var info = await RemoteFileResolver.GetFileInfoAsync(
+                        fileInfo.url,
+                        Utils.SharedDownloadConfiguration,
+                        cancellationToken
+                    );
+
+                    if (info.FileSize != -1)
+                    {
+                        Interlocked.Add(ref totalContentLength, info.FileSize);
+                    }
+                }
+            );
+
+            progress.OnContentLengthKnown(combinedProgress, totalContentLength);
+        }
+
+        var parallelOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = 6, // arbitrary value
+            CancellationToken = cancellationToken,
+        };
+
+        await Parallel.ForEachAsync(
+            newPackageIndexUrls,
+            parallelOptions,
+            async (fileInfo, cancellationToken) =>
+            {
+                var downloader = new DownloadService(downloadConfig);
+
+                long previousTotalBytes = 0;
+
                 if (progress.Progress is { } combinedProgress)
                 {
-                    var j = i;
-                    // Cog.Debug($"progress[{j}] is initializing");
-                    var progressCombinator = new Progress<double>(totalBytes =>
+                    downloader.DownloadProgressChanged += (_, e) =>
                     {
-                        var diff = totalBytes - progresses[j];
-                        progresses[j] = totalBytes;
-                        double combinedTotalBytesCopy;
+                        long totalBytes = e.ReceivedBytesSize;
+                        long diff = totalBytes - previousTotalBytes;
+                        previousTotalBytes = totalBytes;
+                        Interlocked.Add(ref combinedTotalBytes, diff);
+
                         lock (_totalBytesLock)
                         {
-                            combinedTotalBytesCopy = combinedTotalBytes += diff;
+                            combinedProgress.Report(combinedTotalBytes);
                         }
-                        // Cog.Debug(
-                        //     $"progress[{j}] diff: {diff}, totalBytes: {combinedTotalBytesCopy}"
-                        // );
-                        combinedProgress.Report(combinedTotalBytes);
-                    });
-
-                    progressContext = new(
-                        progressCombinator,
-                        (p, contentLength) =>
-                        {
-                            lock (_totalContentLengthLock)
-                            {
-                                var oldContentLength = totalContentLength;
-                                totalContentLength += (long)contentLength!;
-                                // Cog.Debug(
-                                //     $"progress[{j}] updated totalContentLength to {totalContentLength} from {oldContentLength}"
-                                // );
-                                progress.OnContentLengthKnown!(
-                                    combinedProgress,
-                                    totalContentLength
-                                );
-                            }
-                        }
-                    );
+                    };
                 }
-                i++;
-                var status = await client.DownloadAsync(x.url, zipFileStream, progressContext);
-                Cog.Debug($"Downloaded index {x.fileName}");
-                return status;
+
+                var packageIndexLocation = PackageIndexLocation(fileInfo.fileName);
+                var tempDestinationPath = packageIndexLocation + ".next";
+
+                downloader.DownloadFileCompleted += (_, e) =>
+                {
+                    if (!e.Cancelled && e.Error is null)
+                    {
+                        Cog.Debug($"Downloaded index {fileInfo.fileName}");
+                        return;
+                    }
+
+                    anyDownloadFailed = true;
+                    if (e.Cancelled)
+                    {
+                        Cog.Warning($"Cancelled fetching package index url '{fileInfo.url}'");
+                    }
+                    else if (e.Error is { } ex)
+                    {
+                        Cog.Error($"Error fetching package index url '{fileInfo.url}': {ex}");
+                    }
+                };
+
+                await downloader.DownloadFileTaskAsync(
+                    fileInfo.url,
+                    tempDestinationPath,
+                    cancellationToken
+                );
             }
         );
 
-        var statuses = await Task.WhenAll(tasks);
-
-        int j = 0;
-        foreach (var status in statuses)
+        if (anyDownloadFailed)
         {
-            if (!status.IsSuccess)
+            return false;
+        }
+
+        foreach (var url in allPackageIndexUrls)
+        {
+            var packageIndexLocation = PackageIndexLocation(url.fileName);
+            var nextFile = packageIndexLocation + ".next";
+            if (File.Exists(nextFile))
             {
-                Cog.Error("Error fetching package index url: " + status);
-                return false;
+                File.Move(nextFile, packageIndexLocation, overwrite: true);
             }
-            var packageIndexLocation = PackageIndexLocation(newPackageIndexUrls[j].fileName);
-            File.Move(packageIndexLocation + ".todo", packageIndexLocation, overwrite: true);
-            j++;
         }
 
-        var allUpToDateFiles = allPackageIndexUrls.Select(x => x.fileName).ToArray();
-        foreach (
-            var outdated in Directory
-                .EnumerateFiles(PackageIndexIndexDirectory)
-                .Where(x => !allUpToDateFiles.Contains(Path.GetFileName(x)))
-        )
+        var allUpToDateFiles = allPackageIndexUrls.Select(x => x.fileName).ToHashSet();
+        foreach (var outdated in Directory.EnumerateFiles(PackageIndexIndexDirectory))
         {
-            Cog.Debug($"Deleting outdated cache file '{outdated}'");
-            File.Delete(outdated);
+            if (!allUpToDateFiles.Contains(Path.GetFileName(outdated)))
+            {
+                Cog.Debug($"Deleting outdated cache file '{outdated}'");
+                File.Delete(outdated);
+            }
         }
+
         return true;
     }
 
@@ -644,7 +686,7 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         var downloadUrl = GetPackageDownloadUrl(visualPackageVersion);
         Cog.Debug($"Attempting to download: {downloadUrl}");
 
-        var inProgressLocation = zipFileLocation + ".todo";
+        var inProgressLocation = zipFileLocation + ".next";
         {
             using var fileStream = new FileStream(
                 inProgressLocation,
@@ -686,7 +728,7 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
 
         var directoryPath = Path.Combine(installPathRoot, version);
         var readme = Path.Combine(directoryPath, "README.md");
-        var readmeTodo = readme + ".todo";
+        var readmeTodo = readme + ".next";
 
         if (File.Exists(readme))
         {
@@ -820,7 +862,10 @@ public abstract class PackageSource
         var result = Parallel.ForEach(
             Directory
                 .EnumerateFiles(packageIndexPath)
-                .Where(x => !x.EndsWith(".todo", StringComparison.Ordinal)),
+                .Where(x =>
+                    !x.EndsWith(".next", StringComparison.Ordinal)
+                    && !x.EndsWith(".next.download", StringComparison.Ordinal)
+                ),
             (indexFile, state) =>
             {
                 try

@@ -15,5 +15,6 @@
     <PackageReference Include="ZLinq" Version="1.5.5" />
     <PackageReference Include="TestableIO.System.IO.Abstractions.TestingHelpers" Version="22.1.0" />
     <PackageReference Include="Gameloop.Vdf" Version="0.6.2" />
+    <PackageReference Include="Downloader" Version="5.9.6" />
   </ItemGroup>
 </Project>

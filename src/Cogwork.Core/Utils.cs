@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Cogwork.Core.Extensions;
+using Downloader;
 
 namespace Cogwork.Core;
 
@@ -12,6 +13,10 @@ public static class Utils
 {
     // Apparently one should preferably keep a singleton of HttpClient.
     internal static HttpClient SharedHttpClient { get; } = new();
+    internal static DownloadConfiguration SharedDownloadConfiguration { get; } = new()
+    {
+        EnableAutoResumeDownload = true,
+    };
 
     /// <summary>
     /// Performs a task if it's not actively being
