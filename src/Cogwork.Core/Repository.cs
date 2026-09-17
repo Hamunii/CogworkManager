@@ -725,26 +725,33 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
             return await File.ReadAllTextAsync(readme, cancellationToken);
         }
 
-        var author = packageVersion.Author;
-        var name = packageVersion.Name;
         var downloadUrl = GetPackageReadmeUrl(packageVersion);
 
-        using MemoryStream memoryStream = new();
+        var downloader = new DownloadService(Utils.SharedDownloadConfiguration);
 
-        HttpClient client = Utils.SharedHttpClient;
-        var statusCode = await client.DownloadAsync(
+        var failed = false;
+        downloader.DownloadFileCompleted += (_, e) =>
+        {
+            if (!e.Cancelled && e.Error is null)
+                return;
+
+            failed = true;
+            if (e.Cancelled)
+                Cog.Warning($"Cancelled downloading package readme '{packageVersion}'");
+            else if (e.Error is { } ex)
+                Cog.Error($"Error downloading package readme '{packageVersion}': {ex}");
+        };
+
+        using var memoryStream = await downloader.DownloadFileTaskAsync(
             downloadUrl,
-            memoryStream,
-            default,
             cancellationToken
         );
 
-        if (!statusCode.IsSuccess)
+        if (failed)
         {
-            Cog.Error($"Error downloading package readme '{packageVersion}': " + statusCode);
             return "failed to fetch readme";
         }
-        memoryStream.Position = 0;
+
         var markdown = JsonSerializer.Deserialize(memoryStream, JsonGen.Default.PackageMarkdown);
 
         Directory.CreateDirectory(directoryPath);
