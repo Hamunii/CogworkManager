@@ -314,18 +314,18 @@ public sealed class LocalPackageSource : PackageSource
     }
 }
 
-public sealed class ThunderstoreCommunity(string gameSlug) : PackageSource
+public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
 {
     [JsonIgnore]
     public string PackageIndexBaseDirectory =>
-        field ??= CogworkPaths.GetCacheIndexSubDirectory(gameSlug, "thunderstore");
+        field ??= CogworkPaths.GetCacheIndexSubDirectory(id.GameSlug, id.Site);
 
     public string PackageIndexIndexDirectory =>
         field ??= CogworkPaths.CombineAndCreate(PackageIndexBaseDirectory, "index");
 
-    public string PackageInstallSubDirectory { get; } = "thunderstore";
+    public string PackageInstallSubDirectory { get; } = id.Site;
 
-    public override PackageSourceId Uri { get; } = new("thunderstore.io", gameSlug);
+    public override PackageSourceId Uri => id;
     public override string Id => field ??= Uri.ToString();
 
     public string PackageIndexCacheLocation =>
@@ -341,8 +341,20 @@ public sealed class ThunderstoreCommunity(string gameSlug) : PackageSource
     readonly Lock _totalContentLengthLock = new();
     bool isImported;
 
-    public ThunderstoreCommunity(Game game)
-        : this(game.Slug) { }
+    public static ThunderstoreCommunity CreateDefault(Game game) =>
+        new(new("thunderstore.io", game.Slug));
+
+    protected static string GetPackageVersionUrlPath(VisualPackageVersion package) =>
+        $"{package.Author}/{package.Name}/{package.Version}";
+
+    protected virtual string GetPackageListingIndexUrl() =>
+        $"https://{id.Site}/c/{id.GameSlug}/api/v1/package-listing-index/";
+
+    protected virtual string GetPackageDownloadUrl(VisualPackageVersion package) =>
+        $"https://{id.Site}/package/download/{GetPackageVersionUrlPath(package)}/";
+
+    protected virtual string GetPackageReadmeUrl(VisualPackageVersion package) =>
+        $"https://{id.Site}/api/experimental/package/{GetPackageVersionUrlPath(package)}/readme/";
 
     public bool IsIncompleteIndexCache() =>
         Directory
@@ -427,7 +439,7 @@ public sealed class ThunderstoreCommunity(string gameSlug) : PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        var url = $"https://thunderstore.io/c/{gameSlug}/api/v1/package-listing-index/";
+        var url = GetPackageListingIndexUrl();
 
         Cog.Information("Fetching: " + url);
 
@@ -585,24 +597,14 @@ public sealed class ThunderstoreCommunity(string gameSlug) : PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        if (
-            IsPackageDownloaded(
-                (VisualPackageVersion)packageVersion,
-                out string? zipFileLocation,
-                out _,
-                out _
-            )
-        )
+        var visualPackageVersion = (VisualPackageVersion)packageVersion;
+        if (IsPackageDownloaded(visualPackageVersion, out string? zipFileLocation, out _, out _))
         {
             Cog.Debug($"Package is already downloaded for '{packageVersion}'");
             return true;
         }
 
-        var package = packageVersion.Package;
-        var author = package.Author.Name;
-        var name = package.Name;
-        var version = packageVersion.Version.ToString();
-        var downloadUrl = $"https://thunderstore.io/package/download/{author}/{name}/{version}/";
+        var downloadUrl = GetPackageDownloadUrl(visualPackageVersion);
         Cog.Debug($"Attempting to download: {downloadUrl}");
 
         var inProgressLocation = zipFileLocation + ".todo";
@@ -656,8 +658,7 @@ public sealed class ThunderstoreCommunity(string gameSlug) : PackageSource
 
         var author = packageVersion.Author;
         var name = packageVersion.Name;
-        var downloadUrl =
-            $"https://thunderstore.io/api/experimental/package/{author}/{name}/{version}/readme/";
+        var downloadUrl = GetPackageReadmeUrl(packageVersion);
 
         using MemoryStream memoryStream = new();
 

@@ -124,7 +124,7 @@ public sealed class Game
         Name = name;
         Slug = slug;
         InstallRules = installRules;
-        DefaultSource = defaultSource ?? new ThunderstoreCommunity(this);
+        DefaultSource = defaultSource ?? ThunderstoreCommunity.CreateDefault(this);
     }
 
     public static Game Silksong { get; } =

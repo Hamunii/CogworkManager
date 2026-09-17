@@ -122,7 +122,7 @@ public sealed class PackageSourceIndex
                     Cog.Debug($"Couldn't find game by name '{uri.GameSlug}'");
                 }
 
-                source = GetOrCreateSource(uri, () => new ThunderstoreCommunity(uri.GameSlug));
+                source = GetOrCreateSource(uri, () => new ThunderstoreCommunity(uri));
                 return true;
         }
 
