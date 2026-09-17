@@ -444,36 +444,77 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         Cog.Information("Fetching: " + url);
 
         HttpClient client = Utils.SharedHttpClient;
+
+        if (await FetchPackageListingsAsync(url, client, cancellationToken) is not { } listings)
+        {
+            return false;
+        }
+
+        if (
+            !await DownloadIndexesAsync(
+                progress,
+                client,
+                listings.allPackageIndexUrls,
+                listings.newPackageIndexUrls
+            )
+        )
+        {
+            return false;
+        }
+
+        Cog.Information("Fetched successfully.");
+        return true;
+    }
+
+    private async Task<(
+        (string url, string fileName)[] allPackageIndexUrls,
+        (string url, string fileName)[] newPackageIndexUrls
+    )?> FetchPackageListingsAsync(
+        string url,
+        HttpClient client,
+        CancellationToken cancellationToken
+    )
+    {
         var response = await client.GetAsync(url, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             Cog.Error("Error fetching url for package index: " + response.StatusCode);
-            return false;
+            return default;
+        }
+
+        using GZipStream zipStream = new(
+            response.Content.ReadAsStream(cancellationToken),
+            CompressionMode.Decompress
+        );
+        var strings = JsonSerializer.Deserialize(zipStream, JsonGen.Default.StringArray);
+        if (strings is null)
+        {
+            Cog.Error($"Expected string[] but received null from '{url}'.");
+            return default;
         }
 
         (string url, string fileName)[] allPackageIndexUrls;
         (string url, string fileName)[] newPackageIndexUrls;
-        {
-            using GZipStream zipStream = new(
-                response.Content.ReadAsStream(cancellationToken),
-                CompressionMode.Decompress
-            );
-            var strings = JsonSerializer.Deserialize(zipStream, JsonGen.Default.StringArray);
-            if (strings is null)
-            {
-                Cog.Error($"Expected string[] but received null from '{url}'.");
-                return false;
-            }
-            allPackageIndexUrls = [.. strings.Select(url => (url, url.Split('/')[^1]))];
-            newPackageIndexUrls =
-            [
-                .. allPackageIndexUrls.Where(x => !File.Exists(PackageIndexLocation(x.fileName))),
-            ];
-            Cog.Debug(
-                $"Got package index urls: {newPackageIndexUrls.Length} new, {strings.Length} total"
-            );
-        }
 
+        allPackageIndexUrls = [.. strings.Select(url => (url, url.Split('/')[^1]))];
+        newPackageIndexUrls =
+        [
+            .. allPackageIndexUrls.Where(x => !File.Exists(PackageIndexLocation(x.fileName))),
+        ];
+
+        Cog.Debug(
+            $"Got package index urls: {newPackageIndexUrls.Length} new, {strings.Length} total"
+        );
+        return (allPackageIndexUrls, newPackageIndexUrls);
+    }
+
+    private async Task<bool> DownloadIndexesAsync(
+        ProgressContext progress,
+        HttpClient client,
+        (string url, string fileName)[] allPackageIndexUrls,
+        (string url, string fileName)[] newPackageIndexUrls
+    )
+    {
         Cog.Debug(
             $"Downloading {newPackageIndexUrls.Length} package indexes to {PackageIndexIndexDirectory}"
         );
@@ -482,63 +523,61 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         double combinedTotalBytes = 0;
         long totalContentLength = 0;
         int i = 0;
-        var tasks = newPackageIndexUrls
-            .Select(
-                async Task<HttpStatusCode> (x) =>
+        var tasks = newPackageIndexUrls.Select(
+            async Task<HttpStatusCode> (x) =>
+            {
+                using var zipFileStream = new FileStream(
+                    PackageIndexLocation(x.fileName) + ".todo",
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None
+                );
+
+                ProgressContext progressContext = progress;
+                if (progress.Progress is { } combinedProgress)
                 {
-                    using var zipFileStream = new FileStream(
-                        PackageIndexLocation(x.fileName) + ".todo",
-                        FileMode.Create,
-                        FileAccess.Write,
-                        FileShare.None
-                    );
-
-                    ProgressContext progressContext = progress;
-                    if (progress.Progress is { } combinedProgress)
+                    var j = i;
+                    // Cog.Debug($"progress[{j}] is initializing");
+                    var progressCombinator = new Progress<double>(totalBytes =>
                     {
-                        var j = i;
-                        // Cog.Debug($"progress[{j}] is initializing");
-                        var progressCombinator = new Progress<double>(totalBytes =>
+                        var diff = totalBytes - progresses[j];
+                        progresses[j] = totalBytes;
+                        double combinedTotalBytesCopy;
+                        lock (_totalBytesLock)
                         {
-                            var diff = totalBytes - progresses[j];
-                            progresses[j] = totalBytes;
-                            double combinedTotalBytesCopy;
-                            lock (_totalBytesLock)
-                            {
-                                combinedTotalBytesCopy = combinedTotalBytes += diff;
-                            }
-                            // Cog.Debug(
-                            //     $"progress[{j}] diff: {diff}, totalBytes: {combinedTotalBytesCopy}"
-                            // );
-                            combinedProgress.Report(combinedTotalBytes);
-                        });
+                            combinedTotalBytesCopy = combinedTotalBytes += diff;
+                        }
+                        // Cog.Debug(
+                        //     $"progress[{j}] diff: {diff}, totalBytes: {combinedTotalBytesCopy}"
+                        // );
+                        combinedProgress.Report(combinedTotalBytes);
+                    });
 
-                        progressContext = new(
-                            progressCombinator,
-                            (p, contentLength) =>
+                    progressContext = new(
+                        progressCombinator,
+                        (p, contentLength) =>
+                        {
+                            lock (_totalContentLengthLock)
                             {
-                                lock (_totalContentLengthLock)
-                                {
-                                    var oldContentLength = totalContentLength;
-                                    totalContentLength += (long)contentLength!;
-                                    // Cog.Debug(
-                                    //     $"progress[{j}] updated totalContentLength to {totalContentLength} from {oldContentLength}"
-                                    // );
-                                    progress.OnContentLengthKnown!(
-                                        combinedProgress,
-                                        totalContentLength
-                                    );
-                                }
+                                var oldContentLength = totalContentLength;
+                                totalContentLength += (long)contentLength!;
+                                // Cog.Debug(
+                                //     $"progress[{j}] updated totalContentLength to {totalContentLength} from {oldContentLength}"
+                                // );
+                                progress.OnContentLengthKnown!(
+                                    combinedProgress,
+                                    totalContentLength
+                                );
                             }
-                        );
-                    }
-                    i++;
-                    var status = await client.DownloadAsync(x.url, zipFileStream, progressContext);
-                    Cog.Debug($"Downloaded index {x.fileName}");
-                    return status;
+                        }
+                    );
                 }
-            )
-            .ToArray();
+                i++;
+                var status = await client.DownloadAsync(x.url, zipFileStream, progressContext);
+                Cog.Debug($"Downloaded index {x.fileName}");
+                return status;
+            }
+        );
 
         var statuses = await Task.WhenAll(tasks);
 
@@ -565,8 +604,6 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
             Cog.Debug($"Deleting outdated cache file '{outdated}'");
             File.Delete(outdated);
         }
-
-        Cog.Information("Fetched successfully.");
         return true;
     }
 
