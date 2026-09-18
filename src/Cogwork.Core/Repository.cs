@@ -782,6 +782,9 @@ public readonly record struct PackageSourceId(string Site, string GameSlug)
     public bool TryGetGame([NotNullWhen(true)] out Game? game) =>
         Game.NameToGame.TryGetValue(GameSlug, out game);
 
+    public bool TryResolve([NotNullWhen(true)] out PackageSource? source) =>
+        PackageSourceIndex.TryParseSourceId(this, out source);
+
     public override string ToString() => GameSlug == string.Empty ? Site : $"{Site}/{GameSlug}";
 }
 
