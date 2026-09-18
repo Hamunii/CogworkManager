@@ -227,8 +227,8 @@ public sealed class LazyModList
             {
                 _modList = modList; // this is set first, some stuff needs it early
                 AddedPackageIds = added
-                    .Select(x => x.Key.ToStringSimpleWithSource())
-                    .Concat(modList.LostPackageIds);
+                    .Select(x => x.Value.ToString())
+                    .Concat(modList.LostPackageVersionIds);
             },
             onResolved: () =>
             {
@@ -373,7 +373,7 @@ public sealed class ModList
     public IEnumerable<KeyValuePair<PackageReference, PackageVersionReference>> AllPackages =>
         Added.Concat(Dependencies);
     public Dictionary<PackageReference, PackageVersionReference> RecentlyRemoved { get; } = [];
-    public HashSet<string> LostPackageIds { get; } = [];
+    public HashSet<string> LostPackageVersionIds { get; } = [];
     public HashSet<PackageReference> LostPackages { get; } = [];
     public LazyModList Lazy => _lazy;
     readonly LazyModList _lazy;
@@ -402,7 +402,7 @@ public sealed class ModList
                 var source = dep.GetSourceOrNull(SourceIndex);
                 if (source is null)
                 {
-                    LostPackageIds.Add(dep.PackageVersion.GetFullName());
+                    LostPackageVersionIds.Add(dep.PackageVersion.ToString());
                     continue;
                 }
 
@@ -418,53 +418,41 @@ public sealed class ModList
         }
 
         Cog.Debug($"Initializing mod list");
+        var fallbackSource = SourceIndex.Sources.First(x => x.Visible).Source;
 
-        foreach (var packageId in _lazy.AddedPackageIds)
+        foreach (var packageIdWithVersion in _lazy.AddedPackageIds)
         {
-            if (
-                Package.TryGetPackageWithNoVersion(
-                    _lazy.SourceIndex,
-                    packageId,
-                    out var package,
-                    preferredSource: null
-                )
-            )
+            var packageVersion = PackageVersion.ResolvePackageVersionWithFallbackSource(
+                SourceIndex,
+                fallbackSource,
+                packageIdWithVersion
+            );
+            if (packageVersion is null)
             {
-                if (
-                    _lazy.ResolvedAdded is { } resolved
-                    && resolved.TryGetValue(
-                        package.ToStringSimpleWithSource(),
-                        out var packageVersionNumber
-                    )
-                    && package.TryGetVersion(packageVersionNumber, out var packageVersion)
-                )
-                {
-                    Cog.Verbose($"Add PackageVersion {packageVersion}");
-                    packages.Add(packageVersion);
-                    continue;
-                }
+                Cog.Error(
+                    $"{nameof(PackageVersion)} '{packageIdWithVersion}' should have been imported already."
+                        + " Was the lock file deleted?"
+                );
+                LostPackageVersionIds.Add(packageIdWithVersion);
+                continue;
+            }
 
-                Cog.Verbose($"Add Package (no resolved Version found) {package.Latest}");
-                packages.Add(package.Latest);
-            }
-            else
-            {
-                LostPackageIds.Add(packageId);
-            }
+            Cog.Verbose($"Add PackageVersion {packageVersion}");
+            packages.Add(packageVersion);
+            continue;
         }
 
         if (_lazy.ResolvedDependencies is { } resolvedDependencies)
         {
-            foreach (var package in resolvedDependencies)
+            foreach (var packageId in resolvedDependencies.Select(x => $"{x.Key}-{x.Value}"))
             {
-                if (
-                    Package.TryGetPackageVersion(
-                        _lazy.SourceIndex,
-                        new VisualPackageVersion(package).ToString(),
-                        out var packageVersion,
-                        preferredSource: null
-                    )
-                )
+                var packageVersion = PackageVersion.ResolvePackageVersionWithFallbackSource(
+                    SourceIndex,
+                    fallbackSource,
+                    packageId
+                );
+
+                if (packageVersion is { })
                 {
                     Dependencies.Add(
                         (PackageReference)packageVersion.Package,
@@ -656,7 +644,7 @@ public sealed class ModList
                 {
                     _ = Package.TryGetPackage(
                         x.Source,
-                        packageVersion.Package.FullName,
+                        (PackageReference)packageVersion.Package,
                         out var package
                     );
                     return package!;

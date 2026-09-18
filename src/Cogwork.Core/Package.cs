@@ -396,6 +396,51 @@ public readonly record struct PackageReference
         Source = source;
     }
 
+    public static bool TryCreateFrom(string packageId, out PackageReference packageReference) =>
+        TryCreateFromCore(packageId, null, out packageReference);
+
+    public static bool TryCreateWithFallbackSourceFrom(
+        string packageId,
+        PackageSource fallbackSource,
+        out PackageReference packageReference
+    ) => TryCreateFromCore(packageId, fallbackSource, out packageReference);
+
+    static bool TryCreateFromCore(
+        string packageId,
+        PackageSource? fallbackSource,
+        out PackageReference packageReference
+    )
+    {
+        var span = packageId.AsSpan();
+
+        var everythingButSource = span.Split('/');
+        everythingButSource.MoveNext();
+
+        var left = span[everythingButSource.Current];
+        string fullName = left[..].ToString();
+
+        if (!everythingButSource.MoveNext())
+        {
+            if (fallbackSource is { })
+            {
+                packageReference = new(fullName, fallbackSource);
+                return true;
+            }
+
+            throw new InvalidDataException("This constructor requires format 'author-name/source'");
+        }
+
+        var right = span[everythingButSource.Current.Start..];
+        if (!PackageSourceId.Parse(right.ToString()).TryResolve(out var source))
+        {
+            packageReference = default;
+            return false;
+        }
+
+        packageReference = new(fullName, source);
+        return true;
+    }
+
     public string ToStringSimpleWithSource() => $"{FullName}/{Source.Id}";
 
     public readonly Package Resolve() => (Package)this;
@@ -431,13 +476,13 @@ public readonly record struct PackageVersionReference
 
     public static bool TryCreateWithFallbackSourceFrom(
         string packageId,
-        PackageSource source,
+        PackageSource fallbackSource,
         out PackageVersionReference versionReference
-    ) => TryCreateFromCore(packageId, source, out versionReference);
+    ) => TryCreateFromCore(packageId, fallbackSource, out versionReference);
 
     static bool TryCreateFromCore(
         string packageId,
-        PackageSource? ownerSource,
+        PackageSource? fallbackSource,
         out PackageVersionReference versionReference
     )
     {
@@ -454,9 +499,9 @@ public readonly record struct PackageVersionReference
 
         if (!everythingButSource.MoveNext())
         {
-            if (ownerSource is { })
+            if (fallbackSource is { })
             {
-                versionReference = new(fullName, version, ownerSource);
+                versionReference = new(fullName, version, fallbackSource);
                 return true;
             }
 
@@ -538,31 +583,6 @@ public sealed partial record Package
         }
     }
 
-    public static bool TryGetPackageWithNoVersion(
-        PackageSourceIndex sourceIndex,
-        ReadOnlySpan<char> fullName,
-        [NotNullWhen(true)] out Package? package,
-        PackageSource? preferredSource
-    ) =>
-        TryGetPackage(
-            sourceIndex,
-            fullName,
-            out package,
-            hasVersion: false,
-            out _,
-            out _,
-            preferredSource
-        );
-
-    private static bool TryGetPackage(
-        PackageSource source,
-        ReadOnlySpan<char> fullName,
-        [NotNullWhen(true)] out Package? package
-    ) =>
-        source
-            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
-            .TryGetValue(fullName, out package);
-
     public static bool TryGetPackage(
         PackageSource source,
         PackageReference packageReference,
@@ -610,142 +630,6 @@ public sealed partial record Package
             && package.TryGetVersion(versionReference.Version, out packageVersion);
     }
 
-    // FIXME: This is a horrible method, too many paths.
-    // This and related methods need to be refactored.
-    private static bool TryGetPackage(
-        PackageSourceIndex sourceIndex,
-        ReadOnlySpan<char> fullNameX,
-        [NotNullWhen(true)] out Package? package,
-        bool hasVersion,
-        out PackageVersionNumber? version,
-        [NotNullWhen(true)] out PackageSource? source,
-        PackageSource? preferredSource
-    )
-    {
-        var fullSplit = fullNameX.Split('/');
-        fullSplit.MoveNext();
-
-        var fullName = fullNameX[fullSplit.Current];
-        var split = fullName.Split('-');
-        split.MoveNext();
-        split.MoveNext();
-        var name = fullName[0..split.Current.End];
-
-        if (hasVersion)
-        {
-            split.MoveNext();
-
-            try
-            {
-                version = new(fullName[split.Current].ToString());
-            }
-            catch (Exception ex)
-            {
-                throw new ArgumentException(fullName.ToString(), ex);
-            }
-        }
-        else
-        {
-            version = default;
-        }
-
-        source = default;
-        package = default;
-
-        if (preferredSource is { })
-        {
-            if (TryGetPackage(preferredSource, name, out package))
-            {
-                source = preferredSource;
-                return true;
-            }
-        }
-
-        if (!fullSplit.MoveNext())
-        {
-            foreach (var (_, so) in sourceIndex.Sources)
-            {
-                var dict = so.nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>();
-                if (dict.TryGetValue(name, out package))
-                {
-                    source = so;
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        var service = fullNameX[fullSplit.Current.Start..];
-        if (TryGetPackageSource(sourceIndex, service, out var packageSource))
-        {
-            source = packageSource;
-        }
-        else
-        {
-            Cog.Warning($"No package source found for '{service}' ({fullName})");
-            return false;
-        }
-
-        return source
-            .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
-            .TryGetValue(name, out package);
-    }
-
-    static bool TryGetPackageSource(
-        PackageSourceIndex sourceIndex,
-        ReadOnlySpan<char> service,
-        [NotNullWhen(true)] out PackageSource? packageSource
-    )
-    {
-        foreach (var (_, source) in sourceIndex.Sources)
-        {
-            if (service.Equals(source.Service.Id, StringComparison.Ordinal))
-            {
-                packageSource = source;
-                return true;
-            }
-        }
-
-        packageSource = default;
-        return false;
-    }
-
-    private static bool TryGetPackageVersion(
-        PackageSourceIndex sourceIndex,
-        ReadOnlySpan<char> fullNameWithVersion,
-        [NotNullWhen(true)] out PackageVersion? packageVersion,
-        PackageSource? preferredSource
-    )
-    {
-        if (
-            !TryGetPackage(
-                sourceIndex,
-                fullNameWithVersion,
-                out var package,
-                hasVersion: true,
-                out var version,
-                out _,
-                preferredSource
-            )
-        )
-        {
-            Cog.Warning(
-                $"Package for '{fullNameWithVersion}' doesn't exist. "
-                    + "Was the package source data fetched and imported first?"
-                    + new StackTrace(true)
-            );
-            packageVersion = default;
-            return false;
-        }
-
-        if (!package.TryGetVersion(version!.Value, out packageVersion))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
     public bool TryGetVersion(
         PackageVersionNumber version,
         [NotNullWhen(true)] out PackageVersion? packageVersion
@@ -770,6 +654,36 @@ public sealed partial record Package
             Cog.Error($"No versions of '{ToStringSimpleWithSource()}' exist");
             return false;
         }
+    }
+
+    public static Package? ResolvePackageWithFallbackSource(
+        PackageSourceIndex index,
+        PackageSource fallbackSource,
+        string fullNameNoVersion
+    )
+    {
+        if (
+            !PackageReference.TryCreateWithFallbackSourceFrom(
+                fullNameNoVersion,
+                fallbackSource,
+                out var packageReference
+            )
+        )
+        {
+            Cog.Warning(
+                $"Failed to create {nameof(PackageReference)} from '{fullNameNoVersion}'."
+                    + " The source might not be supported."
+            );
+            return null;
+        }
+
+        if (!TryGetPackage(index, packageReference, out var package))
+        {
+            Cog.Debug($"Package '{packageReference}' is not found in any source.");
+            return null;
+        }
+
+        return package;
     }
 
     public string ToStringSimpleWithSource()
@@ -877,30 +791,37 @@ public sealed partial record PackageVersion
 
     private Func<string, PackageVersion?> ResolvePackageVersion(PackageSourceIndex index) =>
         fullNameWithVersion =>
-        {
-            if (
-                !PackageVersionReference.TryCreateWithFallbackSourceFrom(
-                    fullNameWithVersion,
-                    Package.Source,
-                    out var packageVersionReference
-                )
+            ResolvePackageVersionWithFallbackSource(index, Package.Source, fullNameWithVersion);
+
+    public static PackageVersion? ResolvePackageVersionWithFallbackSource(
+        PackageSourceIndex index,
+        PackageSource fallbackSource,
+        string fullNameWithVersion
+    )
+    {
+        if (
+            !PackageVersionReference.TryCreateWithFallbackSourceFrom(
+                fullNameWithVersion,
+                fallbackSource,
+                out var packageVersionReference
             )
-            {
-                Cog.Warning(
-                    $"Failed to create {nameof(PackageVersionReference)} from '{fullNameWithVersion}'."
-                        + " The source might not be supported."
-                );
-                return null;
-            }
+        )
+        {
+            Cog.Warning(
+                $"Failed to create {nameof(PackageVersionReference)} from '{fullNameWithVersion}'."
+                    + " The source might not be supported."
+            );
+            return null;
+        }
 
-            if (!Package.TryGetPackageVersion(index, packageVersionReference, out var packageVersion))
-            {
-                Cog.Debug($"Package '{packageVersionReference}' has no versions found in any source.");
-                return null;
-            }
+        if (!Package.TryGetPackageVersion(index, packageVersionReference, out var packageVersion))
+        {
+            Cog.Debug($"Package '{packageVersionReference}' has no versions found in any source.");
+            return null;
+        }
 
-            return packageVersion;
-        };
+        return packageVersion;
+    }
 
     public string GetFullName() => $"{Author}-{Name}";
 
