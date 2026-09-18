@@ -444,21 +444,27 @@ public sealed class ModList
 
         if (_lazy.ResolvedDependencies is { } resolvedDependencies)
         {
-            foreach (var packageId in resolvedDependencies.Select(x => $"{x.Key}-{x.Value}"))
+            foreach (
+                var packageRef in resolvedDependencies
+                    .Select(x =>
+                    {
+                        _ = PackageVersionReference.TryCreateFromWithVersion(
+                            x.Key,
+                            x.Value,
+                            out var packageVersionReference
+                        );
+                        return packageVersionReference;
+                    })
+                    .Where(x => x != default)
+            )
             {
-                var packageVersion = PackageVersion.ResolvePackageVersionWithFallbackSource(
-                    SourceIndex,
-                    fallbackSource,
-                    packageId
-                );
+                if (!Package.TryGetPackageVersion(SourceIndex, packageRef, out var packageVersion))
+                    continue;
 
-                if (packageVersion is { })
-                {
-                    Dependencies.Add(
-                        (PackageReference)packageVersion.Package,
-                        (PackageVersionReference)packageVersion
-                    );
-                }
+                Dependencies.Add(
+                    (PackageReference)packageVersion.Package,
+                    (PackageVersionReference)packageVersion
+                );
             }
         }
 

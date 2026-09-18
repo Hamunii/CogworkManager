@@ -380,33 +380,17 @@ public static class Program
                     return;
                 }
 
-                if (
-                    !Package.TryGetPackage(
-                        profile.SourceIndex,
-                        selected,
-                        out _,
-                        hasVersion: false,
-                        out _,
-                        out _,
-                        preferredSource: null
-                    )
-                )
-                {
-                    throw new UnreachableException("Package name wasn't found.");
-                }
-
                 var sameNamePackages = profile
-                    .SourceIndex.Sources.Select(
-                        (source) =>
-                        {
-                            _ = Package.TryGetPackage(
-                                source.Source,
-                                selected,
-                                out var packageFromSource
-                            );
-                            return packageFromSource!;
-                        }
-                    )
+                    .SourceIndex.Sources.Select(source =>
+                    {
+                        var packageReference = new PackageReference(selected, source.Source);
+                        _ = Package.TryGetPackage(
+                            packageReference.Source,
+                            packageReference,
+                            out var packageFromSource
+                        );
+                        return packageFromSource!;
+                    })
                     .Where(package => package is { });
 
                 Package package;
@@ -487,23 +471,13 @@ public static class Program
                         ref matches
                     );
 
-                    foreach (var m in matches)
+                    foreach (var match in matches)
                     {
-                        if (
-                            !Package.TryGetPackage(
-                                profile.SourceIndex,
-                                m,
-                                out var package,
-                                hasVersion: false,
-                                out _,
-                                out _,
-                                preferredSource: null
-                            )
-                        )
+                        var package = profile.Added.Keys.FirstOrDefault(x => x.FullName == match);
+                        if (package != default)
                         {
-                            throw new UnreachableException();
+                            removable.Add(package);
                         }
-                        removable.Add((PackageReference)package);
                     }
                 }
 
@@ -519,12 +493,6 @@ public static class Program
                         .UseConverter(x => x.FullName)
                         .AddChoices(removable)
                 );
-
-                // Funnily enough, we must ensure all packages are downloaded first so we
-                // know which files to remove when removing the package from a profile.
-                // _ = profile.DownloadPackagesAsync().Result;
-                // Except! We should just not allow the user to uninstall package versions
-                // which are used in any mod profiles.
 
                 var (removed, failedToRemove) = profile.Remove(packagesToRemove);
 

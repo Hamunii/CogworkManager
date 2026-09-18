@@ -396,6 +396,16 @@ public readonly record struct PackageReference
         Source = source;
     }
 
+    public static PackageReference CreateOrThrow(string fullNameNoVersionWithSource)
+    {
+        if (TryCreateFrom(fullNameNoVersionWithSource, out var packageReference))
+            return packageReference;
+
+        throw new InvalidOperationException(
+            $"Failed to create {nameof(PackageReference)} '{fullNameNoVersionWithSource}'"
+        );
+    }
+
     public static bool TryCreateFrom(string packageId, out PackageReference packageReference) =>
         TryCreateFromCore(packageId, null, out packageReference);
 
@@ -472,17 +482,24 @@ public readonly record struct PackageVersionReference
     public static bool TryCreateFrom(
         string packageId,
         out PackageVersionReference versionReference
-    ) => TryCreateFromCore(packageId, null, out versionReference);
+    ) => TryCreateFromCore(packageId, null, null, out versionReference);
+
+    public static bool TryCreateFromWithVersion(
+        string packageId,
+        PackageVersionNumber version,
+        out PackageVersionReference versionReference
+    ) => TryCreateFromCore(packageId, null, version, out versionReference);
 
     public static bool TryCreateWithFallbackSourceFrom(
         string packageId,
         PackageSource fallbackSource,
         out PackageVersionReference versionReference
-    ) => TryCreateFromCore(packageId, fallbackSource, out versionReference);
+    ) => TryCreateFromCore(packageId, fallbackSource, null, out versionReference);
 
     static bool TryCreateFromCore(
         string packageId,
         PackageSource? fallbackSource,
+        PackageVersionNumber? existingVersion,
         out PackageVersionReference versionReference
     )
     {
@@ -492,10 +509,21 @@ public readonly record struct PackageVersionReference
         everythingButSource.MoveNext();
 
         var left = span[everythingButSource.Current];
-        var versionDivider = left.LastIndexOf('-');
 
-        var fullName = left[..versionDivider].ToString();
-        var version = new PackageVersionNumber(left[(versionDivider + 1)..]);
+        string fullName;
+        PackageVersionNumber version;
+
+        if (existingVersion is { } existingVer)
+        {
+            fullName = left.ToString();
+            version = existingVer;
+        }
+        else
+        {
+            var versionDivider = left.LastIndexOf('-');
+            fullName = left[..versionDivider].ToString();
+            version = new PackageVersionNumber(left[(versionDivider + 1)..]);
+        }
 
         if (!everythingButSource.MoveNext())
         {
@@ -656,22 +684,15 @@ public sealed partial record Package
         }
     }
 
-    public static Package? ResolvePackageWithFallbackSource(
+    public static Package? ResolvePackage(
         PackageSourceIndex index,
-        PackageSource fallbackSource,
-        string fullNameNoVersion
+        string fullNameNoVersionWithSource
     )
     {
-        if (
-            !PackageReference.TryCreateWithFallbackSourceFrom(
-                fullNameNoVersion,
-                fallbackSource,
-                out var packageReference
-            )
-        )
+        if (!PackageReference.TryCreateFrom(fullNameNoVersionWithSource, out var packageReference))
         {
             Cog.Warning(
-                $"Failed to create {nameof(PackageReference)} from '{fullNameNoVersion}'."
+                $"Failed to create {nameof(PackageReference)} from '{fullNameNoVersionWithSource}'."
                     + " The source might not be supported."
             );
             return null;
