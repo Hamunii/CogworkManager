@@ -643,7 +643,7 @@ public sealed class ModList
         bool updated = false;
         foreach (var packageVersion in packages)
         {
-            SourceIndex.MakePackageDominant(packageVersion.Package);
+            _ = SourceIndex.GetOrMakeDominantPackage(packageVersion.Package);
 
             var sameNamePackages = SourceIndex
                 .Sources.Select(x =>

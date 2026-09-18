@@ -884,7 +884,7 @@ public sealed partial record PackageVersion
         PackageSourceIndex index
     )
     {
-        var dominant = index.GetDominantPackage(this);
+        var dominant = index.GetOrMakeDominantPackage(this);
 
         switch (context)
         {
@@ -912,7 +912,7 @@ public sealed partial record PackageVersion
     {
         foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = index.GetDominantPackage(dependency);
+            var dominant = index.GetOrMakeDominantPackage(dependency);
 
             if (map.AddOrUpdateToHigherVersion(dominant))
             {
@@ -928,7 +928,7 @@ public sealed partial record PackageVersion
     {
         foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = index.GetDominantPackage(dependency.Package);
+            var dominant = index.GetOrMakeDominantPackage(dependency.Package);
             var latest = dominant.Latest;
 
             if (map.AddOrUpdateToHigherVersion(latest))
@@ -956,7 +956,7 @@ public sealed partial record PackageVersion
     {
         foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = index.GetDominantPackage(dependency);
+            var dominant = index.GetOrMakeDominantPackage(dependency);
 
             var higher = map.GetHigherVersion(dominant);
             if (

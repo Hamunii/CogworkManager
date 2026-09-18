@@ -9,7 +9,6 @@ using ZLinq;
 
 namespace Cogwork.Core;
 
-
 /// <param name="Visible">Visibility to package fetching methods.</param>
 public readonly record struct UserSource(bool Visible, PackageSource Source);
 
@@ -34,31 +33,49 @@ public sealed class PackageSourceIndex
 
     public PackageSourceIndex(IEnumerable<PackageSourceId> uris) => Import(uris);
 
-    public void MakePackageDominant(Package package)
+    public Package GetOrMakeDominantPackage(Package package)
     {
-        dominantPackages[package.FullName] = package;
-    }
+        ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
+            dominantPackages,
+            package.FullName,
+            out var exists
+        );
 
-    public Package GetDominantPackage(Package package)
-    {
-        if (dominantPackages.TryGetValue(package.FullName, out var dominant))
+        if (exists)
         {
-            return dominant;
-        }
+            var previousSource = value!.Source;
 
-        // One package must always be dominant to avoid cases where
-        // a package is installed from multiple sources at once.
-        // We don't necessarily care about the logic for which package
-        // is dominant if it's not defined by the user. If the user cares,
-        // they must explicitly add a package to make it dominant.
-        MakePackageDominant(package);
-        return package;
+            if (previousSource == package.Source)
+                return value;
+
+            var newIndex = PackageSources.FindIndex(x => x.Source == package.Source);
+            var oldIndex = PackageSources.FindIndex(x => x.Source == previousSource);
+
+            if (!PackageSources[newIndex].Visible && PackageSources[oldIndex].Visible)
+                return value;
+
+            if (oldIndex < newIndex)
+                return value;
+
+            // TODO: Dominant package resolution strategies per UserSource, such as:
+            //
+            // 1. highest available version wins if allowed (so not against 2.)
+            //   - tie is solved by index
+            // 2. smaller index always wins
+            // 3. smaller index always wins if package has been referenced (current hardcoded solution)
+            //   - package is only referenced if it's a added or a transitive dependency
+            //
+            // Notes:
+            // - Visible is always preferred over not Visible
+            // - Explicitly added packages should ALWAYS take priority
+        }
+        return value = package;
     }
 
-    public PackageVersion GetDominantPackage(PackageVersion packageVersion)
+    public PackageVersion GetOrMakeDominantPackage(PackageVersion packageVersion)
     {
         var package = packageVersion.Package;
-        var dominant = GetDominantPackage(package);
+        var dominant = GetOrMakeDominantPackage(package);
 
         if (ReferenceEquals(dominant, package))
         {
