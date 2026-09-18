@@ -511,6 +511,53 @@ public sealed partial record Package
             .nameToPackage.GetAlternateLookup<ReadOnlySpan<char>>()
             .TryGetValue(fullName, out package);
 
+    public static bool TryGetPackage(
+        PackageSource source,
+        PackageReference packageReference,
+        [NotNullWhen(true)] out Package? package
+    ) => source.nameToPackage.TryGetValue(packageReference.FullName, out package);
+
+    public static bool TryGetPackage(
+        PackageSourceIndex index,
+        PackageReference packageReference,
+        [NotNullWhen(true)] out Package? package
+    )
+    {
+        var refSource = packageReference.Source;
+        if (TryGetPackage(refSource, packageReference, out package))
+            return true;
+
+        foreach (var userSource in index.Sources.Where(x => x.Visible && x.Source != refSource))
+        {
+            if (TryGetPackage(userSource.Source, packageReference, out package))
+                return true;
+        }
+
+        return false;
+    }
+
+    public static bool TryGetPackageVersion(
+        PackageSource source,
+        PackageVersionReference versionReference,
+        [NotNullWhen(true)] out PackageVersion? packageVersion
+    )
+    {
+        packageVersion = default;
+        return TryGetPackage(source, (PackageReference)versionReference, out var package)
+            && package.TryGetVersion(versionReference.Version, out packageVersion);
+    }
+
+    public static bool TryGetPackageVersion(
+        PackageSourceIndex index,
+        PackageVersionReference versionReference,
+        [NotNullWhen(true)] out PackageVersion? packageVersion
+    )
+    {
+        packageVersion = default;
+        return TryGetPackage(index, (PackageReference)versionReference, out var package)
+            && package.TryGetVersion(versionReference.Version, out packageVersion);
+    }
+
     // FIXME: This is a horrible method, too many paths.
     // This and related methods need to be refactored.
     public static bool TryGetPackage(
