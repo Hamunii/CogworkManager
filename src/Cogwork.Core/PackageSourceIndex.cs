@@ -10,7 +10,33 @@ using ZLinq;
 namespace Cogwork.Core;
 
 /// <param name="Visible">Visibility to package fetching methods.</param>
-public readonly record struct UserSource(bool Visible, PackageSource Source);
+public readonly record struct UserSource(
+    PackageSource Source,
+    SourceDominanceStrategy DominanceStrategy,
+    SourceDominanceEntry DominanceEntry
+)
+{
+    public bool Visible => DominanceEntry != SourceDominanceEntry.Never;
+}
+
+/// <summary>
+/// Defines the dominance strategy for dependency resolution.
+/// </summary>
+public enum SourceDominanceStrategy
+{
+    ByPriority,
+    ByHighestAvailableVersion,
+}
+
+/// <summary>
+/// Defines when the source should enter dominance resolution for dependency resolution.
+/// </summary>
+public enum SourceDominanceEntry
+{
+    Always,
+    IfPackageReferenced,
+    Never,
+}
 
 public sealed class PackageSourceIndex
 {
@@ -22,39 +48,92 @@ public sealed class PackageSourceIndex
     [JsonIgnore]
     List<UserSource> PackageSources { get; } = [];
 
-    readonly Dictionary<string, Package> dominantPackages = [];
+    readonly Dictionary<string, PackageReference> dominantPackages = [];
+    readonly Dictionary<PackageSource, UserSource> sourceToUser = [];
+
+    ModList modList = null!;
 
     public PackageSourceIndex() { }
 
-    public PackageSourceIndex(PackageSource packageSource)
+    public PackageSourceIndex(UserSource userSource)
     {
-        Add(packageSource);
+        AddOrUpdate(userSource);
     }
 
     public PackageSourceIndex(IEnumerable<PackageSourceId> uris) => Import(uris);
 
-    public Package GetOrMakeDominantPackage(Package package)
+    public UserSource GetAsUserSource(PackageSource packageSource)
     {
         ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
-            dominantPackages,
-            package.FullName,
+            sourceToUser,
+            packageSource,
             out var exists
         );
 
         if (exists)
-        {
-            var previousSource = value!.Source;
+            return value;
 
-            if (previousSource == package.Source)
+        value = new(
+            packageSource,
+            SourceDominanceStrategy.ByHighestAvailableVersion,
+            packageSource is LocalPackageSource // hardcoded for now with sensible values.
+                ? SourceDominanceEntry.IfPackageReferenced
+                : SourceDominanceEntry.Always
+        );
+
+        // Example:
+        // 1. local { ByHighestAvailableVersion, IfPackageReferenced }
+        // 2. thunderstore { ByHighestAvailableVersion, Always }
+        // 3. hexium { ByHighestAvailableVersion, Always }
+
+        Cog.Information(
+            $"Source '{packageSource.Id}' does not have user config, set default:\n{value}"
+        );
+        return value;
+    }
+
+    public void SetModList(ModList modList) => this.modList = modList;
+
+    public Package GetOrMakeDominantPackage(Package packageCandidate)
+    {
+        ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
+            dominantPackages,
+            packageCandidate.FullName,
+            out var exists
+        );
+
+        var candidate = (PackageReference)packageCandidate;
+
+        if (exists)
+        {
+            var previousSource = value.Source;
+
+            if (previousSource == candidate.Source)
                 return value;
 
-            var newIndex = PackageSources.FindIndex(x => x.Source == package.Source);
+            Debug.Assert(
+                (modList.Added.ContainsKey(value) && modList.Added.ContainsKey(candidate)) == false,
+                "It should be impossible for a package to be added from multiple sources simultaneously."
+            );
+
+            // Dominance exists only for resolving dependency packages.
+            // Therefore 'Added' packages must always be dominant.
+            if (modList.Added.ContainsKey(value))
+                return value;
+
+            var newIndex = PackageSources.FindIndex(x => x.Source == candidate.Source);
             var oldIndex = PackageSources.FindIndex(x => x.Source == previousSource);
 
-            if (!PackageSources[newIndex].Visible && PackageSources[oldIndex].Visible)
+            if (oldIndex < newIndex)
                 return value;
 
-            if (oldIndex < newIndex)
+            var oldSource = PackageSources[oldIndex];
+            var newSource = PackageSources[newIndex];
+
+            if (
+                oldSource.DominanceEntry != SourceDominanceEntry.Never
+                && newSource.DominanceEntry == SourceDominanceEntry.Never
+            )
                 return value;
 
             // TODO: Dominant package resolution strategies per UserSource, such as:
@@ -69,7 +148,7 @@ public sealed class PackageSourceIndex
             // - Visible is always preferred over not Visible
             // - Explicitly added packages should ALWAYS take priority
         }
-        return value = package;
+        return value = candidate;
     }
 
     public PackageVersion GetOrMakeDominantPackage(PackageVersion packageVersion)
@@ -94,7 +173,7 @@ public sealed class PackageSourceIndex
     {
         foreach (var uri in uris)
         {
-            if (!TryImportFromUri(uri, out _))
+            if (!TryImportFromUri(uri))
             {
                 Cog.Warning($"Could not parse package source uri: '{uri}'");
             }
@@ -108,7 +187,11 @@ public sealed class PackageSourceIndex
         if (!TryParseSourceId(uri, out source))
             return false;
 
-        Add(source);
+        var userSource = GetAsUserSource(source);
+        if (userSource.Source is LocalPackageSource)
+            AddOrUpdate(userSource, atIndex: 0);
+        else
+            AddOrUpdate(userSource);
         return true;
     }
 
@@ -166,20 +249,34 @@ public sealed class PackageSourceIndex
         return value;
     }
 
-    public void AddHidden(PackageSource packageSource)
-    {
-        if (PackageSources.Any(x => x.Source == packageSource))
-            return;
+    // public void AddHidden(UserSource packageSource)
+    // {
+    //     if (PackageSources.Any(x => x.Source == packageSource))
+    //         return;
 
-        GetOrCreateSource(packageSource);
-        PackageSources.Add(new(Visible: false, packageSource));
-    }
+    //     GetOrCreateSource(packageSource);
+    //     PackageSources.Add(
+    //         new(
+    //             packageSource,
+    //             SourceDominanceStrategy.ByHighestAvailableVersion,
+    //             SourceDominanceEntry.Never
+    //         )
+    //     );
+    // }
 
-    public void Add(PackageSource packageSource)
+    public void AddOrUpdate(UserSource userSource, int atIndex = -1)
     {
-        GetOrCreateSource(packageSource);
-        Remove(packageSource);
-        PackageSources.Add(new(Visible: true, packageSource));
+        GetOrCreateSource(userSource.Source);
+        if (atIndex is -1)
+        {
+            atIndex = PackageSources.FindIndex(x => x.Source == userSource.Source);
+        }
+        Remove(userSource.Source);
+
+        if (atIndex is not -1)
+            PackageSources.Insert(atIndex, userSource);
+        else
+            PackageSources.Add(userSource);
     }
 
     public bool Remove(PackageSource packageSource) =>

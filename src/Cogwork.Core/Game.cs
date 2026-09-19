@@ -109,7 +109,7 @@ public sealed class Game
 
     [JsonIgnore]
     public IModInstallRules InstallRules { get; }
-    public PackageSource? DefaultSource { get; }
+    public UserSource DefaultSource { get; }
 
     internal Dictionary<string, LazyModList> IdToModList { get; } = [];
     internal readonly Lock idToModListLock = new();
@@ -118,13 +118,21 @@ public sealed class Game
         string name,
         string slug,
         IModInstallRules installRules,
-        PackageSource? defaultSource = null
+        UserSource defaultSource = default
     )
     {
         Name = name;
         Slug = slug;
         InstallRules = installRules;
-        DefaultSource = defaultSource ?? ThunderstoreCommunity.CreateDefault(this);
+        if (defaultSource == default)
+        {
+            defaultSource = new UserSource(
+                ThunderstoreCommunity.CreateDefault(this),
+                SourceDominanceStrategy.ByHighestAvailableVersion,
+                SourceDominanceEntry.Always
+            );
+        }
+        DefaultSource = defaultSource;
     }
 
     public static Game Silksong { get; } =

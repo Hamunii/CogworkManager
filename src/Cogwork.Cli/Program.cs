@@ -752,7 +752,7 @@ public static class Program
 
                     var sourceId = PackageSourceId.Parse(uri);
 
-                    if (!profile.SourceIndex.TryImportFromUri(sourceId, out var source))
+                    if (!profile.SourceIndex.TryImportFromUri(sourceId))
                     {
                         result.AddError("Failed to add source: source is unknown or unsupported");
                     }

@@ -413,7 +413,13 @@ public sealed class ModList
                     );
                     LostPackages.Add((PackageReference)package);
                 }
-                SourceIndex.AddHidden(source);
+                SourceIndex.AddOrUpdate(
+                    new UserSource(
+                        source,
+                        SourceDominanceStrategy.ByHighestAvailableVersion,
+                        SourceDominanceEntry.Never
+                    )
+                );
             }
         }
 
@@ -472,6 +478,7 @@ public sealed class ModList
         _onResolved = onResolved;
         _onNewAddedList(this, Added);
 
+        SourceIndex.SetModList(this);
         Add(packages, DependencyVersionResolution.Requested);
     }
 
