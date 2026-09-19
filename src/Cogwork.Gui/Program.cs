@@ -10,6 +10,7 @@ class Program
 {
     public static int Main(string[] args)
     {
+        SetFatalLoggers();
         SetNativeLibraryResolvers();
 
         var app = Adw.Application.New("io.github.hamunii.cogwork", Gio.ApplicationFlags.FlagsNone);
@@ -62,6 +63,29 @@ class Program
         };
 
         return app.Run(args);
+    }
+
+    private static void SetFatalLoggers()
+    {
+        AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+        {
+            Cog.Fatal($"Unhandled exception occurred:\n{e.ExceptionObject as Exception}");
+            Environment.Exit(1);
+        };
+
+        TaskScheduler.UnobservedTaskException += (sender, e) =>
+        {
+            Cog.Fatal($"Unhandled exception occurred:\n{e.Exception}");
+            Environment.Exit(1);
+        };
+
+        GLib.UnhandledException.SetHandler(
+            (exception) =>
+            {
+                Cog.Fatal($"Unhandled exception occurred in GTK loop:\n{exception}");
+                Environment.Exit(1);
+            }
+        );
     }
 
     private static void SetNativeLibraryResolvers()

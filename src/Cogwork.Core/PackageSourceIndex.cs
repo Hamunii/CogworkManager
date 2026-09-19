@@ -16,7 +16,7 @@ public readonly record struct UserSource(
     SourceDominanceEntry DominanceEntry
 )
 {
-    public bool Visible => DominanceEntry != SourceDominanceEntry.Hidden;
+    public bool IsVisible() => DominanceEntry != SourceDominanceEntry.Hidden;
 }
 
 /// <summary>
@@ -61,7 +61,7 @@ public sealed class PackageSourceIndex
 
     public PackageSourceIndex(UserSource userSource)
     {
-        AddOrUpdate(userSource);
+        AddOrUpdateIfNotHidden(userSource);
     }
 
     public PackageSourceIndex(IEnumerable<PackageSourceId> uris) => Import(uris);
@@ -100,7 +100,7 @@ public sealed class PackageSourceIndex
 
     public void ResetPackageDominance() => dominantPackages.Clear();
 
-    public Package GetOrMakeDominantPackage(Package candidatePackage)
+    public Package GetOrMakeDominantPackage(Package candidatePackage, bool allowDominate)
     {
         ref var refDominant = ref CollectionsMarshal.GetValueRefOrAddDefault(
             dominantPackages,
@@ -111,7 +111,10 @@ public sealed class PackageSourceIndex
         var candidate = (PackageReference)candidatePackage;
 
         if (!exists)
-            return refDominant = candidate;
+            refDominant = candidate;
+
+        if (!allowDominate)
+            return refDominant;
 
         // Dominance exists only for resolving dependency packages.
         // Therefore 'Added' packages must always be dominant.
@@ -156,7 +159,7 @@ public sealed class PackageSourceIndex
             var newIndex = PackageSources.FindIndex(x => x.Source == contender.Source);
 
             Debug.Assert(
-                oldIndex != -1 || newIndex != -1,
+                oldIndex != -1 && newIndex != -1,
                 $"Packages given to this method should always be from this {nameof(PackageSourceIndex)}."
             );
 
@@ -204,10 +207,10 @@ public sealed class PackageSourceIndex
         return refDominant;
     }
 
-    public PackageVersion GetOrMakeDominantPackage(PackageVersion packageVersion)
+    public PackageVersion GetOrMakeDominantPackage(PackageVersion packageVersion, bool allowDominate)
     {
         var package = packageVersion.Package;
-        var dominant = GetOrMakeDominantPackage(package);
+        var dominant = GetOrMakeDominantPackage(package, allowDominate);
 
         if (ReferenceEquals(dominant, package))
         {
@@ -242,9 +245,9 @@ public sealed class PackageSourceIndex
 
         var userSource = GetAsUserSource(source);
         if (userSource.Source is LocalPackageSource)
-            AddOrUpdate(userSource, atIndex: 0);
+            AddOrUpdateIfNotHidden(userSource, atIndex: 0);
         else
-            AddOrUpdate(userSource);
+            AddOrUpdateIfNotHidden(userSource);
         return true;
     }
 
@@ -302,12 +305,16 @@ public sealed class PackageSourceIndex
         return value;
     }
 
-    public void AddOrUpdate(UserSource userSource, int atIndex = -1)
+    public void AddOrUpdateIfNotHidden(UserSource userSource, int atIndex = -1)
     {
         GetOrCreateSource(userSource.Source);
         if (atIndex is -1)
         {
             atIndex = PackageSources.FindIndex(x => x.Source == userSource.Source);
+            if (!userSource.IsVisible() && atIndex != -1)
+            {
+                return;
+            }
         }
         Remove(userSource.Source);
 
@@ -318,7 +325,19 @@ public sealed class PackageSourceIndex
     }
 
     public bool Remove(PackageSource packageSource) =>
-        PackageSources.RemoveAll(x => x.Visible && x.Source == packageSource) != 0;
+        PackageSources.RemoveAll(x => x.Source == packageSource) != 0;
+
+    public bool RemoveVisible(PackageSource packageSource)
+    {
+        var userSourceIndex = PackageSources.FindIndex(x => x.Source == packageSource);
+        if (userSourceIndex == -1)
+            return false;
+
+        var userSource = PackageSources[userSourceIndex];
+        PackageSources.RemoveAt(userSourceIndex);
+        PackageSources.Add(userSource with { DominanceEntry = SourceDominanceEntry.Hidden });
+        return true;
+    }
 
     public async Task<IEnumerable<Package>> GetAllPackagesAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,
@@ -327,7 +346,7 @@ public sealed class PackageSourceIndex
     {
         Cog.Information($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Where(x => x.Visible)
+            .Where(x => x.IsVisible())
             .Select(x => x.Source.GetPackagesAsync(progressFactory, cancellationToken))
             .ToArray();
 
@@ -342,7 +361,7 @@ public sealed class PackageSourceIndex
     {
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Where(x => x.Visible)
+            .Where(x => x.IsVisible())
             .Select(x =>
                 x.Source.FetchPackageIndexAutomaticAsync(progressFactory, cancellationToken)
             )
@@ -358,7 +377,7 @@ public sealed class PackageSourceIndex
     {
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Where(x => x.Visible)
+            .Where(x => x.IsVisible())
             .Select(x => x.Source.FetchPackageIndexManualAsync(progressFactory, cancellationToken))
             .ToArray();
 

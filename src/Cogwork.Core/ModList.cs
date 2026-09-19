@@ -246,7 +246,7 @@ public sealed class LazyModList
             DisplayName,
             OverrideGamePath,
             IsOverrideGamePathEnabled,
-            SourceIndex.Sources.Where(x => x.Visible).Select(x => x.Source.Uri),
+            SourceIndex.Sources.Where(x => x.IsVisible()).Select(x => x.Source.Uri),
             AddedPackageIds
         );
 
@@ -379,7 +379,7 @@ public sealed class ModList
     readonly LazyModList _lazy;
     readonly Action<ModList, Dictionary<PackageReference, PackageVersionReference>> _onNewAddedList;
     readonly Action _onResolved;
-    bool _wasUpdated = true;
+    bool _isDirty = true;
 
     internal ModList(
         LazyModList lazyModList,
@@ -412,19 +412,24 @@ public sealed class ModList
                         $"Imported missing package '{dep.PackageVersion}' (packages in source '{source.Id}': {source.nameToPackage.Count})"
                     );
                     LostPackages.Add((PackageReference)package);
+                    SourceIndex.AddOrUpdateIfNotHidden(
+                        new UserSource(
+                            source,
+                            SourceDominanceStrategy.ByHighestAvailableVersion,
+                            SourceDominanceEntry.Hidden
+                        )
+                    );
                 }
-                SourceIndex.AddOrUpdate(
-                    new UserSource(
-                        source,
-                        SourceDominanceStrategy.ByHighestAvailableVersion,
-                        SourceDominanceEntry.Hidden
-                    )
-                );
             }
         }
 
         Cog.Debug($"Initializing mod list");
-        var fallbackSource = SourceIndex.Sources.First(x => x.Visible).Source;
+
+        var fallbackSource = SourceIndex.Sources.FirstOrDefault(x => x.IsVisible()).Source;
+        if (fallbackSource == default)
+        {
+            throw new NotSupportedException("Currently a visible source must be added.");
+        }
 
         foreach (var packageIdWithVersion in _lazy.AddedPackageIds)
         {
@@ -541,7 +546,7 @@ public sealed class ModList
             IsOverrideGamePathEnabled = data.IsOverrideGamePathEnabled,
             SourceIndex =
                 data.Sources is { } ? new(data.Sources)
-                : game.DefaultSource is { } ? new(game.DefaultSource)
+                : game.DefaultSource != default ? new(game.DefaultSource)
                 : new(),
         };
 
@@ -622,17 +627,16 @@ public sealed class ModList
         lockDepFile.Save(_lazy.ProfilePackageLockCachePath);
     }
 
-    public bool WasUpdated()
+    public bool ConsumeIsDirty()
     {
-        var wasUpdated = _wasUpdated;
-        _wasUpdated = false;
-        return wasUpdated;
+        var isDirty = _isDirty;
+        _isDirty = false;
+        return isDirty;
     }
 
-    public void MarkDirty()
-    {
-        _wasUpdated = true;
-    }
+    public bool PeekIsDirty() => _isDirty;
+
+    public void SetDirty() => _isDirty = true;
 
     public bool Add(Package package, DependencyVersionResolution context) =>
         Add(package.Latest, context);
@@ -650,7 +654,7 @@ public sealed class ModList
         bool updated = false;
         foreach (var packageVersion in packages)
         {
-            _ = SourceIndex.GetOrMakeDominantPackage(packageVersion.Package);
+            _ = SourceIndex.GetOrMakeDominantPackage(packageVersion.Package, allowDominate: true);
 
             var sameNamePackages = SourceIndex
                 .Sources.Select(x =>
@@ -756,7 +760,7 @@ public sealed class ModList
         return ([.. toUninstall], []);
     }
 
-    void DirtyRebuildDependencies(DependencyVersionResolution context)
+    public void DirtyRebuildDependencies(DependencyVersionResolution context)
     {
         Dictionary<PackageReference, PackageVersionReference> map = [];
         SourceIndex.ResetPackageDominance();
@@ -764,14 +768,18 @@ public sealed class ModList
         // Pass 1: collect highest available package versions to map.
         foreach (var added in Added)
         {
-            added.Value.Resolve().CollectAllDependenciesToMap(map, context, SourceIndex);
+            added
+                .Value.Resolve()
+                .CollectAllDependenciesToMap(map, context, SourceIndex, allowDominate: true);
         }
 
         // If any existing dependency is higher version than would be transitively from Added,
         // we want to keep those versions.
         foreach (var dependency in Dependencies)
         {
-            dependency.Value.Resolve().CollectAllDependenciesToMap(map, context, SourceIndex);
+            dependency
+                .Value.Resolve()
+                .CollectAllDependenciesToMap(map, context, SourceIndex, allowDominate: false);
         }
 
         Dictionary<PackageReference, PackageVersionReference> allDependencies = [];
@@ -781,7 +789,12 @@ public sealed class ModList
         {
             added
                 .Value.Resolve()
-                .CollectAllDependenciesToDestination(map, allDependencies, SourceIndex);
+                .CollectAllDependenciesToDestination(
+                    map,
+                    allDependencies,
+                    SourceIndex,
+                    allowDominate: false // false here because useless to compute twice
+                );
         }
 
         foreach (var added in Added)
@@ -794,7 +807,7 @@ public sealed class ModList
 
         _lazy.SaveData();
         SaveLockFile();
-        _wasUpdated = true;
+        SetDirty();
     }
 
     public void UpdatePackages()

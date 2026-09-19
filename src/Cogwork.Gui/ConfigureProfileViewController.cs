@@ -114,7 +114,7 @@ public class ConfigureProfileViewController : IDisposable
         // 5. Package Root Assembly Wrapper
         Page = NavigationPage.New(layoutBox, "configure_profile");
         Page.OnHiding += (s, e) => _onBackNavigated();
-        Page.OnHidden += (s, e) => _currentProfile?.MarkDirty();
+        Page.OnHidden += (s, e) => _currentProfile?.SetDirty();
     }
 
     void AddHeaderSettingsButton(Adw.HeaderBar header)
@@ -164,7 +164,9 @@ public class ConfigureProfileViewController : IDisposable
             "Allows adding packages imported to the local package source. Useful for developers."
         );
         localSourceRow.SetActive(
-            lazyProfile.SourceIndex.Sources.Any(x => x.Visible && x.Source is LocalPackageSource)
+            lazyProfile.SourceIndex.Sources.Any(x =>
+                x.IsVisible() && x.Source is LocalPackageSource
+            )
         );
         localSourceRow.OnNotify += (s, e) =>
         {
@@ -175,8 +177,9 @@ public class ConfigureProfileViewController : IDisposable
                 if (isActive)
                     lazyProfile.SourceIndex.TryImportFromUri(LocalPackageSource.Instance.Uri);
                 else
-                    lazyProfile.SourceIndex.Remove(LocalPackageSource.Instance);
+                    lazyProfile.SourceIndex.RemoveVisible(LocalPackageSource.Instance);
 
+                _currentProfile?.DirtyRebuildDependencies(DependencyVersionResolution.Requested);
                 lazyProfile.SaveData();
             }
         };
@@ -210,6 +213,11 @@ public class ConfigureProfileViewController : IDisposable
                 lazyProfile.OverrideGamePath = finalPath;
                 lazyProfile.IsOverrideGamePathEnabled = isExpand;
                 lazyProfile.SaveData();
+            }
+
+            if (_currentProfile is { } && _currentProfile.PeekIsDirty())
+            {
+                UpdateConfiguration(lazyProfile);
             }
 
             return false;
@@ -316,7 +324,7 @@ public class ConfigureProfileViewController : IDisposable
         _windowTitle.SetTitle(GLib.Markup.EscapeText(lazyProfile.DisplayName));
         _windowTitle.SetSubtitle(GLib.Markup.EscapeText(lazyProfile.Game.Name));
 
-        if (!_currentProfile.WasUpdated())
+        if (!_currentProfile.ConsumeIsDirty())
             return;
 
         ClearList(_sectionAdded.Content);
@@ -436,7 +444,7 @@ public class ConfigureProfileViewController : IDisposable
             _sectionRecent.ToggleVisibility(false);
         }
 
-        _ = _currentProfile.WasUpdated();
+        _ = _currentProfile.ConsumeIsDirty();
     }
 
     private void FireConfigRefresh()

@@ -627,7 +627,7 @@ public sealed partial record Package
         if (TryGetPackage(refSource, packageReference, out package))
             return true;
 
-        foreach (var userSource in index.Sources.Where(x => x.Visible && x.Source != refSource))
+        foreach (var userSource in index.Sources.Where(x => x.IsVisible() && x.Source != refSource))
         {
             if (TryGetPackage(userSource.Source, packageReference, out package))
                 return true;
@@ -881,23 +881,24 @@ public sealed partial record PackageVersion
     public void CollectAllDependenciesToMap(
         Dictionary<PackageReference, PackageVersionReference> map,
         DependencyVersionResolution context,
-        PackageSourceIndex index
+        PackageSourceIndex index,
+        bool allowDominate
     )
     {
-        var dominant = index.GetOrMakeDominantPackage(this);
+        var dominant = index.GetOrMakeDominantPackage(this, allowDominate);
 
         switch (context)
         {
             case DependencyVersionResolution.Requested:
                 if (map.AddOrUpdateToHigherVersion(dominant))
                 {
-                    CollectRequestedDependenciesToMapRecursive(map, index);
+                    CollectRequestedDependenciesToMapRecursive(map, index, allowDominate);
                 }
                 break;
             case DependencyVersionResolution.Latest:
                 if (map.AddOrUpdateToHigherVersion(dominant))
                 {
-                    CollectLatestDependenciesToMapRecursive(map, index);
+                    CollectLatestDependenciesToMapRecursive(map, index, allowDominate);
                 }
                 break;
             default:
@@ -907,33 +908,35 @@ public sealed partial record PackageVersion
 
     void CollectRequestedDependenciesToMapRecursive(
         Dictionary<PackageReference, PackageVersionReference> map,
-        PackageSourceIndex index
+        PackageSourceIndex index,
+        bool allowDominate
     )
     {
         foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = index.GetOrMakeDominantPackage(dependency);
+            var dominant = index.GetOrMakeDominantPackage(dependency, allowDominate);
 
             if (map.AddOrUpdateToHigherVersion(dominant))
             {
-                dominant.CollectRequestedDependenciesToMapRecursive(map, index);
+                dominant.CollectRequestedDependenciesToMapRecursive(map, index, allowDominate);
             }
         }
     }
 
     void CollectLatestDependenciesToMapRecursive(
         Dictionary<PackageReference, PackageVersionReference> map,
-        PackageSourceIndex index
+        PackageSourceIndex index,
+        bool allowDominate
     )
     {
         foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = index.GetOrMakeDominantPackage(dependency.Package);
+            var dominant = index.GetOrMakeDominantPackage(dependency.Package, allowDominate);
             var latest = dominant.Latest;
 
             if (map.AddOrUpdateToHigherVersion(latest))
             {
-                latest.CollectLatestDependenciesToMapRecursive(map, index);
+                latest.CollectLatestDependenciesToMapRecursive(map, index, allowDominate);
             }
         }
     }
@@ -941,22 +944,24 @@ public sealed partial record PackageVersion
     public void CollectAllDependenciesToDestination(
         Dictionary<PackageReference, PackageVersionReference> map,
         Dictionary<PackageReference, PackageVersionReference> destination,
-        PackageSourceIndex index
+        PackageSourceIndex index,
+        bool allowDominate
     )
     {
         var higher = map.GetHigherVersion(this);
-        higher.CollectDependenciesToDestinationRecursive(map, destination, index);
+        higher.CollectDependenciesToDestinationRecursive(map, destination, index, allowDominate);
     }
 
     void CollectDependenciesToDestinationRecursive(
         Dictionary<PackageReference, PackageVersionReference> map,
         Dictionary<PackageReference, PackageVersionReference> destination,
-        PackageSourceIndex index
+        PackageSourceIndex index,
+        bool allowDominate
     )
     {
         foreach (var dependency in MarkedDependencies(index))
         {
-            var dominant = index.GetOrMakeDominantPackage(dependency);
+            var dominant = index.GetOrMakeDominantPackage(dependency, allowDominate);
 
             var higher = map.GetHigherVersion(dominant);
             if (
@@ -966,7 +971,12 @@ public sealed partial record PackageVersion
                 )
             )
             {
-                higher.CollectDependenciesToDestinationRecursive(map, destination, index);
+                higher.CollectDependenciesToDestinationRecursive(
+                    map,
+                    destination,
+                    index,
+                    allowDominate
+                );
             }
         }
     }
