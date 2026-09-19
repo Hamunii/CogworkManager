@@ -759,6 +759,7 @@ public sealed class ModList
     void DirtyRebuildDependencies(DependencyVersionResolution context)
     {
         Dictionary<PackageReference, PackageVersionReference> map = [];
+        SourceIndex.ResetPackageDominance();
 
         // Pass 1: collect highest available package versions to map.
         foreach (var added in Added)

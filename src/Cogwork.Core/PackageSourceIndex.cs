@@ -98,15 +98,17 @@ public sealed class PackageSourceIndex
 
     public void SetModList(ModList modList) => this.modList = modList;
 
-    public Package GetOrMakeDominantPackage(Package packageCandidate)
+    public void ResetPackageDominance() => dominantPackages.Clear();
+
+    public Package GetOrMakeDominantPackage(Package candidatePackage)
     {
         ref var refDominant = ref CollectionsMarshal.GetValueRefOrAddDefault(
             dominantPackages,
-            packageCandidate.FullName,
+            candidatePackage.FullName,
             out var exists
         );
 
-        var candidate = (PackageReference)packageCandidate;
+        var candidate = (PackageReference)candidatePackage;
 
         if (!exists)
             return refDominant = candidate;
@@ -124,7 +126,8 @@ public sealed class PackageSourceIndex
         //      they have highest version. If equal, it wins by priority.
         // 4. Sources with SourceDominanceEntry.Always are ALWAYS evaluated for dominance.
         // 5. Sources SourceDominanceEntry.IfPackageReferenced is only evaluated for
-        //      dominance if the package source is on the packageCandidate fed to this method.
+        //      dominance if the package source is on the candidatePackage fed to this method.
+        //      Therefore its evaluation happens by concatenating it to packageFromAllContenders.
 
         var packageFromAllContenders = Sources
             .Where(x =>
@@ -133,26 +136,29 @@ public sealed class PackageSourceIndex
             .Select(source =>
             {
                 _ = Package.TryGetPackage(source.Source, candidate, out var package);
-                return package;
+                return package!;
             })
             .Where(x => x is { })
             .Concat([candidate]);
 
-        foreach (var package in packageFromAllContenders)
+        foreach (var contenderPackage in packageFromAllContenders)
         {
+            var contender = (PackageReference)contenderPackage;
             var previousSource = refDominant.Source;
 
-            if (previousSource == candidate.Source)
+            if (previousSource == contender.Source)
                 continue;
 
-            if (modList.Added.ContainsKey(candidate))
-                return refDominant = candidate;
+            if (modList.Added.ContainsKey(contender))
+                return refDominant = contender;
 
             var oldIndex = PackageSources.FindIndex(x => x.Source == previousSource);
-            var newIndex = PackageSources.FindIndex(x => x.Source == candidate.Source);
+            var newIndex = PackageSources.FindIndex(x => x.Source == contender.Source);
 
-            if (oldIndex < newIndex)
-                return refDominant;
+            Debug.Assert(
+                oldIndex != -1 || newIndex != -1,
+                $"Packages given to this method should always be from this {nameof(PackageSourceIndex)}."
+            );
 
             var oldSource = PackageSources[oldIndex];
             var newSource = PackageSources[newIndex];
@@ -161,9 +167,39 @@ public sealed class PackageSourceIndex
                 oldSource.DominanceEntry != SourceDominanceEntry.Hidden
                 && newSource.DominanceEntry == SourceDominanceEntry.Hidden
             )
-                return refDominant;
+                continue;
 
-            refDominant = candidate;
+            bool oldHasHigherPriority = oldIndex < newIndex;
+
+            if (
+                oldHasHigherPriority
+                && oldSource.DominanceStrategy == SourceDominanceStrategy.ByPriority
+            )
+                continue;
+
+            switch (newSource.DominanceStrategy)
+            {
+                case SourceDominanceStrategy.ByPriority:
+                    if (oldHasHigherPriority)
+                        continue;
+                    break;
+                case SourceDominanceStrategy.ByHighestAvailableVersion:
+                    var newHighestVersion = contenderPackage.Versions.First().Version;
+                    var oldHighestVersion = refDominant.Resolve().Versions.First().Version;
+
+                    if (oldHighestVersion.IsHigherThan(newHighestVersion))
+                        continue;
+
+                    if (
+                        oldHighestVersion.IsHigherThanOrEqual(newHighestVersion)
+                        && oldHasHigherPriority
+                    )
+                        continue;
+
+                    break;
+            }
+
+            refDominant = contender;
         }
         return refDominant;
     }
@@ -265,21 +301,6 @@ public sealed class PackageSourceIndex
         value = getPackageSource();
         return value;
     }
-
-    // public void AddHidden(UserSource packageSource)
-    // {
-    //     if (PackageSources.Any(x => x.Source == packageSource))
-    //         return;
-
-    //     GetOrCreateSource(packageSource);
-    //     PackageSources.Add(
-    //         new(
-    //             packageSource,
-    //             SourceDominanceStrategy.ByHighestAvailableVersion,
-    //             SourceDominanceEntry.Never
-    //         )
-    //     );
-    // }
 
     public void AddOrUpdate(UserSource userSource, int atIndex = -1)
     {
