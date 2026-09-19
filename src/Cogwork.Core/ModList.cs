@@ -417,7 +417,7 @@ public sealed class ModList
                     new UserSource(
                         source,
                         SourceDominanceStrategy.ByHighestAvailableVersion,
-                        SourceDominanceEntry.Never
+                        SourceDominanceEntry.Hidden
                     )
                 );
             }

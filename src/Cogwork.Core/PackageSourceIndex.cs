@@ -16,7 +16,7 @@ public readonly record struct UserSource(
     SourceDominanceEntry DominanceEntry
 )
 {
-    public bool Visible => DominanceEntry != SourceDominanceEntry.Never;
+    public bool Visible => DominanceEntry != SourceDominanceEntry.Hidden;
 }
 
 /// <summary>
@@ -35,7 +35,11 @@ public enum SourceDominanceEntry
 {
     Always,
     IfPackageReferenced,
-    Never,
+
+    /// <summary>
+    /// Only for package sources which shouldn't show up in searches.
+    /// </summary>
+    Hidden,
 }
 
 public sealed class PackageSourceIndex
@@ -96,7 +100,7 @@ public sealed class PackageSourceIndex
 
     public Package GetOrMakeDominantPackage(Package packageCandidate)
     {
-        ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(
+        ref var refDominant = ref CollectionsMarshal.GetValueRefOrAddDefault(
             dominantPackages,
             packageCandidate.FullName,
             out var exists
@@ -104,51 +108,64 @@ public sealed class PackageSourceIndex
 
         var candidate = (PackageReference)packageCandidate;
 
-        if (exists)
+        if (!exists)
+            return refDominant = candidate;
+
+        // Dominance exists only for resolving dependency packages.
+        // Therefore 'Added' packages must always be dominant.
+        if (modList.Added.ContainsKey(refDominant))
+            return refDominant;
+
+        // Dependency dominance evaluation rules:
+        //
+        // 1. Explicitly Added packages ALWAYS win
+        // 2. Sources with SourceDominanceStrategy.ByPriority win with highest priority.
+        // 3. Sources with SourceDominanceStrategy.ByHighestAvailableVersion win if
+        //      they have highest version. If equal, it wins by priority.
+        // 4. Sources with SourceDominanceEntry.Always are ALWAYS evaluated for dominance.
+        // 5. Sources SourceDominanceEntry.IfPackageReferenced is only evaluated for
+        //      dominance if the package source is on the packageCandidate fed to this method.
+
+        var packageFromAllContenders = Sources
+            .Where(x =>
+                x.Source != candidate.Source && x.DominanceEntry == SourceDominanceEntry.Always
+            )
+            .Select(source =>
+            {
+                _ = Package.TryGetPackage(source.Source, candidate, out var package);
+                return package;
+            })
+            .Where(x => x is { })
+            .Concat([candidate]);
+
+        foreach (var package in packageFromAllContenders)
         {
-            var previousSource = value.Source;
+            var previousSource = refDominant.Source;
 
             if (previousSource == candidate.Source)
-                return value;
+                continue;
 
-            Debug.Assert(
-                (modList.Added.ContainsKey(value) && modList.Added.ContainsKey(candidate)) == false,
-                "It should be impossible for a package to be added from multiple sources simultaneously."
-            );
+            if (modList.Added.ContainsKey(candidate))
+                return refDominant = candidate;
 
-            // Dominance exists only for resolving dependency packages.
-            // Therefore 'Added' packages must always be dominant.
-            if (modList.Added.ContainsKey(value))
-                return value;
-
-            var newIndex = PackageSources.FindIndex(x => x.Source == candidate.Source);
             var oldIndex = PackageSources.FindIndex(x => x.Source == previousSource);
+            var newIndex = PackageSources.FindIndex(x => x.Source == candidate.Source);
 
             if (oldIndex < newIndex)
-                return value;
+                return refDominant;
 
             var oldSource = PackageSources[oldIndex];
             var newSource = PackageSources[newIndex];
 
             if (
-                oldSource.DominanceEntry != SourceDominanceEntry.Never
-                && newSource.DominanceEntry == SourceDominanceEntry.Never
+                oldSource.DominanceEntry != SourceDominanceEntry.Hidden
+                && newSource.DominanceEntry == SourceDominanceEntry.Hidden
             )
-                return value;
+                return refDominant;
 
-            // TODO: Dominant package resolution strategies per UserSource, such as:
-            //
-            // 1. highest available version wins if allowed (so not against 2.)
-            //   - tie is solved by index
-            // 2. smaller index always wins
-            // 3. smaller index always wins if package has been referenced (current hardcoded solution)
-            //   - package is only referenced if it's a added or a transitive dependency
-            //
-            // Notes:
-            // - Visible is always preferred over not Visible
-            // - Explicitly added packages should ALWAYS take priority
+            refDominant = candidate;
         }
-        return value = candidate;
+        return refDominant;
     }
 
     public PackageVersion GetOrMakeDominantPackage(PackageVersion packageVersion)
