@@ -157,32 +157,52 @@ public class ConfigureProfileViewController : IDisposable
         prefSourcesGroup.SetTitle("Package Sources");
         prefPage.Add(prefSourcesGroup);
 
-        var localSourceRow = SwitchRow.New();
-        prefSourcesGroup.Add(localSourceRow);
-        localSourceRow.SetTitle("Enable Local Package Source");
-        localSourceRow.SetSubtitle(
-            "Allows adding packages imported to the local package source. Useful for developers."
-        );
-        localSourceRow.SetActive(
-            lazyProfile.SourceIndex.Sources.Any(x =>
-                x.IsVisible() && x.Source is LocalPackageSource
-            )
-        );
-        localSourceRow.OnNotify += (s, e) =>
+        var sourcesListBox = ListBox.New();
+        sourcesListBox.SelectionMode = SelectionMode.None;
+        sourcesListBox.AddCssClass("boxed-list");
+        prefSourcesGroup.Add(sourcesListBox);
+
+        var sources = lazyProfile.SourceIndex.Sources;
+
+        for (int i = 0; i < sources.Count; i++)
         {
-            if (e.Pspec.GetName() == "active")
-            {
-                bool isActive = localSourceRow.GetActive();
+            var uiExpanderRow = SourceRowFactory.Create(
+                source: sources[i],
+                onValuesChanged: (row, updatedStrategy, updatedEntry) =>
+                {
+                    int index = row.GetIndex();
+                    if (index == -1)
+                        return;
 
-                if (isActive)
-                    lazyProfile.SourceIndex.TryImportFromUri(LocalPackageSource.Instance.Uri);
-                else
-                    lazyProfile.SourceIndex.RemoveVisible(LocalPackageSource.Instance);
+                    lazyProfile.SourceIndex.Reinsert(
+                        sources[index] with
+                        {
+                            DominanceStrategy = updatedStrategy,
+                            DominanceEntry = updatedEntry,
+                        },
+                        index
+                    );
 
-                _currentProfile?.DirtyRebuildDependencies(DependencyVersionResolution.Requested);
-                lazyProfile.SaveData();
-            }
-        };
+                    _currentProfile?.SetDirty();
+                },
+                onReorderRequested: (row, targetIndex) =>
+                {
+                    int itemIndex = row.GetIndex();
+                    if (itemIndex == targetIndex || itemIndex == -1)
+                        return;
+
+                    sourcesListBox.Remove(row);
+                    sourcesListBox.Insert(row, targetIndex);
+
+                    var item = sources[itemIndex];
+                    lazyProfile.SourceIndex.Reinsert(item, targetIndex);
+
+                    _currentProfile?.SetDirty();
+                }
+            );
+
+            sourcesListBox.Append(uiExpanderRow);
+        }
 
         var prefOverridesGroup = PreferencesGroup.New();
         prefOverridesGroup.SetTitle("Profile Overrides");
@@ -217,6 +237,7 @@ public class ConfigureProfileViewController : IDisposable
 
             if (_currentProfile is { } && _currentProfile.PeekIsDirty())
             {
+                _currentProfile.DirtyRebuildDependencies(DependencyVersionResolution.Requested);
                 UpdateConfiguration(lazyProfile);
             }
 

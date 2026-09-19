@@ -324,6 +324,13 @@ public sealed class PackageSourceIndex
             PackageSources.Add(userSource);
     }
 
+    public void Reinsert(UserSource userSource, int index)
+    {
+        GetOrCreateSource(userSource.Source);
+        Remove(userSource.Source);
+        PackageSources.Insert(index, userSource);
+    }
+
     public bool Remove(PackageSource packageSource) =>
         PackageSources.RemoveAll(x => x.Source == packageSource) != 0;
 
