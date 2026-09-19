@@ -162,6 +162,11 @@ public sealed class PackageSourceIndex
 
             if (oldSource.Visible && !newSource.Visible)
                 continue;
+            else if (!oldSource.Visible && newSource.Visible)
+            {
+                refDominant = contender;
+                continue;
+            }
 
             bool oldHasHigherPriority = oldIndex < newIndex;
 
@@ -335,8 +340,7 @@ public sealed class PackageSourceIndex
             return false;
 
         var userSource = PackageSources[userSourceIndex];
-        PackageSources.RemoveAt(userSourceIndex);
-        PackageSources.Add(userSource with { Visible = false });
+        PackageSources[userSourceIndex] = userSource with { Visible = false };
         return true;
     }
 
