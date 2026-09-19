@@ -649,6 +649,19 @@ public sealed partial record Package
 
     public static bool TryGetPackageVersion(
         PackageSourceIndex index,
+        string versionReference,
+        [NotNullWhen(true)] out PackageVersion? packageVersion
+    )
+    {
+        packageVersion = default;
+        return PackageVersionReference.TryCreateFrom(
+                versionReference,
+                out var packageVersionReference
+            ) && TryGetPackageVersion(index, packageVersionReference, out packageVersion);
+    }
+
+    public static bool TryGetPackageVersion(
+        PackageSourceIndex index,
         PackageVersionReference versionReference,
         [NotNullWhen(true)] out PackageVersion? packageVersion
     )

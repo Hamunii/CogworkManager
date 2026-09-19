@@ -426,20 +426,15 @@ public sealed class ModList
 
         Cog.Debug($"Initializing mod list");
 
-        var fallbackSource = SourceIndex.Sources.FirstOrDefault(x => x.Visible).Source;
-        if (fallbackSource == default)
-        {
-            throw new NotSupportedException("Currently a visible source must be added.");
-        }
-
         foreach (var packageIdWithVersion in _lazy.AddedPackageIds)
         {
-            var packageVersion = PackageVersion.ResolvePackageVersionWithFallbackSource(
-                SourceIndex,
-                fallbackSource,
-                packageIdWithVersion
-            );
-            if (packageVersion is null)
+            if (
+                !Package.TryGetPackageVersion(
+                    SourceIndex,
+                    packageIdWithVersion,
+                    out var packageVersion
+                )
+            )
             {
                 Cog.Error(
                     $"{nameof(PackageVersion)} '{packageIdWithVersion}' should have been imported already."
