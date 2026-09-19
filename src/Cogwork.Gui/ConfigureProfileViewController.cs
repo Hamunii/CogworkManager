@@ -239,6 +239,10 @@ public class ConfigureProfileViewController : IDisposable
 
             if (_currentProfile is { } && _currentProfile.PeekIsDirty())
             {
+                // Hack: trigger never loaded but now enabled sources to load
+                // so that dependencies are evaluated correctly.
+                _ = lazyProfile.LoadAsync().Result;
+
                 _currentProfile.DirtyRebuildDependencies(DependencyVersionResolution.Requested);
                 UpdateConfiguration(lazyProfile);
             }

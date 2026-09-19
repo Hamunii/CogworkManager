@@ -129,3 +129,25 @@ public class PackageSourceIdConverter : JsonConverter<PackageSourceId>
         JsonSerializerOptions options
     ) => writer.WriteStringValue(value.ToString());
 }
+
+public class PackageSourceConverter : JsonConverter<PackageSource>
+{
+    public override PackageSource Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    )
+    {
+        var sourceId = PackageSourceId.Parse(reader.GetString()!);
+        if (!PackageSourceIndex.TryParseSourceId(sourceId, out var packageSource))
+            throw new InvalidOperationException($"Corrupt data '{sourceId}'");
+
+        return packageSource;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        PackageSource value,
+        JsonSerializerOptions options
+    ) => writer.WriteStringValue(value.ToString());
+}

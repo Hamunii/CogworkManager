@@ -12,8 +12,8 @@ namespace Cogwork.Core;
 /// <param name="Visible">Visibility to package fetching methods.</param>
 public readonly record struct UserSource(
     PackageSource Source,
-    SourceDominanceStrategy DominanceStrategy,
     SourceDominanceEntry DominanceEntry,
+    SourceDominanceStrategy DominanceStrategy,
     bool Visible
 );
 
@@ -52,12 +52,23 @@ public sealed class PackageSourceIndex
 
     public PackageSourceIndex() { }
 
-    public PackageSourceIndex(UserSource userSource)
+    public PackageSourceIndex(params IEnumerable<UserSource> userSources)
     {
-        AddOrUpdateIfNotHidden(userSource);
-    }
+        foreach (var source in userSources)
+        {
+            AddOrUpdateButDoNotOverrideIfHidden(source);
+        }
 
-    public PackageSourceIndex(IEnumerable<PackageSourceId> uris) => Import(uris);
+        AddOrUpdateButDoNotOverrideIfHidden(
+            new UserSource(
+                LocalPackageSource.Instance,
+                SourceDominanceEntry.IfPackageReferenced,
+                SourceDominanceStrategy.ByHighestAvailableVersion,
+                Visible: false
+            ),
+            atIndex: 0
+        );
+    }
 
     public UserSource GetAsUserSource(PackageSource packageSource)
     {
@@ -72,17 +83,10 @@ public sealed class PackageSourceIndex
 
         value = new(
             packageSource,
+            SourceDominanceEntry.IfPackageReferenced,
             SourceDominanceStrategy.ByHighestAvailableVersion,
-            packageSource is LocalPackageSource // hardcoded for now with sensible values.
-                ? SourceDominanceEntry.IfPackageReferenced
-                : SourceDominanceEntry.Always,
-            Visible: true
+            Visible: false
         );
-
-        // Example:
-        // 1. local { ByHighestAvailableVersion, IfPackageReferenced }
-        // 2. thunderstore { ByHighestAvailableVersion, Always }
-        // 3. hexium { ByHighestAvailableVersion, Always }
 
         Cog.Information(
             $"Source '{packageSource.Id}' does not have user config, set default:\n{value}"
@@ -243,10 +247,7 @@ public sealed class PackageSourceIndex
             return false;
 
         var userSource = GetAsUserSource(source);
-        if (userSource.Source is LocalPackageSource)
-            AddOrUpdateIfNotHidden(userSource, atIndex: 0);
-        else
-            AddOrUpdateIfNotHidden(userSource);
+        AddOrUpdateButDoNotOverrideIfHidden(userSource);
         return true;
     }
 
@@ -304,7 +305,7 @@ public sealed class PackageSourceIndex
         return value;
     }
 
-    public void AddOrUpdateIfNotHidden(UserSource userSource, int atIndex = -1)
+    public void AddOrUpdateButDoNotOverrideIfHidden(UserSource userSource, int atIndex = -1)
     {
         GetOrCreateSource(userSource.Source);
         if (atIndex is -1)
@@ -315,7 +316,12 @@ public sealed class PackageSourceIndex
                 return;
             }
         }
+        else if (!userSource.Visible && PackageSources.Any(x => x.Source == userSource.Source))
+            return;
+
         Remove(userSource.Source);
+
+        sourceToUser[userSource.Source] = userSource;
 
         if (atIndex is not -1)
             PackageSources.Insert(atIndex, userSource);
@@ -332,17 +338,6 @@ public sealed class PackageSourceIndex
 
     public bool Remove(PackageSource packageSource) =>
         PackageSources.RemoveAll(x => x.Source == packageSource) != 0;
-
-    public bool RemoveVisible(PackageSource packageSource)
-    {
-        var userSourceIndex = PackageSources.FindIndex(x => x.Source == packageSource);
-        if (userSourceIndex == -1)
-            return false;
-
-        var userSource = PackageSources[userSourceIndex];
-        PackageSources[userSourceIndex] = userSource with { Visible = false };
-        return true;
-    }
 
     public async Task<IEnumerable<Package>> GetAllPackagesAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,

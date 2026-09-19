@@ -792,6 +792,7 @@ public readonly record struct PackageMarkdown(
     [property: JsonPropertyName("markdown")] string Markdown
 );
 
+[JsonConverter(typeof(PackageSourceConverter))]
 public abstract class PackageSource
 {
     public sealed class PackageSourceCache : ISaveWithJson

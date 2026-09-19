@@ -128,8 +128,8 @@ public sealed class Game
         {
             defaultSource = new UserSource(
                 ThunderstoreCommunity.CreateDefault(this),
-                SourceDominanceStrategy.ByHighestAvailableVersion,
                 SourceDominanceEntry.Always,
+                SourceDominanceStrategy.ByHighestAvailableVersion,
                 Visible: true
             );
         }

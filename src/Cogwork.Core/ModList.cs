@@ -67,7 +67,7 @@ public readonly record struct ModListData(
     string? DisplayName,
     string? OverrideGamePath,
     bool IsOverrideGamePathEnabled,
-    IEnumerable<PackageSourceId>? Sources,
+    IEnumerable<UserSource>? Sources,
     IEnumerable<string>? PackageIds
 ) : ISaveWithJson;
 
@@ -246,7 +246,7 @@ public sealed class LazyModList
             DisplayName,
             OverrideGamePath,
             IsOverrideGamePathEnabled,
-            SourceIndex.Sources.Where(x => x.Visible).Select(x => x.Source.Uri),
+            SourceIndex.Sources,
             AddedPackageIds
         );
 
@@ -412,11 +412,11 @@ public sealed class ModList
                         $"Imported missing package '{dep.PackageVersion}' (packages in source '{source.Id}': {source.nameToPackage.Count})"
                     );
                     LostPackages.Add((PackageReference)package);
-                    SourceIndex.AddOrUpdateIfNotHidden(
+                    SourceIndex.AddOrUpdateButDoNotOverrideIfHidden(
                         new UserSource(
                             source,
-                            SourceDominanceStrategy.ByHighestAvailableVersion,
                             SourceDominanceEntry.IfPackageReferenced,
+                            SourceDominanceStrategy.ByHighestAvailableVersion,
                             Visible: false
                         )
                     );
