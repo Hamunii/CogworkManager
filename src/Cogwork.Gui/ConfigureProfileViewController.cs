@@ -155,6 +155,7 @@ public class ConfigureProfileViewController : IDisposable
 
         var prefSourcesGroup = PreferencesGroup.New();
         prefSourcesGroup.SetTitle("Package Sources");
+        prefSourcesGroup.SetDescription("Sources are evaluated according to the list order");
         prefPage.Add(prefSourcesGroup);
 
         var sourcesListBox = ListBox.New();

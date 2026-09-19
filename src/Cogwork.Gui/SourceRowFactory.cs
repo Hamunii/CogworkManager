@@ -15,7 +15,6 @@ public static class SourceRowFactory
     {
         var expanderRow = ExpanderRow.New();
         expanderRow.SetTitle(source.Source.Id);
-        expanderRow.SetSubtitle("Configure dependency resolution rules");
         expanderRow.SetShowEnableSwitch(true);
 
         var dragHandle = Image.NewFromIconName("list-drag-handle-symbolic");
@@ -23,20 +22,17 @@ public static class SourceRowFactory
         expanderRow.AddPrefix(dragHandle);
 
         var entryCombo = ComboRow.New();
-        entryCombo.SetTitle("Evaluate For Dependencies");
+        entryCombo.SetTitle("Look For Dependencies From This Source");
         entryCombo.SetModel(StringList.New(["Always", "When Referenced"]));
         entryCombo.SetSelected((uint)source.DominanceEntry);
         expanderRow.AddRow(entryCombo);
 
         var strategyCombo = ComboRow.New();
-        strategyCombo.SetTitle("Prefer When");
-        strategyCombo.SetModel(StringList.New(["Has Package", "Has Latest Package"]));
+        strategyCombo.SetTitle("Prefer This Source When It Has");
+        strategyCombo.SetModel(StringList.New(["Dependency", "Latest Dependency"]));
         strategyCombo.SetSelected((uint)source.DominanceStrategy);
         expanderRow.AddRow(strategyCombo);
 
-        // =========================================================
-        // EVENT NOTIFICATION AND EXPANSION SYNC HANDLERS
-        // =========================================================
         void FireNotification()
         {
             var strategy = (SourceDominanceStrategy)strategyCombo.GetSelected();
@@ -75,13 +71,12 @@ public static class SourceRowFactory
             }
         };
 
-        SetupDragAndDrop(expanderRow, dragHandle, onReorderRequested);
+        SetupDragAndDrop(expanderRow, onReorderRequested);
         return expanderRow;
     }
 
     private static void SetupDragAndDrop(
         ExpanderRow rowContext,
-        Widget dragHandle,
         Action<ExpanderRow, int> onReorderRequested
     )
     {
