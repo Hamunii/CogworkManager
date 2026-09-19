@@ -3,7 +3,7 @@
 A WIP generic mod package manager built for mod developers.
 
 > [!CAUTION]  
-> This project is not fit for consumption yet, and likely will not be for a long time. While this is technically very usable\*, I provide no support or promises in order to not make development harder.
+> This project is not fit for consumption yet, and likely will not be for a long time. While this is technically very usable\*, I provide no support or promises in order to not make development harder. (if the app is broken for you, see [#Troubleshooting](#troubleshooting))
 >
 > \*Currently, this project only supports Linux and a few games on Thunderstore.  
 > Launching games modded only works in specific scenarios, here's how to make it work for now:
@@ -122,3 +122,12 @@ The goal of cogman is to be a fully-featured mod package manager so you don't ne
 A GUI for the mod manger, built for [GNOME](<https://www.gnome.org/>). The goal is to make this app simple, intuitive, and effective for the average user.
 
 Since both of these interfaces (Cogwork.Cli and Cogwork.Gui) use the same Cogwork.Core backend, they also share the same data. This means that you can use whichever app you feel like, whenever.
+
+## Troubleshooting
+
+If you have installed and run this previously and the app is broken, it's because of breaking changes in save data. To solve this, delete EVERYTHING from the following directories (note that this deletes all your data from the app):
+
+- `~/.local/share/Hamunii.Cogwork/` - Profile save data & package install cache
+- `~/.cache/Hamunii.Cogwork/` - External package source index caches & logs
+
+It's also possible that sometimes I push code that doesn't work. This should be relatively rare, but things do break from time to time.
