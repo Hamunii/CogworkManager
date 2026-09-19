@@ -494,7 +494,7 @@ public sealed class ModList
         {
             OverrideGamePath = null,
             IsOverrideGamePathEnabled = false,
-            SourceIndex = game.DefaultSource is { } ? new(game.DefaultSource) : new(),
+            SourceIndex = game.DefaultSource != default ? new(game.DefaultSource) : new(),
         };
 
         // Since this profile didn't exist previously, we should save it now so it stays.

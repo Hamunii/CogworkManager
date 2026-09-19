@@ -50,7 +50,7 @@ public sealed class PackageSourceIndex
 
     ModList modList = null!;
 
-    public PackageSourceIndex() { }
+    public PackageSourceIndex() => AddDefaultLocalPackageSourceIfNotAlreadyAdded();
 
     public PackageSourceIndex(params IEnumerable<UserSource> userSources)
     {
@@ -59,6 +59,10 @@ public sealed class PackageSourceIndex
             AddOrUpdateButDoNotOverrideIfHidden(source);
         }
 
+        AddDefaultLocalPackageSourceIfNotAlreadyAdded();
+    }
+
+    private void AddDefaultLocalPackageSourceIfNotAlreadyAdded() =>
         AddOrUpdateButDoNotOverrideIfHidden(
             new UserSource(
                 LocalPackageSource.Instance,
@@ -68,7 +72,6 @@ public sealed class PackageSourceIndex
             ),
             atIndex: 0
         );
-    }
 
     public UserSource GetAsUserSource(PackageSource packageSource)
     {
