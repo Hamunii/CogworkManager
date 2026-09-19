@@ -168,7 +168,7 @@ public class ConfigureProfileViewController : IDisposable
         {
             var uiExpanderRow = SourceRowFactory.Create(
                 source: sources[i],
-                onValuesChanged: (row, updatedStrategy, updatedEntry) =>
+                onValuesChanged: (row, updatedStrategy, updatedEntry, visible) =>
                 {
                     int index = row.GetIndex();
                     if (index == -1)
@@ -179,6 +179,7 @@ public class ConfigureProfileViewController : IDisposable
                         {
                             DominanceStrategy = updatedStrategy,
                             DominanceEntry = updatedEntry,
+                            Visible = visible,
                         },
                         index
                     );

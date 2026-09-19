@@ -13,11 +13,9 @@ namespace Cogwork.Core;
 public readonly record struct UserSource(
     PackageSource Source,
     SourceDominanceStrategy DominanceStrategy,
-    SourceDominanceEntry DominanceEntry
-)
-{
-    public bool IsVisible() => DominanceEntry != SourceDominanceEntry.Hidden;
-}
+    SourceDominanceEntry DominanceEntry,
+    bool Visible
+);
 
 /// <summary>
 /// Defines the dominance strategy for dependency resolution.
@@ -35,11 +33,6 @@ public enum SourceDominanceEntry
 {
     Always,
     IfPackageReferenced,
-
-    /// <summary>
-    /// Only for package sources which shouldn't show up in searches.
-    /// </summary>
-    Hidden,
 }
 
 public sealed class PackageSourceIndex
@@ -82,7 +75,8 @@ public sealed class PackageSourceIndex
             SourceDominanceStrategy.ByHighestAvailableVersion,
             packageSource is LocalPackageSource // hardcoded for now with sensible values.
                 ? SourceDominanceEntry.IfPackageReferenced
-                : SourceDominanceEntry.Always
+                : SourceDominanceEntry.Always,
+            Visible: true
         );
 
         // Example:
@@ -166,10 +160,7 @@ public sealed class PackageSourceIndex
             var oldSource = PackageSources[oldIndex];
             var newSource = PackageSources[newIndex];
 
-            if (
-                oldSource.DominanceEntry != SourceDominanceEntry.Hidden
-                && newSource.DominanceEntry == SourceDominanceEntry.Hidden
-            )
+            if (oldSource.Visible && !newSource.Visible)
                 continue;
 
             bool oldHasHigherPriority = oldIndex < newIndex;
@@ -207,7 +198,10 @@ public sealed class PackageSourceIndex
         return refDominant;
     }
 
-    public PackageVersion GetOrMakeDominantPackage(PackageVersion packageVersion, bool allowDominate)
+    public PackageVersion GetOrMakeDominantPackage(
+        PackageVersion packageVersion,
+        bool allowDominate
+    )
     {
         var package = packageVersion.Package;
         var dominant = GetOrMakeDominantPackage(package, allowDominate);
@@ -311,7 +305,7 @@ public sealed class PackageSourceIndex
         if (atIndex is -1)
         {
             atIndex = PackageSources.FindIndex(x => x.Source == userSource.Source);
-            if (!userSource.IsVisible() && atIndex != -1)
+            if (!userSource.Visible && atIndex != -1)
             {
                 return;
             }
@@ -342,7 +336,7 @@ public sealed class PackageSourceIndex
 
         var userSource = PackageSources[userSourceIndex];
         PackageSources.RemoveAt(userSourceIndex);
-        PackageSources.Add(userSource with { DominanceEntry = SourceDominanceEntry.Hidden });
+        PackageSources.Add(userSource with { Visible = false });
         return true;
     }
 
@@ -353,7 +347,7 @@ public sealed class PackageSourceIndex
     {
         Cog.Information($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Where(x => x.IsVisible())
+            .Where(x => x.Visible)
             .Select(x => x.Source.GetPackagesAsync(progressFactory, cancellationToken))
             .ToArray();
 
@@ -368,7 +362,7 @@ public sealed class PackageSourceIndex
     {
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Where(x => x.IsVisible())
+            .Where(x => x.Visible)
             .Select(x =>
                 x.Source.FetchPackageIndexAutomaticAsync(progressFactory, cancellationToken)
             )
@@ -384,7 +378,7 @@ public sealed class PackageSourceIndex
     {
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
-            .Where(x => x.IsVisible())
+            .Where(x => x.Visible)
             .Select(x => x.Source.FetchPackageIndexManualAsync(progressFactory, cancellationToken))
             .ToArray();
 

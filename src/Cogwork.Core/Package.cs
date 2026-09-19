@@ -627,7 +627,7 @@ public sealed partial record Package
         if (TryGetPackage(refSource, packageReference, out package))
             return true;
 
-        foreach (var userSource in index.Sources.Where(x => x.IsVisible() && x.Source != refSource))
+        foreach (var userSource in index.Sources.Where(x => x.Visible && x.Source != refSource))
         {
             if (TryGetPackage(userSource.Source, packageReference, out package))
                 return true;

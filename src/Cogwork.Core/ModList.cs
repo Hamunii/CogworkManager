@@ -246,7 +246,7 @@ public sealed class LazyModList
             DisplayName,
             OverrideGamePath,
             IsOverrideGamePathEnabled,
-            SourceIndex.Sources.Where(x => x.IsVisible()).Select(x => x.Source.Uri),
+            SourceIndex.Sources.Where(x => x.Visible).Select(x => x.Source.Uri),
             AddedPackageIds
         );
 
@@ -416,7 +416,8 @@ public sealed class ModList
                         new UserSource(
                             source,
                             SourceDominanceStrategy.ByHighestAvailableVersion,
-                            SourceDominanceEntry.Hidden
+                            SourceDominanceEntry.IfPackageReferenced,
+                            Visible: false
                         )
                     );
                 }
@@ -425,7 +426,7 @@ public sealed class ModList
 
         Cog.Debug($"Initializing mod list");
 
-        var fallbackSource = SourceIndex.Sources.FirstOrDefault(x => x.IsVisible()).Source;
+        var fallbackSource = SourceIndex.Sources.FirstOrDefault(x => x.Visible).Source;
         if (fallbackSource == default)
         {
             throw new NotSupportedException("Currently a visible source must be added.");
