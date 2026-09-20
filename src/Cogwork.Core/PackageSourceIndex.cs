@@ -74,6 +74,8 @@ public sealed class PackageSourceIndex
             atIndex: 0
         );
 
+    public int IndexOf(PackageSource source) => PackageSources.FindIndex(x => x.Source == source);
+
     public UserSource GetAsUserSource(PackageSource packageSource)
     {
         ref var value = ref CollectionsMarshal.GetValueRefOrAddDefault(

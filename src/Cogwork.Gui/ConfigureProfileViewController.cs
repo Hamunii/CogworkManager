@@ -1,4 +1,5 @@
 using Adw;
+using GLib;
 using Gtk;
 
 namespace Cogwork.Gui;
@@ -35,6 +36,17 @@ public class ConfigureProfileViewController : IDisposable
     private readonly Label _modDescriptionLabel;
     private readonly Label _modSourceLabel;
     private readonly MarkdownPreviewer _markdownPreviewer;
+
+    // other stuff
+    readonly string[] sourceColors =
+    [
+        "#3584e4",
+        "#2ec27e",
+        "#f5c211",
+        "#e66100",
+        "#9141ac",
+        "#1a5fb4",
+    ];
 
     public ConfigureProfileViewController(NavigationView navView, Action onBackNavigated)
     {
@@ -348,8 +360,8 @@ public class ConfigureProfileViewController : IDisposable
         _lazyProfile = lazyProfile;
         _currentProfile = lazyProfile.GetModListAsync().Result;
 
-        _windowTitle.SetTitle(GLib.Markup.EscapeText(lazyProfile.DisplayName));
-        _windowTitle.SetSubtitle(GLib.Markup.EscapeText(lazyProfile.Game.Name));
+        _windowTitle.SetTitle(Markup.EscapeText(lazyProfile.DisplayName));
+        _windowTitle.SetSubtitle(Markup.EscapeText(lazyProfile.Game.Name));
 
         if (!_currentProfile.ConsumeIsDirty())
             return;
@@ -837,61 +849,141 @@ public class ConfigureProfileViewController : IDisposable
     )
     {
         var row = ActionRow.New();
-        var stringList = StringList.New([]);
-        var dropdown = DropDown.New(stringList, null);
-        row.AddSuffix(dropdown);
+
+        var menuButton = MenuButton.New();
+        menuButton.SetIconName("mark-location-symbolic");
+        menuButton.AddCssClass("flat");
+        menuButton.AddCssClass("source-indicator");
+        menuButton.SetValign(Align.Center);
+        menuButton.SetHexpand(false);
+        row.AddSuffix(menuButton);
+
+        var actionGroup = Gio.SimpleActionGroup.New();
+        row.InsertActionGroup("row-scope", actionGroup);
 
         PackageVersionReference verRef;
         PackageVersionReference[]? allRefs = null;
+        Gio.SimpleAction? selectSourceAction = null;
+        CssProvider? iconColorProvider = null;
 
         SetData(packageVersionReference);
         row.OnActivated += OnClicked;
-        dropdown.OnNotify += OnNotify;
         row.SetActivatable(true);
         return row;
 
         void SetData(PackageVersionReference reference)
         {
             verRef = reference;
-            var isDep = context == PackageVersionRow.Context.Dependency;
+            var allowConfig = context != PackageVersionRow.Context.Dependency;
             allRefs = [.. reference.GetFromAllAvailableSources(_currentProfile!)];
-            var allowConfig = !isDep && allRefs.Length > 1;
+            var hasMultipleSources = allRefs.Length > 1;
 
-            if (allowConfig)
-                row.SetTitle($"{GLib.Markup.EscapeText(reference.FullName)} v{reference.Version}");
-            else
-                row.SetTitle(
-                    $"{GLib.Markup.EscapeText(reference.FullName)} v{reference.Version} | {reference.Source}"
-                );
+            var fullName = Markup.EscapeText(reference.FullName);
+            var version = Markup.EscapeText(reference.Version.ToString());
+            var sourceId = Markup.EscapeText(reference.Source.ToString());
 
-            row.SetSubtitle(GLib.Markup.EscapeText(reference.Resolve().Description));
-            dropdown.SetVisible(allowConfig);
+            row.SetTitle($"{fullName} <span alpha='60%'>{version}</span>");
+            row.SetSubtitle(Markup.EscapeText(reference.Resolve().Description));
+            menuButton.SetVisible(hasMultipleSources);
 
-            if (!allowConfig)
+            if (!hasMultipleSources)
                 return;
+
+            menuButton.SetSensitive(allowConfig);
+            menuButton.SetTooltipText(reference.Source.Id);
 
             var allSources = allRefs.Select(x => x.Source).ToArray();
-            stringList.Splice(0, stringList.GetNItems(), [.. allSources.Select(x => x.ToString())]);
-            dropdown.SetSelected((uint)allSources.IndexOf(reference.Source));
-        }
-        void OnClicked(ActionRow s, EventArgs e) => onClicked(verRef);
-        void OnNotify(GObject.Object s, GObject.Object.NotifySignalArgs e)
-        {
-            if (allRefs is null)
-                return;
 
-            if (e.Pspec.GetName() == "selected")
+            int index = _lazyProfile.SourceIndex.IndexOf(reference.Source);
+            string chosenColor = sourceColors[index % sourceColors.Length];
+
+            foreach (var cls in menuButton.GetCssClasses())
             {
-                var versionRef = allRefs[dropdown.GetSelected()];
-                SetData(versionRef);
+                if (cls.StartsWith("src-clr-", StringComparison.Ordinal))
+                {
+                    menuButton.RemoveCssClass(cls);
+                }
+            }
 
-                if (!_currentProfile!.Added.ContainsKey((PackageReference)versionRef))
+            string uniqueClassName = $"src-clr-{index}";
+            menuButton.AddCssClass(uniqueClassName);
+
+            var display = menuButton.GetDisplay();
+            if (iconColorProvider != null)
+            {
+                StyleContext.RemoveProviderForDisplay(display, iconColorProvider);
+            }
+
+            iconColorProvider = CssProvider.New();
+
+            string cssData = $$"""
+                .{{uniqueClassName}} image,
+                .{{uniqueClassName}} button {
+                    color: {{chosenColor}};
+                }
+                """;
+            iconColorProvider.LoadFromData(cssData, cssData.Length);
+
+            StyleContext.AddProviderForDisplay(
+                display,
+                iconColorProvider,
+                Gtk.Constants.STYLE_PROVIDER_PRIORITY_USER
+            );
+
+            var menu = Gio.Menu.New();
+
+            for (int i = 0; i < allSources.Length; i++)
+            {
+                var sourceName = allSources[i].ToString();
+                var menuItem = Gio.MenuItem.New(sourceName, $"row-scope.select-source({i})");
+                menu.AppendItem(menuItem);
+            }
+
+            menuButton.SetMenuModel(menu);
+
+            if (selectSourceAction != null)
+            {
+                actionGroup.RemoveAction("select-source");
+            }
+
+            var parameterType = VariantType.New("i");
+            var initialState = Variant.NewInt32(index);
+
+            selectSourceAction = Gio.SimpleAction.NewStateful(
+                "select-source",
+                parameterType,
+                initialState
+            );
+
+            selectSourceAction.OnActivate += (s, e) =>
+            {
+                if (e.Parameter is null)
                     return;
 
-                _currentProfile.Add(versionRef.Resolve(), DependencyVersionResolution.Requested);
-                UpdateConfiguration(_lazyProfile);
-            }
+                int selectedIndex = e.Parameter.GetInt32();
+                var versionRef = allRefs[selectedIndex];
+                selectSourceAction.SetState(e.Parameter);
+
+                if (_currentProfile!.Added.ContainsKey((PackageReference)reference))
+                {
+                    _currentProfile.Add(
+                        versionRef.Resolve(),
+                        DependencyVersionResolution.Requested
+                    );
+                    UpdateConfiguration(_lazyProfile);
+                }
+                // We don't need to run SetData if we are on the page
+                // which updates on UpdateConfiguration since it reloads everything.
+                if (context != PackageVersionRow.Context.Added)
+                {
+                    SetData(versionRef);
+                }
+            };
+
+            actionGroup.AddAction(selectSourceAction);
         }
+
+        void OnClicked(ActionRow s, EventArgs e) => onClicked(verRef);
     }
 
     private static Button CreateActionButton(
