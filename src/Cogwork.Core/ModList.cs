@@ -682,9 +682,11 @@ public sealed class ModList
 
     private void CleanRecentlyRemoved()
     {
-        foreach (var package in AllPackages)
+        foreach (
+            var package in AllPackages.SelectMany(x => x.Value.GetFromAllAvailableSources(this))
+        )
         {
-            RecentlyRemoved.Remove(package.Key);
+            RecentlyRemoved.Remove((PackageReference)package);
         }
     }
 
