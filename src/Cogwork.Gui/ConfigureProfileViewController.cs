@@ -359,7 +359,7 @@ public class ConfigureProfileViewController : IDisposable
         if (_currentProfile.Added.Count > 0)
         {
             foreach (var mod in _currentProfile.Added.Values)
-                AppendDirectRow(mod);
+                AddPackageRowToAdded(mod);
         }
         else
         {
@@ -369,33 +369,14 @@ public class ConfigureProfileViewController : IDisposable
         RebuildDependencies();
     }
 
-    private void AppendDirectRow(PackageVersionReference mod)
+    private void AddPackageRowToAdded(PackageVersionReference mod)
     {
         if (_currentProfile == null)
             return;
 
-        var row = CreateBaseRow(mod, OnModRowClicked);
-        var removeButton = CreateActionButton(
-            "list-remove-symbolic",
-            $"Remove {mod.FullName}",
-            "destructive-action"
-        );
+        var wrappedRow = CreatePackageRow(mod, PackageVersionRow.Context.Added);
 
-        removeButton.OnClicked += (s, e) =>
-        {
-            _currentProfile.Remove([mod.Package()]);
-            _sectionAdded.Content.Remove(row);
-            RebuildDependencies();
-
-            if (_currentProfile.Added.Count == 0)
-            {
-                _sectionAdded.ToggleVisibility(false);
-                _sectionRecent.Content.GrabFocus();
-            }
-        };
-
-        row.AddSuffix(removeButton);
-        _sectionAdded.Content.Append(row);
+        _sectionAdded.Content.Append(wrappedRow.Row);
         RebuildDependencies();
         _sectionAdded.ToggleVisibility(true);
     }
@@ -405,31 +386,15 @@ public class ConfigureProfileViewController : IDisposable
         if (_currentProfile == null)
             return;
 
+        // --- Process Dependencies Section ---
         ClearList(_sectionDeps.Content);
 
         if (_currentProfile.Dependencies.Count > 0)
         {
             foreach (var dep in _currentProfile.Dependencies.Values)
             {
-                var row = CreateBaseRow(dep, OnModRowClicked);
-                var addButton = CreateActionButton("go-up-symbolic", $"Add {dep.FullName}");
-
-                addButton.OnClicked += (s, e) =>
-                {
-                    _currentProfile.Add(dep, DependencyVersionResolution.Latest);
-                    AppendDirectRow(dep);
-
-                    if (_currentProfile.Dependencies.Count == 0)
-                    {
-                        if (_currentProfile.RecentlyRemoved.Count > 0)
-                            _sectionRecent.Content.GrabFocus();
-                        else
-                            _sectionAdded.Content.GrabFocus();
-                    }
-                };
-
-                row.AddSuffix(addButton);
-                _sectionDeps.Content.Append(row);
+                var wrappedRow = CreatePackageRow(dep, PackageVersionRow.Context.Dependency);
+                _sectionDeps.Content.Append(wrappedRow.Row);
             }
             _sectionDeps.ToggleVisibility(true);
         }
@@ -438,31 +403,15 @@ public class ConfigureProfileViewController : IDisposable
             _sectionDeps.ToggleVisibility(false);
         }
 
+        // --- Process Recent / RecentlyRemoved Section ---
         ClearList(_sectionRecent.Content);
 
         if (_currentProfile.RecentlyRemoved.Count > 0)
         {
             foreach (var dep in _currentProfile.RecentlyRemoved.Values)
             {
-                var row = CreateBaseRow(dep, OnModRowClicked);
-                var addButton = CreateActionButton("list-add-symbolic", $"Add {dep.FullName}");
-
-                addButton.OnClicked += (s, e) =>
-                {
-                    _currentProfile.Add(dep, DependencyVersionResolution.Latest);
-                    FireConfigRefresh();
-
-                    if (_currentProfile.RecentlyRemoved.Count == 0)
-                    {
-                        if (_currentProfile.Dependencies.Count > 0)
-                            _sectionDeps.Content.GrabFocus();
-                        else
-                            _sectionAdded.Content.GrabFocus();
-                    }
-                };
-
-                row.AddSuffix(addButton);
-                _sectionRecent.Content.Append(row);
+                var wrappedRow = CreatePackageRow(dep, PackageVersionRow.Context.Search);
+                _sectionRecent.Content.Append(wrappedRow.Row);
             }
             _sectionRecent.ToggleVisibility(true);
         }
@@ -537,6 +486,7 @@ public class ConfigureProfileViewController : IDisposable
                 _searchToggleButton.SetActive(true);
             }
         }
+
         if (_currentProfile == null)
             return;
 
@@ -544,13 +494,12 @@ public class ConfigureProfileViewController : IDisposable
         if (string.IsNullOrEmpty(query))
             return;
 
-        if (_searchCts is { })
-        {
-            _searchCts.Cancel();
-            _searchCts.Dispose();
-        }
+        // Reset and cancel previous search pipelines cleanly
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
         _searchCts = new CancellationTokenSource();
         var token = _searchCts.Token;
+
         Task.Run(
             async () =>
             {
@@ -562,9 +511,12 @@ public class ConfigureProfileViewController : IDisposable
                     );
                     if (token.IsCancellationRequested)
                         return;
+
                     var searchResults = _currentProfile.Search(packages, query).Take(20).ToArray();
                     if (token.IsCancellationRequested)
                         return;
+
+                    // Safely marshal the search result population loop back to the main UI loop thread
                     GLib.Functions.TimeoutAdd(
                         0,
                         0,
@@ -572,31 +524,33 @@ public class ConfigureProfileViewController : IDisposable
                         {
                             if (token.IsCancellationRequested)
                                 return false;
+
                             ClearList(_sectionSearchResults.Content);
+
                             if (searchResults.Length == 0)
                             {
                                 _sectionSearchResults.ToggleVisibility(false);
                                 return false;
                             }
+
                             _sectionSearchResults.ToggleVisibility(true);
+
                             foreach (var package in searchResults)
                             {
-                                var row = CreateBaseRow(
-                                    (PackageVersionReference)package.Latest,
-                                    OnModRowClicked
+                                var targetVersion = (PackageVersionReference)package.Latest;
+
+                                var wrappedRow = CreatePackageRow(
+                                    targetVersion,
+                                    PackageVersionRow.Context.Search
                                 );
-                                var btn = CreateAddOrRemoveButton(
-                                    _currentProfile,
-                                    (PackageReference)package
-                                );
-                                row.AddSuffix(btn);
-                                _sectionSearchResults.Content.Append(row);
+                                _sectionSearchResults.Content.Append(wrappedRow.Row);
                             }
+
                             return false;
                         }
                     );
                 }
-                catch (TaskCanceledException) { }
+                catch (OperationCanceledException) { }
                 catch (Exception ex)
                 {
                     Cog.Error($"Async search pipeline error: {ex}");
@@ -623,17 +577,16 @@ public class ConfigureProfileViewController : IDisposable
         {
             _sectionDependant.ToggleVisibility(true);
             var dep = _dependants.Peek();
-            var row = CreateBaseRow(
+            var wrappedRow = CreatePackageRow(
                 (PackageVersionReference)dep,
+                PackageVersionRow.Context.ModDetailsDependant,
                 pk =>
                 {
                     _dependants.Pop();
                     RenderModDetailsView(pk);
                 }
             );
-            var btn = CreateAddOrRemoveButton(_currentProfile!, (PackageReference)dep.Package);
-            row.AddSuffix(btn);
-            _sectionDependant.Content.Append(row);
+            _sectionDependant.Content.Append(wrappedRow.Row);
         }
         var packageVersion = reference.Resolve();
         _modLabel.SetText(reference.FullName);
@@ -651,20 +604,19 @@ public class ConfigureProfileViewController : IDisposable
             _sectionModDeps.ToggleVisibility(true);
             foreach (var dep in targetDependencies)
             {
-                var row = CreateBaseRow(
+                var wrappedRow = CreatePackageRow(
                     (PackageVersionReference)dep,
-                    pk =>
+                    PackageVersionRow.Context.ModDetailsDependency,
+                    (pk) =>
                     {
                         _dependants.Push(packageVersion);
                         RenderModDetailsView(pk);
                     }
                 );
-                var btn = CreateAddOrRemoveButton(_currentProfile, (PackageReference)dep.Package);
-                row.AddSuffix(btn);
-                _sectionModDeps.Content.Append(row);
+                _sectionModDeps.Content.Append(wrappedRow.Row);
             }
         }
-    } // --- Micro Layout Generation Helpers ---
+    }
 
     static Box CreateManageTab(out Section secAdded, out Section secDeps, out Section secRecent)
     {
@@ -782,10 +734,105 @@ public class ConfigureProfileViewController : IDisposable
         {
             listBox.Remove(listBox.GetFirstChild()!);
         }
-    } // --- Placeholders for external utility stubs ---
+    }
 
-    private ActionRow CreateBaseRow(
+    public PackageVersionRow CreatePackageRow(
+        PackageVersionReference versionReference,
+        PackageVersionRow.Context context,
+        Action<PackageVersionReference>? onClicked = null
+    ) => new(this, versionReference, context, onClicked);
+
+    public record class PackageVersionRow
+    {
+        public enum Context
+        {
+            Added,
+            Dependency,
+            Search,
+            ModDetailsDependant,
+            ModDetailsDependency,
+        }
+
+        internal ActionRow Row => _row;
+        private readonly ActionRow _row;
+
+        public PackageVersionRow(
+            ConfigureProfileViewController parent,
+            PackageVersionReference versionReference,
+            Context context,
+            Action<PackageVersionReference>? onClicked = null
+        )
+        {
+            onClicked ??= parent.OnModRowClicked;
+            _row = parent.CreateBaseRow(versionReference, context, onClicked);
+
+            switch (context)
+            {
+                case Context.Added:
+                    var removeButton = CreateActionButton(
+                        "list-remove-symbolic",
+                        $"Remove {versionReference.FullName}",
+                        "destructive-action"
+                    );
+
+                    removeButton.OnClicked += (s, e) =>
+                    {
+                        parent._currentProfile!.Remove([versionReference.Package()]);
+                        parent._sectionAdded.Content.Remove(_row);
+                        parent.RebuildDependencies();
+
+                        if (parent._currentProfile.Added.Count == 0)
+                        {
+                            parent._sectionAdded.ToggleVisibility(false);
+                            parent._sectionRecent.Content.GrabFocus();
+                        }
+                    };
+
+                    _row.AddSuffix(removeButton);
+                    break;
+
+                case Context.Dependency:
+                    var promoteButton = CreateActionButton(
+                        "go-up-symbolic",
+                        $"Add {versionReference.FullName}"
+                    );
+
+                    promoteButton.OnClicked += (s, e) =>
+                    {
+                        parent._currentProfile!.Add(
+                            versionReference,
+                            DependencyVersionResolution.Latest
+                        );
+                        parent.AddPackageRowToAdded(versionReference);
+
+                        if (parent._currentProfile.Dependencies.Count == 0)
+                        {
+                            if (parent._currentProfile.RecentlyRemoved.Count > 0)
+                                parent._sectionRecent.Content.GrabFocus();
+                            else
+                                parent._sectionAdded.Content.GrabFocus();
+                        }
+                    };
+
+                    _row.AddSuffix(promoteButton);
+                    break;
+
+                case Context.Search:
+                case Context.ModDetailsDependant:
+                case Context.ModDetailsDependency:
+                    var genericActionButton = CreateAddOrRemoveButton(
+                        parent._currentProfile!,
+                        (PackageReference)versionReference
+                    );
+                    _row.AddSuffix(genericActionButton);
+                    break;
+            }
+        }
+    }
+
+    internal ActionRow CreateBaseRow(
         PackageVersionReference packageVersionReference,
+        PackageVersionRow.Context context,
         Action<PackageVersionReference> onClicked
     )
     {
@@ -806,7 +853,7 @@ public class ConfigureProfileViewController : IDisposable
         void SetData(PackageVersionReference reference)
         {
             verRef = reference;
-            var isDep = _currentProfile!.Dependencies.ContainsKey((PackageReference)reference);
+            var isDep = context == PackageVersionRow.Context.Dependency;
             allRefs = [.. reference.GetFromAllAvailableSources(_currentProfile!)];
             var allowConfig = !isDep && allRefs.Length > 1;
 
@@ -837,7 +884,11 @@ public class ConfigureProfileViewController : IDisposable
             {
                 var versionRef = allRefs[dropdown.GetSelected()];
                 SetData(versionRef);
-                _currentProfile!.Add(versionRef.Resolve(), DependencyVersionResolution.Requested);
+
+                if (!_currentProfile!.Added.ContainsKey((PackageReference)versionRef))
+                    return;
+
+                _currentProfile.Add(versionRef.Resolve(), DependencyVersionResolution.Requested);
                 UpdateConfiguration(_lazyProfile);
             }
         }
