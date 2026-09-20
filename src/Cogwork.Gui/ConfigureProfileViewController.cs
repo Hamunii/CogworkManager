@@ -784,21 +784,63 @@ public class ConfigureProfileViewController : IDisposable
         }
     } // --- Placeholders for external utility stubs ---
 
-    private static ActionRow CreateBaseRow(
-        PackageVersionReference reference,
+    private ActionRow CreateBaseRow(
+        PackageVersionReference packageVersionReference,
         Action<PackageVersionReference> onClicked
     )
     {
         var row = ActionRow.New();
-        row.SetTitle($"{GLib.Markup.EscapeText(reference.FullName)} v{reference.Version}");
-        row.SetSubtitle(GLib.Markup.EscapeText(reference.Resolve().Description));
-        row.SetActivatable(true);
+        var stringList = StringList.New([]);
+        var dropdown = DropDown.New(stringList, null);
+        row.AddSuffix(dropdown);
 
-        row.OnActivated += (s, e) =>
-        {
-            onClicked(reference);
-        };
+        PackageVersionReference verRef;
+        PackageVersionReference[]? allRefs = null;
+
+        SetData(packageVersionReference);
+        row.OnActivated += OnClicked;
+        dropdown.OnNotify += OnNotify;
+        row.SetActivatable(true);
         return row;
+
+        void SetData(PackageVersionReference reference)
+        {
+            verRef = reference;
+            var isDep = _currentProfile!.Dependencies.ContainsKey((PackageReference)reference);
+            allRefs = [.. reference.GetFromAllAvailableSources(_currentProfile!)];
+            var allowConfig = !isDep && allRefs.Length > 1;
+
+            if (allowConfig)
+                row.SetTitle($"{GLib.Markup.EscapeText(reference.FullName)} v{reference.Version}");
+            else
+                row.SetTitle(
+                    $"{GLib.Markup.EscapeText(reference.FullName)} v{reference.Version} | {reference.Source}"
+                );
+
+            row.SetSubtitle(GLib.Markup.EscapeText(reference.Resolve().Description));
+            dropdown.SetVisible(allowConfig);
+
+            if (!allowConfig)
+                return;
+
+            var allSources = allRefs.Select(x => x.Source).ToArray();
+            stringList.Splice(0, stringList.GetNItems(), [.. allSources.Select(x => x.ToString())]);
+            dropdown.SetSelected((uint)allSources.IndexOf(reference.Source));
+        }
+        void OnClicked(ActionRow s, EventArgs e) => onClicked(verRef);
+        void OnNotify(GObject.Object s, GObject.Object.NotifySignalArgs e)
+        {
+            if (allRefs is null)
+                return;
+
+            if (e.Pspec.GetName() == "selected")
+            {
+                var versionRef = allRefs[dropdown.GetSelected()];
+                SetData(versionRef);
+                _currentProfile!.Add(versionRef.Resolve(), DependencyVersionResolution.Requested);
+                UpdateConfiguration(_lazyProfile);
+            }
+        }
     }
 
     private static Button CreateActionButton(

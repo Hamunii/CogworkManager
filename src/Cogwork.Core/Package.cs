@@ -553,6 +553,26 @@ public readonly record struct PackageVersionReference
 
     public readonly PackageReference Package() => (PackageReference)this;
 
+    public readonly IEnumerable<PackageVersionReference> GetFromAllAvailableSources(ModList modList)
+    {
+        var self = this;
+        return modList
+            .SourceIndex.Sources.Select(source =>
+            {
+                if (!Core.Package.TryGetPackageVersion(source.Source, self, out var package))
+                    return default;
+
+                if (
+                    source.Visible
+                    || modList.Added.ContainsKey((PackageReference)(PackageVersionReference)package)
+                )
+                    return (PackageVersionReference)package;
+
+                return default;
+            })
+            .Where(x => x != default);
+    }
+
     public override string ToString() => $"{FullName}-{Version}/{Source.Id}";
 
     public static explicit operator PackageReference(PackageVersionReference reference) =>
