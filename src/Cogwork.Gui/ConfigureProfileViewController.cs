@@ -558,11 +558,11 @@ public class ConfigureProfileViewController : IDisposable
                 {
                     var packages = await _currentProfile.SourceIndex.GetAllPackagesAsync(
                         null,
-                        default
+                        token
                     );
                     if (token.IsCancellationRequested)
                         return;
-                    var searchResults = ModList.Search(packages, query).ToArray();
+                    var searchResults = _currentProfile.Search(packages, query).Take(20).ToArray();
                     if (token.IsCancellationRequested)
                         return;
                     GLib.Functions.TimeoutAdd(

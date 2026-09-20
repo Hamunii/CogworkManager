@@ -46,6 +46,7 @@ public sealed class PackageSourceIndex
     List<UserSource> PackageSources { get; } = [];
 
     readonly Dictionary<string, PackageReference> dominantPackages = [];
+    readonly Dictionary<string, PackageReference> dominantPackagesForSearch = [];
     readonly Dictionary<PackageSource, UserSource> sourceToUser = [];
 
     ModList modList = null!;
@@ -99,12 +100,20 @@ public sealed class PackageSourceIndex
 
     public void SetModList(ModList modList) => this.modList = modList;
 
+    // The dominantPackageForSearch dictionary shouldn't need a reset similar to this
+    // since it always evaluates on Visible sources and doesn't take into account SourceDominanceEntry.
     public void ResetPackageDominance() => dominantPackages.Clear();
 
-    public Package GetOrMakeDominantPackage(Package candidatePackage, bool allowDominate)
+    public Package GetOrMakeDominantPackage(
+        Package candidatePackage,
+        bool allowDominate,
+        bool isSearch = false
+    )
     {
+        var idToDominant = isSearch ? dominantPackagesForSearch : dominantPackages;
+
         ref var refDominant = ref CollectionsMarshal.GetValueRefOrAddDefault(
-            dominantPackages,
+            idToDominant,
             candidatePackage.FullName,
             out var exists
         );
@@ -132,18 +141,41 @@ public sealed class PackageSourceIndex
         // 5. Sources SourceDominanceEntry.IfPackageReferenced is only evaluated for
         //      dominance if the package source is on the candidatePackage fed to this method.
         //      Therefore its evaluation happens by concatenating it to packageFromAllContenders.
+        // 6. Sources which are not Visible are only used as a fallback.
+        //
+        // When the evaluation is done for package search, only all Visible sources are
+        // evaluated INCLUDING the Added package's source, if an Added package exists.
 
-        var packageFromAllContenders = Sources
-            .Where(x =>
-                x.Source != candidate.Source && x.DominanceEntry == SourceDominanceEntry.Always
-            )
-            .Select(source =>
-            {
-                _ = Package.TryGetPackage(source.Source, candidate, out var package);
-                return package!;
-            })
-            .Where(x => x is { })
-            .Concat([candidate]);
+        IEnumerable<Package> packageFromAllContenders;
+        if (!isSearch)
+        {
+            packageFromAllContenders = Sources
+                .Where(x =>
+                    x.Source != candidate.Source && x.DominanceEntry == SourceDominanceEntry.Always
+                )
+                .Select(source =>
+                {
+                    _ = Package.TryGetPackage(source.Source, candidate, out var package);
+                    return package!;
+                })
+                .Where(x => x is { })
+                .Concat([candidatePackage]);
+        }
+        else
+        {
+            packageFromAllContenders = Sources
+                .Select(source =>
+                {
+                    if (!Package.TryGetPackage(source.Source, candidate, out var package))
+                        return null!;
+
+                    if (source.Visible || modList.Added.ContainsKey((PackageReference)package))
+                        return package;
+
+                    return null!;
+                })
+                .Where(x => x is { });
+        }
 
         foreach (var contenderPackage in packageFromAllContenders)
         {

@@ -942,12 +942,15 @@ public sealed class ModList
         return true;
     }
 
-    public static IEnumerable<Package> Search(IEnumerable<Package> packages, string package)
+    public IEnumerable<Package> Search(IEnumerable<Package> packages, string query)
     {
         return packages
-            .Where(x => x.FullName.Contains(package, StringComparison.InvariantCultureIgnoreCase))
-            .OrderByDescending(x => 100 - (x.FullName.Length - package.Length))
-            .Take(50);
+            .Where(x => x.FullName.Contains(query, StringComparison.InvariantCultureIgnoreCase))
+            .OrderBy(x => query.Length - x.FullName.Length)
+            .DistinctBy(x => x.FullName)
+            .Select(x =>
+                SourceIndex.GetOrMakeDominantPackage(x, allowDominate: true, isSearch: true)
+            );
     }
 
     public override string ToString()
