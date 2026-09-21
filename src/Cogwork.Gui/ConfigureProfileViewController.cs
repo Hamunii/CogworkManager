@@ -422,7 +422,7 @@ public class ConfigureProfileViewController : IDisposable
         {
             foreach (var dep in _currentProfile.RecentlyRemoved.Values)
             {
-                var wrappedRow = CreatePackageRow(dep, PackageVersionRow.Context.Search);
+                var wrappedRow = CreatePackageRow(dep, PackageVersionRow.Context.RecentlyRemoved);
                 _sectionRecent.Content.Append(wrappedRow.Row);
             }
             _sectionRecent.ToggleVisibility(true);
@@ -760,6 +760,7 @@ public class ConfigureProfileViewController : IDisposable
         {
             Added,
             Dependency,
+            RecentlyRemoved,
             Search,
             ModDetailsDependant,
             ModDetailsDependency,
@@ -827,6 +828,31 @@ public class ConfigureProfileViewController : IDisposable
                     };
 
                     _row.AddSuffix(promoteButton);
+                    break;
+
+                case Context.RecentlyRemoved:
+                    var addButton = CreateAddOrRemoveButton(
+                        parent._currentProfile!,
+                        (PackageReference)versionReference
+                    );
+                    addButton.OnClicked += (s, e) =>
+                    {
+                        parent._currentProfile!.Add(
+                            versionReference,
+                            DependencyVersionResolution.Latest
+                        );
+                        parent.FireConfigRefresh();
+
+                        if (parent._currentProfile!.RecentlyRemoved.Count == 0)
+                        {
+                            if (parent._currentProfile.Dependencies.Count > 0)
+                                parent._sectionDeps.Content.GrabFocus();
+                            else
+                                parent._sectionAdded.Content.GrabFocus();
+                        }
+                    };
+
+                    _row.AddSuffix(addButton);
                     break;
 
                 case Context.Search:
