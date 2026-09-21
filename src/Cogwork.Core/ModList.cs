@@ -948,7 +948,7 @@ public sealed class ModList
     {
         return packages
             .Where(x => x.FullName.Contains(query, StringComparison.InvariantCultureIgnoreCase))
-            .OrderBy(x => query.Length - x.FullName.Length)
+            .OrderByDescending(x => query.Length - x.FullName.Length)
             .DistinctBy(x => x.FullName)
             .Select(x =>
                 SourceIndex.GetOrMakeDominantPackage(x, allowDominate: true, isSearch: true)
