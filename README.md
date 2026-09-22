@@ -99,29 +99,29 @@ And select the package source to install from if it exists in multiple enabled s
 
 ## Project Overview
 
-Cogwork Manager is currently split into 3 parts:
+Cogwork Manager is a project which is currently split into 3 parts:
 
 - **Cogwork.Core:** The package manager library
+- **Cogwork.Gui:** A GUI app named "Cogwork"
 - **Cogwork.Cli:** A command line interface named "`cogman`"
-- **Cogwork.Gui:** A [GNOME](<https://www.gnome.org/>) app named "Cogwork Manager"
 
 ### Cogwork.Core
 
-Cogwork.Core is the package manager library usable to anyone who dares to use it in their projects.
+This is the library that does all the package management magic. Both Cogwork.Gui and Cogwork.Cli use this backend and share the same data. This means that you can use whichever app you feel like, whenever.
 
 This library is heavily WIP still so everything about the implementation may change, and will probably be rewritten and documented once I have the full model figured out and working first. So please do not attempt to use it yet.
 
-### Cogwork.Cli
+### Cogwork.Gui (Cogwork)
 
-Aka "`cogman`". It's a CLI tool that focuses a lot on the user experience to try and make it easy-ish to use even for people who are not used to CLI tools.
+A GUI for the mod manger, built for [GNOME](<https://www.gnome.org/>). It aims to be simple, intuitive, and effective for both mod developers and casual mod users. It tries to achieve this by following the [GNOME Human Interface Guidelines](<https://developer.gnome.org/hig/index.html>).
 
-The goal of cogman is to be a fully-featured mod package manager so you don't need to open a GUI app for managing mods. As of right now, it's not quite there.
+I can't make proper comparisons to other Thunderstore compatible mod managers like [r2modman](<https://github.com/ebkr/r2modmanPlus>) or [Gale](<https://github.com/Kesomannen/gale>) yet because Cogwork is missing some core features but currently Cogwork appears much simpler, and in theory it should continue this way.
 
-### Cogwork.Gui
+### Cogwork.Cli (cogman)
 
-A GUI for the mod manger, built for [GNOME](<https://www.gnome.org/>). The goal is to make this app simple, intuitive, and effective for the average user.
+This a CLI tool that focuses a lot on the user experience to try and make it easy-ish to use even for people who are not used to CLI tools.
 
-Since both of these interfaces (Cogwork.Cli and Cogwork.Gui) use the same Cogwork.Core backend, they also share the same data. This means that you can use whichever app you feel like, whenever.
+The goal of cogman is to be a capable enough mod package manager so that you don't need to open a GUI app for managing mods. As of right now it's not quite there, and stuff like browsing for mods to install will be better done in a GUI app.
 
 ## Troubleshooting
 
