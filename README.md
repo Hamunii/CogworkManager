@@ -131,3 +131,9 @@ If you have installed and run this previously and the app is broken, it's becaus
 - `~/.cache/Hamunii.Cogwork/` - External package source index caches & logs
 
 It's also possible that sometimes I push code that doesn't work. This should be relatively rare, but things do break from time to time.
+
+## AI Disclosure
+
+Most of the code for **Cogwork.Gui** is AI generated, implementing exactly the UI and UX I've designed. Outside of this, there is very little AI use.
+
+And do not fret: **Cogwork.Gui** is just an interface for **Cogwork.Core** which is the library where all the important backend logic lives. I've spent a lot of time writing and designing it using my brain.
