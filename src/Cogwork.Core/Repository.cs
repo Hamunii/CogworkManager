@@ -170,8 +170,10 @@ public sealed class LocalPackageSource : PackageSource
     {
         if (_lastFetch != default)
         {
-            if (!maybeRefetch)
-                return true;
+            // Ignore not fetching because it's actually kind of important that the
+            // local package source is always up to date.
+            // if (!maybeRefetch)
+            //     return true;
 
             if (_lastFetch > DateTime.Now - TimeSpan.FromSeconds(2))
             {
