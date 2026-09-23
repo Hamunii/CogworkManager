@@ -163,15 +163,21 @@ public sealed class LocalPackageSource : PackageSource
     }
 
     public override async Task<bool> FetchPackageIndexAsync(
-        TimeSpan timeUntilIndexRefreshAllowed,
+        bool maybeRefetch,
         Func<PackageSource, ProgressContext>? progressFactory,
         CancellationToken cancellationToken = default
     )
     {
-        if (_lastFetch > DateTime.Now - TimeSpan.FromSeconds(2))
+        if (_lastFetch != default)
         {
-            Cog.Debug("Local package index is already fetched");
-            return true;
+            if (!maybeRefetch)
+                return true;
+
+            if (_lastFetch > DateTime.Now - TimeSpan.FromSeconds(2))
+            {
+                Cog.Debug("Local package index is already fetched");
+                return true;
+            }
         }
 
         if (!File.Exists(PackageIndexPath))
@@ -263,7 +269,7 @@ public sealed class LocalPackageSource : PackageSource
             return $"Package manifest file '{manifestPath}' deserialization returned null";
         }
 
-        _ = FetchPackageIndexAsync(TimeSpan.Zero, default).Result;
+        _ = FetchPackageIndexAsync(maybeRefetch: true, default).Result;
 
         packageVersion = packageVersion.WithVersion(
             packageVersion.Version.WithMetadata($"id.{Guid.NewGuid():N}")
@@ -366,11 +372,14 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         Path.Combine(PackageIndexIndexDirectory, hash);
 
     public override async Task<bool> FetchPackageIndexAsync(
-        TimeSpan timeUntilIndexRefreshAllowed,
+        bool maybeRefetch,
         Func<PackageSource, ProgressContext>? progressFactory,
         CancellationToken cancellationToken = default
     )
     {
+        if (!maybeRefetch && isImported)
+            return true;
+
         var dateNow = DateTime.Now;
         var lastFetch = SourceCache.LastFetch;
 
@@ -379,7 +388,7 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         if (dateNow < lastFetch)
             fetchAgain = true;
 
-        if (dateNow > lastFetch.Add(timeUntilIndexRefreshAllowed))
+        if (dateNow > lastFetch.Add(TimeSpan.FromSeconds(10)))
             fetchAgain = true;
 
         if (fetchAgain || IsIncompleteIndexCache())
@@ -398,10 +407,7 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         }
         else
         {
-            Cog.Information(
-                $"Using cached package index for '{Service.Uri}', last fetch was "
-                    + $"less than {timeUntilIndexRefreshAllowed} ago."
-            );
+            Cog.Information($"Using cached package index for '{Service.Uri}'");
 
             if (isImported)
             {
@@ -807,32 +813,24 @@ public abstract class PackageSource
 
     internal ConcurrentDictionary<string, Package> nameToPackage = [];
 
-    public async Task FetchPackageIndexAutomaticAsync(
+    public async Task EnsurePackageIndexIsFetchedAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,
         CancellationToken cancellationToken = default
     )
     {
-        _ = await FetchPackageIndexAsync(
-            TimeSpan.FromMinutes(20),
-            progressFactory,
-            cancellationToken
-        );
+        _ = await FetchPackageIndexAsync(maybeRefetch: false, progressFactory, cancellationToken);
     }
 
-    public async Task FetchPackageIndexManualAsync(
+    public async Task FetchPackageIndexLatestAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,
         CancellationToken cancellationToken = default
     )
     {
-        _ = await FetchPackageIndexAsync(
-            TimeSpan.FromSeconds(10),
-            progressFactory,
-            cancellationToken
-        );
+        _ = await FetchPackageIndexAsync(maybeRefetch: true, progressFactory, cancellationToken);
     }
 
     public abstract Task<bool> FetchPackageIndexAsync(
-        TimeSpan timeUntilIndexRefreshAllowed,
+        bool maybeRefetch,
         Func<PackageSource, ProgressContext>? progressFactory,
         CancellationToken cancellationToken = default
     );
@@ -842,7 +840,7 @@ public abstract class PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        await FetchPackageIndexAutomaticAsync(progressFactory, cancellationToken);
+        await EnsurePackageIndexIsFetchedAsync(progressFactory, cancellationToken);
         return Packages;
     }
 

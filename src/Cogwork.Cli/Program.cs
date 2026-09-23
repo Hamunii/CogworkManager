@@ -581,7 +581,7 @@ public static class Program
                     {
                         bool fetchedAny = false;
 
-                        var profile = await lazyProfile.LoadManualAsync(packageSource =>
+                        var profile = await lazyProfile.LoadLatestAsync(packageSource =>
                             new(
                                 ctx.AddTask($"Fetching {packageSource}", maxValue: 0)
                                     .IsIndeterminate(),

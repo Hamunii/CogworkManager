@@ -203,16 +203,16 @@ public sealed class LazyModList
         CancellationToken cancellationToken = default
     )
     {
-        await SourceIndex.FetchAllPackagesAsync(progressFactory, cancellationToken);
+        await SourceIndex.EnsureAllPackageIndexIsFetchedAsync(progressFactory, cancellationToken);
         return InitModList();
     }
 
-    public async Task<ModList> LoadManualAsync(
+    public async Task<ModList> LoadLatestAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,
         CancellationToken cancellationToken = default
     )
     {
-        await SourceIndex.FetchAllPackagesManualAsync(progressFactory, cancellationToken);
+        await SourceIndex.FetchAllPackageIndexLatestAsync(progressFactory, cancellationToken);
         return InitModList();
     }
 

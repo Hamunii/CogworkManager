@@ -391,7 +391,7 @@ public sealed class PackageSourceIndex
         return fetchTasks.SelectMany(x => x.Result);
     }
 
-    public async Task FetchAllPackagesAsync(
+    public async Task EnsureAllPackageIndexIsFetchedAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,
         CancellationToken cancellationToken = default
     )
@@ -400,14 +400,14 @@ public sealed class PackageSourceIndex
         var fetchTasks = PackageSources
             .Where(x => x.Visible)
             .Select(x =>
-                x.Source.FetchPackageIndexAutomaticAsync(progressFactory, cancellationToken)
+                x.Source.EnsurePackageIndexIsFetchedAsync(progressFactory, cancellationToken)
             )
             .ToArray();
 
         await Task.WhenAll(fetchTasks);
     }
 
-    public async Task FetchAllPackagesManualAsync(
+    public async Task FetchAllPackageIndexLatestAsync(
         Func<PackageSource, ProgressContext>? progressFactory = null,
         CancellationToken cancellationToken = default
     )
@@ -415,7 +415,7 @@ public sealed class PackageSourceIndex
         Cog.Debug($"Package sources count: {PackageSources.Count}");
         var fetchTasks = PackageSources
             .Where(x => x.Visible)
-            .Select(x => x.Source.FetchPackageIndexManualAsync(progressFactory, cancellationToken))
+            .Select(x => x.Source.FetchPackageIndexLatestAsync(progressFactory, cancellationToken))
             .ToArray();
 
         await Task.WhenAll(fetchTasks);
