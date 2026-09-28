@@ -20,9 +20,10 @@ This means that nearly every edge case should be properly thought out. This is w
   - Game
     - IModInstallRules
   - PackageSourceIndex
-    - PackageSource[]
-      - Package[]
-        - PackageVersion[]
+    - UserSource[] - per profile config for PackageSources
+      - PackageSource (one shared instance per type)
+        - Package[]
+          - PackageVersion[]
 
 On a higher level:
 
@@ -47,7 +48,7 @@ Textual representation of a package id which can be resolved into a PackageVersi
 
 ### Package is removed from profile
 
-? If new data was generated which we can detect (non-config files):
+Uninstall tracked files, and if new data was generated which we can detect (non-config files):
 
 1. Ask if it should be deleted or kept
 2. Always keep data
@@ -56,11 +57,20 @@ Textual representation of a package id which can be resolved into a PackageVersi
 3. Always delete data
 
 Current preference: 2.ii.  
-Current solution: 2.i.
+Current solution: 2.i.  
+Standard Thunderstore mod manager behavior: 3.
+
+### Package is updated in profile
+
+- delete tracked files of previous installed version, keep untracked files, install new version
+
+Standard Thunderstore mod manager behavior: delete all data related to package, except configs, then install new version.
 
 ### Added Package is disabled by user
 
 - [ ] Treat package as removed, but make it easy to add back (data must remain intact)
+
+Standard Thunderstore mod manager behavior: keep files but rename them to have `.old` extension.
 
 ### Added Package is removed from a repo
 
@@ -84,5 +94,4 @@ If only a specific PackageVersion is removed from a package, that PackageVersion
 
 ### Package A and B from separate sources depend on non-added package C
 
-- [ ] Allow giving sources a dominance score
-- [ ] In case of equal dominance, warn user because dominance is undefined (either A or B is dominant)
+- Allow giving sources a dominance strategy and priority
