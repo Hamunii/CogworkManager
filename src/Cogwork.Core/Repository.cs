@@ -29,7 +29,7 @@ public sealed class LocalPackageSource : PackageSource
     DateTime _lastFetch;
 
     public override bool IsPackageDownloaded(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         out string zipFileLocation,
         out string directoryPath,
         out bool zipExists
@@ -57,7 +57,7 @@ public sealed class LocalPackageSource : PackageSource
     }
 
     public static bool IsPackageDownloaded(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         string withVersionName,
         out string zipFileLocation,
         out string directoryPath,
@@ -85,8 +85,8 @@ public sealed class LocalPackageSource : PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        var visualPackageVersion = (VisualPackageVersion)packageVersion;
-        if (!IsPackageDownloaded(visualPackageVersion))
+        var PackageVersionReference = (PackageVersionReference)packageVersion;
+        if (!IsPackageDownloaded(PackageVersionReference))
         {
             Cog.Error(
                 $"Attempting to download local package '{packageVersion}' which is not found."
@@ -98,7 +98,7 @@ public sealed class LocalPackageSource : PackageSource
     }
 
     public override async Task<string> GetReadmeAsync(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         CancellationToken cancellationToken = default
     )
     {
@@ -109,7 +109,7 @@ public sealed class LocalPackageSource : PackageSource
         return await File.ReadAllTextAsync(Path.Combine(dir, "README.md"), cancellationToken);
     }
 
-    internal static bool NeedsReinstall(VisualPackageVersion packageVersion) =>
+    internal static bool NeedsReinstall(PackageVersionReference packageVersion) =>
         IsPackageDownloaded(
             packageVersion,
             withVersionName: "next",
@@ -119,7 +119,7 @@ public sealed class LocalPackageSource : PackageSource
         );
 
     public override async Task<string?> ExtractAsync(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         CancellationToken cancellationToken = default
     )
     {
@@ -284,7 +284,7 @@ public sealed class LocalPackageSource : PackageSource
 
         if (
             IsPackageDownloaded(
-                (VisualPackageVersion)packageVersion,
+                (PackageVersionReference)packageVersion,
                 withVersionName: "next",
                 out var zipFileLocation,
                 out var directoryPath,
@@ -353,16 +353,16 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
     public static ThunderstoreCommunity CreateDefault(Game game) =>
         new(new("thunderstore.io", game.Slug));
 
-    protected static string GetPackageVersionUrlPath(VisualPackageVersion package) =>
+    protected static string GetPackageVersionUrlPath(PackageVersion package) =>
         $"{package.Author}/{package.Name}/{package.Version}";
 
     protected virtual string GetPackageListingIndexUrl() =>
         $"https://{id.Site}/c/{id.GameSlug}/api/v1/package-listing-index/";
 
-    protected virtual string GetPackageDownloadUrl(VisualPackageVersion package) =>
+    protected virtual string GetPackageDownloadUrl(PackageVersion package) =>
         $"https://{id.Site}/package/download/{GetPackageVersionUrlPath(package)}/";
 
-    protected virtual string GetPackageReadmeUrl(VisualPackageVersion package) =>
+    protected virtual string GetPackageReadmeUrl(PackageVersion package) =>
         $"https://{id.Site}/api/experimental/package/{GetPackageVersionUrlPath(package)}/readme/";
 
     public bool IsIncompleteIndexCache() =>
@@ -654,7 +654,7 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
     }
 
     public override bool IsPackageDownloaded(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         out string zipFileLocation,
         out string directoryPath,
         out bool zipExists
@@ -680,14 +680,14 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         CancellationToken cancellationToken = default
     )
     {
-        var visualPackageVersion = (VisualPackageVersion)packageVersion;
-        if (IsPackageDownloaded(visualPackageVersion, out string? zipFileLocation, out _, out _))
+        var PackageVersionReference = (PackageVersionReference)packageVersion;
+        if (IsPackageDownloaded(PackageVersionReference, out string? zipFileLocation, out _, out _))
         {
             Cog.Debug($"Package is already downloaded for '{packageVersion}'");
             return true;
         }
 
-        var downloadUrl = GetPackageDownloadUrl(visualPackageVersion);
+        var downloadUrl = GetPackageDownloadUrl(packageVersion);
         Cog.Debug($"Attempting to download: {downloadUrl}");
 
         var downloader = new DownloadService(Utils.SharedDownloadConfiguration);
@@ -714,7 +714,7 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
     }
 
     public override async Task<string> GetReadmeAsync(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         CancellationToken cancellationToken = default
     )
     {
@@ -982,11 +982,11 @@ public abstract class PackageSource
         return url.ToString();
     }
 
-    public bool IsPackageDownloaded(VisualPackageVersion packageVersion) =>
+    public bool IsPackageDownloaded(PackageVersionReference packageVersion) =>
         IsPackageDownloaded(packageVersion, out _, out _, out _);
 
     public abstract bool IsPackageDownloaded(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         out string zipFileLocation,
         out string directoryPath,
         out bool zipExists
@@ -999,7 +999,7 @@ public abstract class PackageSource
     );
 
     public virtual async Task<string?> ExtractAsync(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         CancellationToken cancellationToken = default
     )
     {
@@ -1039,7 +1039,7 @@ public abstract class PackageSource
     }
 
     public abstract Task<string> GetReadmeAsync(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         CancellationToken cancellationToken = default
     );
 }

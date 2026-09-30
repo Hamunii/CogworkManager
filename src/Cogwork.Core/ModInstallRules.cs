@@ -14,14 +14,14 @@ public interface IModInstallRules
 
     string[] Map(
         ModList modList,
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         string directoryPath,
         string outputPath
     );
 
     public Task<FileInstalls?> InstallPackageAsync(
         ModList modList,
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         string profileFilesDirectory,
         CancellationToken cancellationToken = default
     );
@@ -36,9 +36,9 @@ public interface IModInstallRules
     /// <returns>Null.</returns>
     public Task<FileInstalls?> UninstallPackageAsync(
         ModList modList,
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         string profileFilesDirectory,
-        Dictionary<VisualPackageVersion, FileInstalls?>? installMap,
+        Dictionary<PackageVersionReference, FileInstalls?>? installMap,
         CancellationToken cancellationToken = default
     );
 
@@ -59,12 +59,12 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     public static string InstallRootDirectory { get; } = "BepInEx";
 
     // TODO: Use proper detection of BepInEx package for a Thunderstore community.
-    static bool IsBepInExPackage(ModList modList, VisualPackageVersion package)
+    static bool IsBepInExPackage(ModList modList, PackageVersionReference package)
     {
-        if (!package.Name.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase))
+        if (!package.FullName.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        return package.Author.Name switch
+        return package.Resolve().Name switch
         {
             "BepInEx" => true, // Default
             "bbepis" => true, // Risk of Rain 2
@@ -88,7 +88,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
     public string[] Map(
         ModList modList,
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         string directoryPath,
         string outputPath
     )
@@ -162,7 +162,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
     }
 
     private void MapRecursive(
-        VisualPackageVersion package,
+        PackageVersionReference package,
         string directoryPath,
         string outputPath,
         HashSet<string> mappedFiles
@@ -258,7 +258,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
     public async Task<FileInstalls?> InstallPackageAsync(
         ModList modList,
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         string profileFilesDirectory,
         CancellationToken cancellationToken = default
     )
@@ -268,7 +268,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
             return new FileInstalls([], []);
         }
 
-        var path = await packageVersion.ExtractAsync(cancellationToken);
+        var path = await packageVersion.Source.ExtractAsync(packageVersion, cancellationToken);
         if (path is null)
         {
             Cog.Error($"Cannot install package which is not downloaded: '{packageVersion}'");
@@ -286,13 +286,16 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         return new FileInstalls(mapped, []);
     }
 
-    private static bool ShouldIgnorePackage(ModList modList, VisualPackageVersion packageVersion) =>
+    private static bool ShouldIgnorePackage(
+        ModList modList,
+        PackageVersionReference packageVersion
+    ) =>
         modList.Game == Game.Silksong // Silksong has a replacement package, and these are incompatible.
         && packageVersion.FullName.Equals("BepInEx-BepInExPack_Silksong", StringComparison.Ordinal);
 
     private static string GetInstallRoot(
         ModList modList,
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         string profileFilesDirectory
     )
     {
@@ -306,9 +309,9 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
     public async Task<FileInstalls?> UninstallPackageAsync(
         ModList modList,
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         string profileFilesDirectory,
-        Dictionary<VisualPackageVersion, FileInstalls?>? installMap,
+        Dictionary<PackageVersionReference, FileInstalls?>? installMap,
         CancellationToken cancellationToken = default
     )
     {

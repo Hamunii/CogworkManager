@@ -32,9 +32,11 @@ On a higher level:
 
 ### Notable Types
 
-#### VisualPackageVersion
+#### PackageReference & PackageVersionReference
 
-Textual representation of a package id which can be resolved into a PackageVersion which holds more metadata about the package.
+A reference to a package or a package version which can be resolved to the latest version from the package source it points to.
+
+The plan is that this could resolve into different types of packages even for if/when Cogwork supports non-Thunderstore compatible sources.
 
 ## Definitions
 

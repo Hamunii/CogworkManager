@@ -4,9 +4,10 @@ using System.Text.Json.Serialization;
 
 namespace Cogwork.Core;
 
-public class VisualPackageVersionConverter : JsonConverter<VisualPackageVersion>
+public class PackageReferenceConverter<T> : JsonConverter<T>
+    where T : IPackageReference<T>
 {
-    public override VisualPackageVersion Read(
+    public override T Read(
         ref Utf8JsonReader reader,
         Type typeToConvert,
         JsonSerializerOptions options
@@ -14,34 +15,34 @@ public class VisualPackageVersionConverter : JsonConverter<VisualPackageVersion>
     {
         var packageId = reader.GetString();
 
-        // Let the constructor throw if property is null
-        return new(packageId!);
+        if (T.TryCreateFrom(packageId!, out var reference))
+            return reference;
+
+        throw new InvalidOperationException($"Corrupt data '{packageId}'");
     }
 
-    public override void Write(
-        Utf8JsonWriter writer,
-        VisualPackageVersion value,
-        JsonSerializerOptions options
-    )
+    public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
     {
         writer.WriteStringValue(value.ToString());
     }
 
-    public override VisualPackageVersion ReadAsPropertyName(
+    public override T ReadAsPropertyName(
         ref Utf8JsonReader reader,
         Type typeToConvert,
         JsonSerializerOptions options
     )
     {
-        var property = reader.GetString();
+        var packageId = reader.GetString();
 
-        // Let the constructor throw if property is null
-        return new(property!);
+        if (T.TryCreateFrom(packageId!, out var reference))
+            return reference;
+
+        throw new InvalidOperationException($"Corrupt data '{packageId}'");
     }
 
     public override void WriteAsPropertyName(
         Utf8JsonWriter writer,
-        [DisallowNull] VisualPackageVersion value,
+        [DisallowNull] T value,
         JsonSerializerOptions options
     )
     {

@@ -7,143 +7,6 @@ using ZLinq;
 
 namespace Cogwork.Core;
 
-[JsonConverter(typeof(VisualPackageVersionConverter))]
-public readonly record struct VisualPackageVersion
-{
-    public Author Author { get; }
-    public string Name { get; }
-    public string FullName { get; }
-    public PackageVersionNumber Version { get; }
-    public PackageSourceId? Source { get; }
-
-    public VisualPackageVersion(KeyValuePair<string, PackageVersionNumber> keyValuePair)
-        : this(keyValuePair.Key, keyValuePair.Value) { }
-
-    public VisualPackageVersion(string packageId)
-    {
-        var span = packageId.AsSpan();
-
-        var everythingButSource = span.Split('/');
-        everythingButSource.MoveNext();
-
-        var left = span[everythingButSource.Current];
-        var versionDivider = left.LastIndexOf('-');
-
-        FullName = left[..versionDivider].ToString();
-        var nameDivider = FullName.LastIndexOf('-');
-        Author = FullName[..nameDivider].ToString();
-        Name = FullName[(nameDivider + 1)..].ToString();
-
-        Version = new(left[(versionDivider + 1)..]);
-
-        if (!everythingButSource.MoveNext())
-        {
-            throw new InvalidDataException(
-                "This constructor requires format 'author-name-version/uri'"
-            );
-        }
-
-        var right = span[everythingButSource.Current.Start..];
-        Source = PackageSourceId.Parse(right.ToString());
-    }
-
-    public VisualPackageVersion(string packageId, PackageVersionNumber version)
-    {
-        Version = version;
-
-        var span = packageId.AsSpan();
-
-        var everythingButSource = span.Split('/');
-        everythingButSource.MoveNext();
-
-        var left = span[everythingButSource.Current];
-        var divider = left.LastIndexOf('-');
-
-        FullName = left.ToString();
-        Author = left[..divider].ToString();
-        Name = left[(divider + 1)..].ToString();
-
-        if (everythingButSource.MoveNext())
-        {
-            var right = span[everythingButSource.Current.Start..];
-            Source = PackageSourceId.Parse(right.ToString());
-        }
-    }
-
-    public VisualPackageVersion(
-        Author author,
-        string name,
-        string fullName,
-        PackageVersionNumber version,
-        PackageSourceId? source
-    )
-    {
-        Author = author;
-        Name = name;
-        FullName = fullName;
-        Version = version;
-        Source = source;
-    }
-
-    public Task<string?> ExtractAsync(
-        PackageSource service,
-        CancellationToken cancellationToken = default
-    ) => service.ExtractAsync(this, cancellationToken);
-
-    public Task<string?> ExtractAsync(CancellationToken cancellationToken = default)
-    {
-        if (Source is not { } sourceId)
-        {
-            Cog.Warning($"Source was null for '{ToString()}'" + new StackTrace(true));
-            return Task.FromResult<string?>(null);
-        }
-
-        if (!PackageSourceIndex.TryParseSourceId(sourceId, out var source))
-        {
-            Cog.Warning($"No package source found for '{sourceId}'" + new StackTrace(true));
-            return Task.FromResult<string?>(null);
-        }
-
-        return source.ExtractAsync(this, cancellationToken);
-    }
-
-    public bool? IsDownloaded([NotNullWhen(true)] out string? directoryPath)
-    {
-        directoryPath = null;
-
-        if (Source is not { } sourceId)
-        {
-            Cog.Warning($"Source was null for '{ToString()}'" + new StackTrace(true));
-            return null;
-        }
-
-        if (!PackageSourceIndex.TryParseSourceId(sourceId, out var source))
-        {
-            Cog.Warning($"No package source found for '{sourceId}'" + new StackTrace(true));
-            return null;
-        }
-
-        return source.IsPackageDownloaded(this, out _, out directoryPath, out _);
-    }
-
-    public override string ToString() =>
-        Source is { } ? $"{FullName}-{Version}/{Source}" : $"{FullName}-{Version}";
-
-    public string ToStringWithoutVersion() => Source is { } ? $"{FullName}/{Source}" : FullName;
-
-    public static explicit operator VisualPackageVersion(PackageVersion packageVersion)
-    {
-        var package = packageVersion.Package;
-        return new(
-            package.Author,
-            package.Name,
-            package.FullName,
-            packageVersion.Version,
-            package.Source.Uri
-        );
-    }
-}
-
 [JsonConverter(typeof(VersionRangeConverter))]
 public readonly record struct VersionRange
 {
@@ -385,7 +248,14 @@ sealed partial class PackageList
     public List<Package> Values { get; set; } = [];
 }
 
-public readonly record struct PackageReference
+public interface IPackageReference<T>
+{
+    public static abstract bool TryCreateFrom(string packageId, out T packageReference);
+    string ToString();
+}
+
+[JsonConverter(typeof(PackageReferenceConverter<PackageReference>))]
+public readonly record struct PackageReference : IPackageReference<PackageReference>
 {
     public readonly string FullName { get; }
     public readonly PackageSource Source { get; }
@@ -451,7 +321,7 @@ public readonly record struct PackageReference
         return true;
     }
 
-    public string ToStringSimpleWithSource() => $"{FullName}/{Source.Id}";
+    public override string ToString() => $"{FullName}/{Source.Id}";
 
     public readonly Package Resolve() => (Package)this;
 
@@ -462,7 +332,8 @@ public readonly record struct PackageReference
         reference.Source.nameToPackage[reference.FullName];
 }
 
-public readonly record struct PackageVersionReference
+[JsonConverter(typeof(PackageReferenceConverter<PackageVersionReference>))]
+public readonly record struct PackageVersionReference : IPackageReference<PackageVersionReference>
 {
     public readonly string FullName { get; }
     public readonly PackageVersionNumber Version { get; }
@@ -885,13 +756,10 @@ public sealed partial record PackageVersion
     }
 
     public bool IsDownloaded() =>
-        Package.Source.Service.IsPackageDownloaded((VisualPackageVersion)this);
-
-    public Task<string?> ExtractAsync(CancellationToken cancellationToken = default) =>
-        Package.Source.Service.ExtractAsync((VisualPackageVersion)this, cancellationToken);
+        Package.Source.Service.IsPackageDownloaded((PackageVersionReference)this);
 
     public Task<string> GetReadmeAsync(CancellationToken cancellationToken = default) =>
-        Package.Source.Service.GetReadmeAsync((VisualPackageVersion)this, cancellationToken);
+        Package.Source.Service.GetReadmeAsync((PackageVersionReference)this, cancellationToken);
 
     public PackageVersion[] AllDependencies(PackageSourceIndex index)
     {

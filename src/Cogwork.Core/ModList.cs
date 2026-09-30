@@ -10,14 +10,14 @@ using ZLinq;
 namespace Cogwork.Core;
 
 public readonly record struct InstalledPackagesExpanded(
-    Dictionary<VisualPackageVersion, FileInstalls?>? InstalledMap
+    Dictionary<PackageVersionReference, FileInstalls?>? InstalledMap
 )
 {
     public readonly InstalledPackages WithStrippedPaths(LazyModList modList)
     {
         return new(
             InstalledMap
-                ?.Select(x => new KeyValuePair<VisualPackageVersion, FileInstalls?>(
+                ?.Select(x => new KeyValuePair<PackageVersionReference, FileInstalls?>(
                     x.Key,
                     x.Value is { } fileInstalls ? fileInstalls.WithStrippedPaths(modList) : null
                 ))
@@ -27,14 +27,14 @@ public readonly record struct InstalledPackagesExpanded(
 }
 
 public readonly record struct InstalledPackages(
-    Dictionary<VisualPackageVersion, FileInstalls?>? InstalledMap
+    Dictionary<PackageVersionReference, FileInstalls?>? InstalledMap
 ) : ISaveWithJson
 {
     public readonly InstalledPackagesExpanded WithExpandedPaths(LazyModList modList)
     {
         return new(
             InstalledMap
-                ?.Select(x => new KeyValuePair<VisualPackageVersion, FileInstalls?>(
+                ?.Select(x => new KeyValuePair<PackageVersionReference, FileInstalls?>(
                     x.Key,
                     x.Value is { } fileInstalls ? fileInstalls.WithExpandedPaths(modList) : null
                 ))
@@ -72,8 +72,8 @@ public readonly record struct ModListData(
 ) : ISaveWithJson;
 
 public readonly record struct ModListLockFile(
-    IEnumerable<KeyValuePair<string, PackageVersionNumber>>? ResolvedAdded,
-    IEnumerable<KeyValuePair<string, PackageVersionNumber>>? ResolvedDependencies
+    Dictionary<PackageReference, PackageVersionReference>? ResolvedAdded,
+    Dictionary<PackageReference, PackageVersionReference>? ResolvedDependencies
 ) : ISaveWithJson;
 
 public readonly record struct ModListLockDependencyFile(
@@ -98,18 +98,13 @@ public sealed class LazyModList
     public required string? OverrideGamePath { get; set; }
     public required bool IsOverrideGamePathEnabled { get; set; }
     public IEnumerable<string> AddedPackageIds { get; private set; }
-    public Dictionary<string, PackageVersionNumber>? ResolvedAdded
+    public Dictionary<PackageReference, PackageVersionReference>? ResolvedAdded
     {
         get
         {
             if (_isResolvedAddedDirty)
             {
-                field = new(
-                    _modList!.Added.Select(x => new KeyValuePair<string, PackageVersionNumber>(
-                        x.Key.ToStringSimpleWithSource(),
-                        x.Value.Version
-                    ))
-                );
+                field = _modList!.Added;
                 _isResolvedAddedDirty = false;
             }
             return field;
@@ -117,18 +112,13 @@ public sealed class LazyModList
         private set;
     }
 
-    public Dictionary<string, PackageVersionNumber>? ResolvedDependencies
+    public Dictionary<PackageReference, PackageVersionReference>? ResolvedDependencies
     {
         get
         {
             if (_isResolvedDependenciesDirty)
             {
-                field = new(
-                    _modList!.Dependencies.Select(x => new KeyValuePair<
-                        string,
-                        PackageVersionNumber
-                    >(x.Key.ToStringSimpleWithSource(), x.Value.Version))
-                );
+                field = _modList!.Dependencies;
                 _isResolvedDependenciesDirty = false;
             }
             return field;
@@ -136,10 +126,8 @@ public sealed class LazyModList
         private set;
     }
 
-    public IEnumerable<VisualPackageVersion> GetResolved() =>
-        (ResolvedAdded ?? [])
-            .Concat(ResolvedDependencies ?? [])
-            .Select(x => new VisualPackageVersion(x));
+    public IEnumerable<PackageVersionReference> GetResolved() =>
+        (ResolvedAdded ?? []).Concat(ResolvedDependencies ?? []).Select(x => x.Value);
 
     public string ProfileSaveDataPath => field ??= ModList.GetProfileFileLocation(Game, Id);
     public string ProfileFilesDirectory =>
@@ -170,17 +158,17 @@ public sealed class LazyModList
 
         if (lockFile.ResolvedAdded is { } resolvedAdded)
         {
-            ResolvedAdded = new(resolvedAdded);
+            ResolvedAdded = resolvedAdded;
 
-            foreach (var dep in ResolvedAdded.Select(x => new VisualPackageVersion(x)))
+            foreach (var dep in ResolvedAdded)
                 Cog.Verbose(dep.ToString());
         }
 
         if (lockFile.ResolvedDependencies is { } resolvedDependencies)
         {
-            ResolvedDependencies = new(resolvedDependencies);
+            ResolvedDependencies = resolvedDependencies;
 
-            foreach (var dep in ResolvedDependencies.Select(x => new VisualPackageVersion(x)))
+            foreach (var dep in ResolvedDependencies)
                 Cog.Verbose(dep.ToString());
         }
 
@@ -451,27 +439,9 @@ public sealed class ModList
 
         if (_lazy.ResolvedDependencies is { } resolvedDependencies)
         {
-            foreach (
-                var packageRef in resolvedDependencies
-                    .Select(x =>
-                    {
-                        _ = PackageVersionReference.TryCreateFromWithVersion(
-                            x.Key,
-                            x.Value,
-                            out var packageVersionReference
-                        );
-                        return packageVersionReference;
-                    })
-                    .Where(x => x != default)
-            )
+            foreach (var (package, version) in resolvedDependencies)
             {
-                if (!Package.TryGetPackageVersion(SourceIndex, packageRef, out var packageVersion))
-                    continue;
-
-                Dependencies.Add(
-                    (PackageReference)packageVersion.Package,
-                    (PackageVersionReference)packageVersion
-                );
+                Dependencies.Add(package, version);
             }
         }
 
@@ -600,16 +570,7 @@ public sealed class ModList
 
     public void SaveLockFile()
     {
-        ModListLockFile lockFile = new(
-            Added.Select(x => new KeyValuePair<string, PackageVersionNumber>(
-                x.Key.ToStringSimpleWithSource(),
-                x.Value.Version
-            )),
-            Dependencies.Select(x => new KeyValuePair<string, PackageVersionNumber>(
-                x.Key.ToStringSimpleWithSource(),
-                x.Value.Version
-            ))
-        );
+        ModListLockFile lockFile = new(Added, Dependencies);
 
         // Cog.Warning(
         //     $"Saving lock file '{string.Join(", ", lockFile.ResolvedAdded!.Select(x => x.Key))}'"
@@ -698,9 +659,7 @@ public sealed class ModList
         IEnumerable<PackageReference> packages
     )
     {
-        Cog.Debug(
-            $"Removing: " + string.Join(", ", packages.Select(x => x.ToStringSimpleWithSource()))
-        );
+        Cog.Debug($"Removing: " + string.Join(", ", packages.Select(x => x.ToString())));
 
         List<PackageVersion> toUninstall = new(packages.Count());
         var installMap = InstalledPackages
@@ -736,17 +695,17 @@ public sealed class ModList
         {
             var packageVersion = dependency.Value.Resolve();
 
-            var visualPackageVersion = (VisualPackageVersion)packageVersion;
+            var PackageVersionReference = (PackageVersionReference)packageVersion;
             _ = _lazy
                 .Game.InstallRules.UninstallPackageAsync(
                     this,
-                    visualPackageVersion,
+                    PackageVersionReference,
                     _lazy.ProfileFilesDirectory,
                     installMap
                 )
                 .Result;
 
-            newInstallMap.Remove(visualPackageVersion);
+            newInstallMap.Remove(PackageVersionReference);
             toUninstall.Add(packageVersion);
         }
 
@@ -871,7 +830,7 @@ public sealed class ModList
         // Maybe do something about it sometime.
         // There are restrictions in place though to disallow same-id packages,
         // so we don't need to worry about it here.
-        Dictionary<string, VisualPackageVersion> isInstalled =
+        Dictionary<string, PackageVersionReference> isInstalled =
             installMap?.Where(x => x.Value is { }).Select(x => x.Key).ToDictionary(x => x.FullName)
             ?? [];
 
@@ -881,47 +840,47 @@ public sealed class ModList
         var packages = await Task.WhenAll(
             AllPackages.Select(async package =>
             {
-                var visualPackageVersion = (VisualPackageVersion)package.Value.Resolve();
+                var PackageVersionReference = (PackageVersionReference)package.Value.Resolve();
 
                 if (
                     !isInstalled.TryGetValue(
-                        visualPackageVersion.FullName,
-                        out var installedVisualPackageVersion
+                        PackageVersionReference.FullName,
+                        out var installedPackageVersionReference
                     )
                 )
                 {
-                    Cog.Debug($"Installing package: '{visualPackageVersion}'");
+                    Cog.Debug($"Installing package: '{PackageVersionReference}'");
                     return (
-                        visualPackageVersion,
+                        PackageVersionReference,
                         await installRules.InstallPackageAsync(
                             this,
-                            visualPackageVersion,
+                            PackageVersionReference,
                             files,
                             cancellationToken
                         )
                     );
                 }
 
-                if (installedVisualPackageVersion != visualPackageVersion)
+                if (installedPackageVersionReference != PackageVersionReference)
                 {
                     Cog.Debug(
-                        $"Uninstalling old package version: '{installedVisualPackageVersion}'"
+                        $"Uninstalling old package version: '{installedPackageVersionReference}'"
                     );
                     var uninstallFiles = await installRules.UninstallPackageAsync(
                         this,
-                        installedVisualPackageVersion,
+                        installedPackageVersionReference,
                         files,
                         installMap,
                         cancellationToken
                     );
                     Debug.Assert(uninstallFiles is null);
 
-                    Cog.Debug($"Installing new package version: '{visualPackageVersion}'");
+                    Cog.Debug($"Installing new package version: '{PackageVersionReference}'");
                     return (
-                        visualPackageVersion,
+                        PackageVersionReference,
                         await installRules.InstallPackageAsync(
                             this,
-                            visualPackageVersion,
+                            PackageVersionReference,
                             files,
                             cancellationToken
                         )
@@ -929,10 +888,10 @@ public sealed class ModList
                 }
                 else
                 {
-                    Cog.Debug($"Package is installed already: '{visualPackageVersion}'");
+                    Cog.Debug($"Package is installed already: '{PackageVersionReference}'");
 
                     Debug.Assert(installMap is { });
-                    return (visualPackageVersion, installMap[visualPackageVersion]);
+                    return (PackageVersionReference, installMap[PackageVersionReference]);
                 }
             })
         );

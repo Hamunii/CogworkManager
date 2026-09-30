@@ -52,11 +52,11 @@ internal class TestPackageSource : PackageSource
         return true;
     }
 
-    public bool IsPackageDownloaded(VisualPackageVersion packageVersion) =>
+    public bool IsPackageDownloaded(PackageVersionReference packageVersion) =>
         IsPackageDownloaded(packageVersion, out _, out _, out _);
 
     public bool IsPackageDownloaded(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         out string zipFileLocation,
         out string directoryPath,
         out bool zipExists
@@ -84,7 +84,7 @@ internal class TestPackageSource : PackageSource
     {
         if (
             IsPackageDownloaded(
-                (VisualPackageVersion)packageVersion,
+                (PackageVersionReference)packageVersion,
                 out var zipFileLocation,
                 out _,
                 out _
@@ -140,7 +140,7 @@ internal class TestPackageSource : PackageSource
     }
 
     public async Task<string?> ExtractAsync(
-        VisualPackageVersion packageVersion,
+        PackageVersionReference packageVersion,
         CancellationToken cancellationToken = default
     )
     {

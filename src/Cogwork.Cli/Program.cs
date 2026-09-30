@@ -532,11 +532,7 @@ public static class Program
 
                 AnsiConsole.MarkupLine($"\n[blue][[Added Mods]][/]");
 
-                foreach (
-                    var added in lazyProfile
-                        .ResolvedAdded!.AsValueEnumerable()
-                        .Select(x => new VisualPackageVersion(x))
-                )
+                foreach (var added in lazyProfile.ResolvedAdded!)
                 {
                     AnsiConsole.MarkupLineInterpolated(
                         CultureInfo.InvariantCulture,
@@ -546,15 +542,11 @@ public static class Program
 
                 AnsiConsole.MarkupLine($"\n[blue][[Dependencies of Added Mods]][/]");
 
-                foreach (
-                    var added in lazyProfile
-                        .ResolvedDependencies!.AsValueEnumerable()
-                        .Select(x => new VisualPackageVersion(x))
-                )
+                foreach (var dep in lazyProfile.ResolvedDependencies!)
                 {
                     AnsiConsole.MarkupLineInterpolated(
                         CultureInfo.InvariantCulture,
-                        $"- [gray]{added}[/]"
+                        $"- [gray]{dep}[/]"
                     );
                 }
             });
