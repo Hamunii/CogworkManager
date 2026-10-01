@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using System.Text.Json.Serialization;
+using Cogwork.Core.InstallRules;
 using Cogwork.Core.Sources;
 using ZLinq;
 
