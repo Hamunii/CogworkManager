@@ -1114,7 +1114,7 @@ public static class Program
 
     private static void PrintGameAndProfile(bool hideModListHelp = false)
     {
-        var activeGame = Game.GlobalConfig.ActiveGame;
+        var activeGame = GlobalConfig.Instance.ActiveGame;
         var activeGameName = activeGame?.Name ?? "<none>";
 
         var activeProfile = activeGame?.Config.ActiveProfile;
@@ -1186,7 +1186,7 @@ public static class Program
             }
             return true;
         }
-        if (Game.GlobalConfig.ActiveGame is not { } activeGame)
+        if (GlobalConfig.Instance.ActiveGame is not { } activeGame)
         {
             game = default;
             result?.AddError("An active game is not selected. Use 'cogman game select <game>'.");
@@ -1298,7 +1298,9 @@ public static class Program
             $"Selected game: [blue]{selectedGame.Name}[/]"
         );
 
-        Game.GlobalConfig.ActiveGame = selectedGame;
+        GlobalConfig.Instance.ActiveGame = selectedGame;
+        GlobalConfig.Save();
+
         if (!selectedGame.EnumerateProfiles().Any())
         {
             selectedGame.Config.ActiveProfile = ModList.CreateNew(selectedGame, "Default");

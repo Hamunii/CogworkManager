@@ -17,48 +17,43 @@ public sealed class Platforms
     public SteamId? Steam { get; init; }
 }
 
-public sealed class Game
+public readonly record struct GlobalConfigData(string? ActiveGameSlug) : ISaveWithJson;
+
+public sealed class GlobalConfig
 {
-    public sealed class GlobalConfig : ISaveWithJson
+    static string GlobalConfigLocation =>
+        field ??= Path.Combine(CogworkPaths.DataDirectory, $"state.json");
+    public static GlobalConfig Instance
     {
-        [JsonIgnore]
-        public static string GlobalConfigLocation =>
-            field ??= Path.Combine(CogworkPaths.DataDirectory, $"state.json");
-        internal static GlobalConfig Instance =>
-            field ??= GlobalConfig.LoadSavedDataOrNew(
-                GlobalConfigLocation,
-                JsonGen.Default.GlobalConfig
-            );
-
-        public string? ActiveGameSlug { get; set; }
-
-        public static Game? ActiveGame
+        get
         {
-            get
+            if (field is { })
+                return field;
+
+            var data = GlobalConfigData.LoadSavedDataOrNew(GlobalConfigLocation);
+
+            return field = new GlobalConfig
             {
-                if (field is { })
-                    return field;
-
-                var config = Instance;
-                if (config.ActiveGameSlug is null)
-                    return null;
-
-                if (!NameToGame.TryGetValue(config.ActiveGameSlug, out var game))
-                {
-                    return null;
-                }
-
-                return field = game;
-            }
-            set
-            {
-                field = value;
-                Instance.ActiveGameSlug = value?.Slug;
-                Instance.Save(GlobalConfigLocation, JsonGen.Default.GlobalConfig);
-            }
+                ActiveGame =
+                    data.ActiveGameSlug is { } gameSlug
+                    && Game.NameToGame.TryGetValue(gameSlug, out var game)
+                        ? game
+                        : null,
+            };
         }
     }
 
+    public Game? ActiveGame { get; set; }
+
+    public static void Save()
+    {
+        GlobalConfigData data = new(Instance.ActiveGame?.Slug);
+        data.Save(GlobalConfigLocation);
+    }
+}
+
+public sealed class Game
+{
     public sealed class GameConfig : ISaveWithJson
     {
         [JsonIgnore]
@@ -181,6 +176,9 @@ public sealed class Game
     {
         get
         {
+            if (field is { })
+                return field;
+
             Dictionary<string, Game> dict = new(SupportedGames.Count * 2);
 
             foreach (
@@ -193,7 +191,7 @@ public sealed class Game
                 dict[pair.Key] = pair.Value;
             }
 
-            return dict;
+            return field = dict;
         }
     }
 
