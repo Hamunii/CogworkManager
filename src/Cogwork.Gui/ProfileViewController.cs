@@ -221,7 +221,7 @@ public class ProfilesViewController
             if (selectedGame.Config.PreferredPath != finalGamePath)
             {
                 selectedGame.Config.PreferredPath = finalGamePath;
-                selectedGame.Config.Save(selectedGame.GameConfigLocation);
+                selectedGame.Config.Save();
             }
             return false;
         };

@@ -43,7 +43,7 @@ public sealed class GlobalConfig
         }
     }
 
-    public Game? ActiveGame { get; set; }
+    public required Game? ActiveGame { get; set; }
 
     public static void Save()
     {
@@ -54,35 +54,19 @@ public sealed class GlobalConfig
 
 public sealed class Game
 {
-    public sealed class GameConfig : ISaveWithJson
+    public readonly record struct GameConfigData(string? ActiveProfileId, string? PreferredPath)
+        : ISaveWithJson;
+
+    public sealed class GameConfig
     {
-        [JsonIgnore]
-        public Game? Game { get; set; }
+        public required Game Game { private get; init; }
+        public required LazyModList? ActiveProfile { get; set; }
+        public required string? PreferredPath { get; set; }
 
-        [JsonIgnore]
-        public LazyModList? ActiveProfile { get; set; }
-        public string? ActiveProfileId
+        public void Save()
         {
-            get => ActiveProfile?.Id ?? field;
-            set
-            {
-                if (Game is null || value is null)
-                {
-                    field = value;
-                    return;
-                }
-                if (ModList.GetFromId(Game, value) is { } modList)
-                    ActiveProfile = modList;
-            }
-        }
-
-        public string? PreferredPath { get; set; }
-
-        public void ConnectGame(Game game)
-        {
-            var activeProfileId = ActiveProfileId;
-            Game = game;
-            ActiveProfileId = activeProfileId;
+            GameConfigData data = new(ActiveProfile?.Id, PreferredPath);
+            data.Save(Game.GameConfigLocation);
         }
     }
 
@@ -93,9 +77,18 @@ public sealed class Game
             if (field is { })
                 return field;
 
-            field = GameConfig.LoadSavedDataOrNew(GameConfigLocation, JsonGen.Default.GameConfig);
-            field.ConnectGame(this);
-            return field;
+            var data = GameConfigData.LoadSavedDataOrNew(GameConfigLocation);
+
+            return field = new GameConfig
+            {
+                Game = this,
+                ActiveProfile =
+                    data.ActiveProfileId is { } profileId
+                    && ModList.GetFromId(this, profileId) is { } modList
+                        ? modList
+                        : null,
+                PreferredPath = data.PreferredPath,
+            };
         }
     }
 

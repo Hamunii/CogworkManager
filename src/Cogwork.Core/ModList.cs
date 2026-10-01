@@ -320,7 +320,7 @@ public sealed class LazyModList
             }
 
             game.Config.PreferredPath = gamePath;
-            game.Config.Save(game.GameConfigLocation);
+            game.Config.Save();
         }
 
         Cog.Debug($"Copying modloader files to: '{gamePath}'");

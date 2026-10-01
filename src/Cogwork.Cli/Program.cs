@@ -214,7 +214,7 @@ public static class Program
                     }
 
                     game.Config.ActiveProfile = selected;
-                    game.Config.Save(game.GameConfigLocation, JsonGen.Default.GameConfig);
+                    game.Config.Save();
 
                     Cog.Debug($"selected {selected.DisambiguatedDisplayName}");
                     AnsiConsole.MarkupLineInterpolated(
@@ -1278,7 +1278,7 @@ public static class Program
         }
 
         game.Config.ActiveProfile = ModList.CreateNew(game, profileName);
-        game.Config.Save(game.GameConfigLocation, JsonGen.Default.GameConfig);
+        game.Config.Save();
 
         AnsiConsole.MarkupLineInterpolated(
             CultureInfo.InvariantCulture,
@@ -1304,7 +1304,7 @@ public static class Program
         if (!selectedGame.EnumerateProfiles().Any())
         {
             selectedGame.Config.ActiveProfile = ModList.CreateNew(selectedGame, "Default");
-            selectedGame.Config.Save(selectedGame.GameConfigLocation, JsonGen.Default.GameConfig);
+            selectedGame.Config.Save();
         }
         return;
     }
