@@ -127,32 +127,38 @@ public sealed class Game
     }
 
     public static Game Silksong { get; } =
-        new("Hollow Knight: Silksong", "hollow-knight-silksong", new BepInExModInstallRules())
+        new("Hollow Knight: Silksong", "hollow-knight-silksong", BepInExModInstallRules.Default)
         {
             Platforms = new() { Steam = new() { Id = 1030300 } },
         };
 
     public static Game LethalCompany { get; } =
-        new("Lethal Company", "lethal-company", new BepInExModInstallRules())
+        new("Lethal Company", "lethal-company", BepInExModInstallRules.Default)
         {
             Platforms = new() { Steam = new() { Id = 1966720 } },
         };
 
     public static Game Repo { get; } =
-        new("R.E.P.O.", "repo", new BepInExModInstallRules())
+        new("R.E.P.O.", "repo", BepInExModInstallRules.Default)
         {
             Platforms = new() { Steam = new() { Id = 3241660 } },
         };
 
     // public static Game Test { get; } =
-    //     new("Test", "test", new BepInExModInstallRules(), new TestPackageSource())
+    //     new("Test", "test", BepInExModInstallRules.Default, new TestPackageSource())
     //     {
     //         Platforms = new(),
     //     };
     public static Game Ror2 { get; } =
-        new("Risk of Rain 2", "riskofrain2", new BepInExModInstallRules())
+        new("Risk of Rain 2", "riskofrain2", BepInExModInstallRules.Default)
         {
             Platforms = new() { Steam = new() { Id = 632360 } },
+        };
+
+    public static Game Balatro { get; } =
+        new("Balatro", "balatro", new LovelyInstaller())
+        {
+            Platforms = new() { Steam = new() { Id = 2379780 } },
         };
 
     public static List<Game> SupportedGames { get; } =

@@ -5,14 +5,13 @@ using ZLinq;
 
 namespace Cogwork.Core.InstallRules;
 
-public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInstallRules
+public readonly record struct BepInExModInstallRules : IModInstallRules
 {
+    readonly static FileSystem Fs = IModInstallRules.RealFileSystem;
+
     // https://github.com/ebkr/r2modmanPlus/wiki/Structuring-your-Thunderstore-package
-    static readonly HashSet<string> dirToDir = new(["config"], StringComparer.OrdinalIgnoreCase);
-    static readonly HashSet<string> dirToDirPlusPackageName = new(
-        ["core", "patchers", "plugins", "monomod"],
-        StringComparer.OrdinalIgnoreCase
-    );
+    readonly HashSet<string> DirToDir;
+    readonly HashSet<string> DirToDirNamespaced;
     const string defaultDir = "plugins";
     public static string InstallRootDirectory { get; } = "BepInEx";
 
@@ -32,8 +31,17 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         };
     }
 
-    public BepInExModInstallRules()
-        : this(IModInstallRules.RealFileSystem) { }
+    public static BepInExModInstallRules Default { get; } =
+        new(["config"], ["core", "patchers", "plugins", "monomod"]);
+
+    public BepInExModInstallRules(
+        IEnumerable<string> dirToDir,
+        IEnumerable<string> dirToDirNamespaced
+    )
+    {
+        DirToDir = new(dirToDir, StringComparer.OrdinalIgnoreCase);
+        DirToDirNamespaced = new(dirToDirNamespaced, StringComparer.OrdinalIgnoreCase);
+    }
 
     public void CopyModLoaderFilesToGame(string modLoaderFilesPath, string gameRootPath)
     {
@@ -55,39 +63,45 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         if (IsBepInExPackage(modList, packageVersion))
         {
-            IgnoreUntilWinhttpThenMap(directoryPath, outputPath, foundWinhttpDll: false, mapped);
+            IgnoreUntilTargetThenMap(
+                "winhttp.dll",
+                directoryPath,
+                outputPath,
+                foundTargetFile: false,
+                mapped
+            );
             Fs.Directory.Delete(directoryPath, recursive: true);
             return [.. mapped];
         }
 
-        Fs.Directory.CreateDirectory(Path.Combine(outputPath, defaultDir, packageVersion.FullName));
         MapRecursive(packageVersion, directoryPath, outputPath, mapped);
         Fs.Directory.Delete(directoryPath, recursive: true);
         return [.. mapped];
     }
 
-    private void IgnoreUntilWinhttpThenMap(
+    private static void IgnoreUntilTargetThenMap(
+        string targetFileName,
         string directoryPath,
         string outputPath,
-        bool foundWinhttpDll,
+        bool foundTargetFile,
         HashSet<string> mappedFiles
     )
     {
         Fs.Directory.CreateDirectory(outputPath);
 
-        if (!foundWinhttpDll)
+        if (!foundTargetFile)
         {
             foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
             {
-                if (Path.GetFileName(fileDir) == "winhttp.dll")
+                if (Path.GetFileName(fileDir) == targetFileName)
                 {
-                    foundWinhttpDll = true;
+                    foundTargetFile = true;
                     break;
                 }
             }
         }
 
-        if (foundWinhttpDll)
+        if (foundTargetFile)
         {
             foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
             {
@@ -103,19 +117,26 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
 
         foreach (var dir in Fs.Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
         {
-            if (foundWinhttpDll)
+            if (foundTargetFile)
             {
                 var dirName = Path.GetFileName(dir);
 
-                IgnoreUntilWinhttpThenMap(
+                IgnoreUntilTargetThenMap(
+                    targetFileName,
                     dir,
                     Path.Combine(outputPath, dirName),
-                    foundWinhttpDll,
+                    foundTargetFile,
                     mappedFiles
                 );
             }
             else
-                IgnoreUntilWinhttpThenMap(dir, outputPath, foundWinhttpDll, mappedFiles);
+                IgnoreUntilTargetThenMap(
+                    targetFileName,
+                    dir,
+                    outputPath,
+                    foundTargetFile,
+                    mappedFiles
+                );
         }
     }
 
@@ -132,7 +153,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         {
             var dirName = Path.GetFileName(dirPath).ToLowerInvariant();
 
-            if (dirToDirPlusPackageName.Contains(dirName))
+            if (DirToDirNamespaced.Contains(dirName))
             {
                 var mapped = Path.Combine(outputPath, dirName);
                 var mapped2 = Path.Combine(mapped, package.FullName);
@@ -141,7 +162,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
                 continue;
             }
 
-            if (dirToDir.Contains(dirName))
+            if (DirToDir.Contains(dirName))
             {
                 var mapped = Path.Combine(outputPath, dirName);
                 MoveOrMergeOverwrite(dirPath, mapped, mappedFiles);
@@ -149,6 +170,12 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
             }
 
             MapRecursive(package, dirPath, outputPath, mappedFiles);
+        }
+
+        string defaultFlattenDir = Path.Combine(outputPath, defaultDir, package.FullName);
+        if (!Fs.Directory.Exists(defaultFlattenDir))
+        {
+            Fs.Directory.CreateDirectory(defaultFlattenDir);
         }
 
         // Flatten the rest.
@@ -164,7 +191,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
                 Fs.Directory.CreateDirectory(dest);
             }
             else
-                dest = Path.Combine(outputPath, defaultDir, package.FullName, fileName);
+                dest = Path.Combine(defaultFlattenDir, fileName);
 
             if (Fs.File.Exists(dest))
             {
@@ -174,7 +201,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         }
     }
 
-    void MoveOrMergeOverwrite(string sourceDirName, string destDirName, HashSet<string> mappedFiles)
+    static void MoveOrMergeOverwrite(string sourceDirName, string destDirName, HashSet<string> mappedFiles)
     {
         if (!Fs.Directory.Exists(destDirName))
         {
@@ -201,7 +228,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         Fs.Directory.Delete(sourceDirName);
     }
 
-    private void MoveFile(HashSet<string> mappedFiles, string file, string dest)
+    private static void MoveFile(HashSet<string> mappedFiles, string file, string dest)
     {
         if (mappedFiles.Contains(dest))
         {
@@ -319,7 +346,7 @@ public readonly record struct BepInExModInstallRules(IFileSystem Fs) : IModInsta
         return null;
     }
 
-    void CopyDirectory(string sourceDirName, string destDirName)
+    static void CopyDirectory(string sourceDirName, string destDirName)
     {
         foreach (var file in Fs.Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
         {
