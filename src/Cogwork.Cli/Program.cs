@@ -6,6 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
+using Cogwork.Core.Sources;
 using DBusGenerated.Freedesktop.Portal;
 using FuzzySharp.Extractor;
 using FuzzySharp.SimilarityRatio;

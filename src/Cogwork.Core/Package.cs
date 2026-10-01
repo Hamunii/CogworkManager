@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
+using Cogwork.Core.Sources;
 using ZLinq;
 
 namespace Cogwork.Core;

@@ -1,4 +1,4 @@
-using static Cogwork.Core.PackageSource;
+using static Cogwork.Core.Sources.PackageSource;
 
 namespace Cogwork.Tests;
 

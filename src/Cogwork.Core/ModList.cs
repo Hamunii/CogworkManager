@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text;
 using Cogwork.Core.Extensions;
+using Cogwork.Core.Sources;
 using Gameloop.Vdf;
 using Gameloop.Vdf.Linq;
 using ZLinq;

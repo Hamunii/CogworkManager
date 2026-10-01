@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using Cogwork.Core.Extensions;
+using Cogwork.Core.Sources;
 using ZLinq;
 
 namespace Cogwork.Core;
