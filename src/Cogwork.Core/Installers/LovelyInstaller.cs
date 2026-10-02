@@ -1,6 +1,6 @@
-namespace Cogwork.Core.InstallRules;
+namespace Cogwork.Core.Installers;
 
-public readonly record struct LovelyInstaller : IModInstallRules
+public readonly record struct LovelyInstaller : IModInstallers
 {
     public static string InstallRootDirectory => throw new NotImplementedException();
 

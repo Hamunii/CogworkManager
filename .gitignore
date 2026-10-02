@@ -21,6 +21,7 @@ obj/
 # Add root level files
 !/.editorconfig
 !/BannedSymbols.txt
+!/.csharpierignore
 !/.gitignore
 !/Cogwork.slnx
 !/Design.md

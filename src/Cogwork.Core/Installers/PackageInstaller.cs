@@ -2,7 +2,7 @@ using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using ZLinq;
 
-namespace Cogwork.Core.InstallRules;
+namespace Cogwork.Core.Installers;
 
 public enum InstallType
 {
@@ -31,7 +31,7 @@ public readonly record struct Mapping(string Destination, InstallType Type);
 
 public record PackageInstaller
 {
-    static readonly FileSystem Fs = IModInstallRules.RealFileSystem;
+    static readonly FileSystem Fs = IModInstallers.RealFileSystem;
     readonly Dictionary<string, Mapping> DirToDir;
     readonly Dictionary<string, Mapping> ExtensionToDir;
     readonly HashSet<string> ProtectedDirsFromRemoval;

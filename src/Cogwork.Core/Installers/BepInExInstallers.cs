@@ -1,15 +1,13 @@
 using System.Runtime.InteropServices;
 using ZLinq;
 
-namespace Cogwork.Core.InstallRules;
+namespace Cogwork.Core.Installers;
 
-public readonly record struct BepInExModInstallRules : IModInstallRules
+public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstaller bepInExInstaller)
+    : IModInstallers
 {
-    readonly PackageInstaller packageInstaller;
-    readonly PackageInstaller bepInExInstaller;
-
     // https://github.com/ebkr/r2modmanPlus/wiki/Structuring-your-Thunderstore-package
-    public static BepInExModInstallRules Default { get; } =
+    public static BepInExInstallers Default { get; } =
         new(
             new(
                 [
@@ -23,15 +21,6 @@ public readonly record struct BepInExModInstallRules : IModInstallRules
             ),
             PackageInstaller.SimpleDirectSkipRootInstaller
         );
-
-    public BepInExModInstallRules(
-        PackageInstaller packageInstaller,
-        PackageInstaller bepInExInstaller
-    )
-    {
-        this.packageInstaller = packageInstaller;
-        this.bepInExInstaller = bepInExInstaller;
-    }
 
     public PackageInstaller GetInstaller(PackageVersionReference packageVersion)
     {

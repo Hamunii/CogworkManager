@@ -1,6 +1,6 @@
 using System.IO.Abstractions;
 using System.Text.Json.Serialization;
-using Cogwork.Core.InstallRules;
+using Cogwork.Core.Installers;
 using Cogwork.Core.Sources;
 using ZLinq;
 
@@ -98,7 +98,7 @@ public sealed class Game
         field ??= Path.Combine(CogworkPaths.GetGamesSubDirectory(this), "config.json");
 
     [JsonIgnore]
-    public IModInstallRules InstallRules { get; }
+    public IModInstallers InstallRules { get; }
     public UserSource DefaultSource { get; }
 
     internal Dictionary<string, LazyModList> IdToModList { get; } = [];
@@ -107,7 +107,7 @@ public sealed class Game
     internal Game(
         string name,
         string slug,
-        IModInstallRules installRules,
+        IModInstallers installRules,
         UserSource defaultSource = default
     )
     {
@@ -127,19 +127,19 @@ public sealed class Game
     }
 
     public static Game Silksong { get; } =
-        new("Hollow Knight: Silksong", "hollow-knight-silksong", BepInExModInstallRules.Default)
+        new("Hollow Knight: Silksong", "hollow-knight-silksong", BepInExInstallers.Default)
         {
             Platforms = new() { Steam = new() { Id = 1030300 } },
         };
 
     public static Game LethalCompany { get; } =
-        new("Lethal Company", "lethal-company", BepInExModInstallRules.Default)
+        new("Lethal Company", "lethal-company", BepInExInstallers.Default)
         {
             Platforms = new() { Steam = new() { Id = 1966720 } },
         };
 
     public static Game Repo { get; } =
-        new("R.E.P.O.", "repo", BepInExModInstallRules.Default)
+        new("R.E.P.O.", "repo", BepInExInstallers.Default)
         {
             Platforms = new() { Steam = new() { Id = 3241660 } },
         };
@@ -150,7 +150,7 @@ public sealed class Game
     //         Platforms = new(),
     //     };
     public static Game Ror2 { get; } =
-        new("Risk of Rain 2", "riskofrain2", BepInExModInstallRules.Default)
+        new("Risk of Rain 2", "riskofrain2", BepInExInstallers.Default)
         {
             Platforms = new() { Steam = new() { Id = 632360 } },
         };

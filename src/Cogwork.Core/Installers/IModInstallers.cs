@@ -1,8 +1,8 @@
 using System.IO.Abstractions;
 
-namespace Cogwork.Core.InstallRules;
+namespace Cogwork.Core.Installers;
 
-public interface IModInstallRules
+public interface IModInstallers
 {
     public static FileSystem RealFileSystem { get; } = new FileSystem();
 

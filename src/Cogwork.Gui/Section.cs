@@ -1,4 +1,3 @@
-
 namespace Cogwork.Gui;
 
 record class Section
