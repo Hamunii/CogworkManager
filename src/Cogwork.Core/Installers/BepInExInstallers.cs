@@ -49,59 +49,20 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
 
     public void CopyModLoaderFilesToGame(string modLoaderFilesPath, string gameRootPath)
     {
-        foreach (var fileDir in Directory.GetFiles(modLoaderFilesPath))
-        {
-            var fileName = Path.GetFileName(fileDir);
-            File.Copy(fileDir, Path.Combine(gameRootPath, fileName), true);
-        }
+        Utils.CopyDirectory(modLoaderFilesPath, gameRootPath, recursive: false);
     }
 
     public List<string> GetLaunchArguments(LazyModList modList)
     {
-        var isWindowsApp = !modList.IsLinuxNative();
+        var isLinuxApp = modList.IsLinuxNative();
 
         var profileFiles = modList.ProfileFilesDirectory;
         var gamePath = modList.GetGamePathOrThrow();
-        var executables = Directory
-            .GetFiles(gamePath)
-            .Where(x =>
-            {
-                var ext = Path.GetExtension(x);
-
-                if (isWindowsApp)
-                {
-                    if (ext is ".exe" && Path.GetFileName(x) is not "UnityCrashHandler64.exe")
-                        return true;
-
-                    return false;
-                }
-
-                if (ext is ".x86_64" or ".x86")
-                    return true;
-
-                if (Path.GetFileName(x) == Path.GetFileName(gamePath))
-                    return true;
-
-                return false;
-            })
-            .ToArray();
-
-        if (executables.Length > 1)
-        {
-            throw new FileNotFoundException(
-                $"Too many executable candidates: '{string.Join("', '", executables)}'"
-            );
-        }
-        else if (executables.Length == 0)
-        {
-            throw new FileNotFoundException($"No exes found at '{gamePath}'");
-        }
-
-        var gameExecutable = executables[0];
+        string gameExecutable = IModInstallers.GetGameExecutableOrThrow(isLinuxApp, gamePath);
 
         List<string> args = [];
 
-        if (!isWindowsApp)
+        if (isLinuxApp)
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {

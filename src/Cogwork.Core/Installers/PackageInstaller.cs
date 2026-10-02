@@ -249,8 +249,7 @@ public record PackageInstaller
         Directory.CreateDirectory(profileFilesDirectory);
         var pathCopy = path + ".temp";
 
-        Fs.Directory.CreateDirectory(pathCopy);
-        CopyDirectory(path, pathCopy);
+        Utils.CopyDirectory(path, pathCopy, recursive: true);
         var mapped = Map(packageVersion, pathCopy, profileFilesDirectory);
 
         return new FileInstalls(mapped, []);
@@ -321,25 +320,6 @@ public record PackageInstaller
         }
 
         return null;
-    }
-
-    static void CopyDirectory(string sourceDirName, string destDirName)
-    {
-        foreach (var file in Fs.Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
-        {
-            var fileName = Path.GetFileName(file);
-            // TODO: Do not overwrite without confirmation.
-            // This will overwrite config files if packages ship them.
-            Fs.File.Copy(file, Path.Combine(destDirName, fileName), overwrite: true);
-        }
-
-        foreach (var dir in Fs.Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
-        {
-            var dirName = Path.GetFileName(dir);
-            var newDir = Path.Combine(destDirName, dirName);
-            Fs.Directory.CreateDirectory(newDir);
-            CopyDirectory(dir, newDir);
-        }
     }
 
     static void DeleteDirectoryContentsBasedOnSource(IFileSystem sourceFs, string dir)

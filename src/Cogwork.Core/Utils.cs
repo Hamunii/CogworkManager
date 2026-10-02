@@ -79,19 +79,17 @@ public static class Utils
         if (!dir.Exists)
             throw new DirectoryNotFoundException($"Source directory not found: {dir.FullName}");
 
-        DirectoryInfo[] dirs = dir.GetDirectories();
-
         Directory.CreateDirectory(destinationDir);
 
         foreach (FileInfo file in dir.GetFiles())
         {
             string targetFilePath = Path.Combine(destinationDir, file.Name);
-            file.CopyTo(targetFilePath);
+            file.CopyTo(targetFilePath, overwrite: true);
         }
 
         if (recursive)
         {
-            foreach (DirectoryInfo subDir in dirs)
+            foreach (DirectoryInfo subDir in dir.GetDirectories())
             {
                 string newDestinationDir = Path.Combine(destinationDir, subDir.Name);
                 CopyDirectory(subDir.FullName, newDestinationDir, true);
