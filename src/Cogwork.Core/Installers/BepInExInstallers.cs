@@ -33,10 +33,11 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
     // TODO: Use proper detection of BepInEx package for a Thunderstore community.
     static bool IsBepInExPackage(PackageVersionReference package)
     {
-        if (!package.FullName.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase))
+        var resolved = package.Resolve();
+        if (!resolved.Name.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        return package.Resolve().Name switch
+        return resolved.Author.Name switch
         {
             "BepInEx" => true, // Default
             "bbepis" => true, // Risk of Rain 2
