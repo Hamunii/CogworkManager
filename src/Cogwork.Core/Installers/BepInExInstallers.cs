@@ -11,9 +11,9 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
         new(
             new(
                 [
+                    new("plugins", Path.Combine("BepInEx", "plugins")),
                     new("core", Path.Combine("BepInEx", "core")),
                     new("patchers", Path.Combine("BepInEx", "patchers")),
-                    new("plugins", Path.Combine("BepInEx", "plugins")),
                     new("monomod", Path.Combine("BepInEx", "monomod"), [".mm.dll"]),
                     new("config", Path.Combine("BepInEx", "config"), InstallType.Direct),
                 ],

@@ -6,6 +6,7 @@ namespace Cogwork.Core.Installers;
 
 public enum InstallType
 {
+    None,
     Direct,
     DirectSkipRoot,
     Namespaced,
@@ -29,11 +30,13 @@ public readonly record struct SourceToDestination(
 
     public static SourceToDestination FileMapping(string filePath) =>
         new(filePath, filePath, InstallType.File);
+
+    public static SourceToDestination None() => new(string.Empty, string.Empty, InstallType.None);
 }
 
 public readonly record struct Mapping(string Destination, InstallType Type);
 
-public record PackageInstaller
+public class PackageInstaller
 {
     static readonly FileSystem Fs = IModInstallers.RealFileSystem;
     readonly Dictionary<string, Mapping> DirToDir;
@@ -69,16 +72,6 @@ public record PackageInstaller
             protectedDirs: [Path.Combine("BepInEx", "config")]
         );
 
-    public static PackageInstaller GenericExactFileInstaller { get; } =
-        new(
-            [
-                SourceToDestination.FileMapping("winhttp.dll"),
-                SourceToDestination.FileMapping("version.dll"),
-                SourceToDestination.FileMapping("winmm.dll"),
-            ],
-            protectedDirs: []
-        );
-
     public Mapping GetDefaultMapping() => DirToDir.First().Value;
 
     public string[] Map(PackageVersionReference package, string directoryPath, string outputPath)
@@ -89,6 +82,9 @@ public record PackageInstaller
         var defaultMapping = GetDefaultMapping();
         switch (defaultMapping.Type)
         {
+            case InstallType.None:
+                break;
+
             case InstallType.Direct:
                 MoveOrMergeOverwrite(
                     directoryPath,
@@ -159,6 +155,10 @@ public record PackageInstaller
                 var mapped = Path.Combine(outputPath, mapping.Destination);
                 switch (mapping.Type)
                 {
+                    case InstallType.None:
+                    case InstallType.File:
+                        break;
+
                     case InstallType.Direct:
                     case InstallType.DirectSkipRoot:
                         MoveOrMergeOverwrite(dirPath, mapped, mappedFiles);
@@ -183,6 +183,7 @@ public record PackageInstaller
         var defaultMapping = GetDefaultMapping();
         switch (defaultMapping.Type)
         {
+            case InstallType.None:
             case InstallType.File:
             case InstallType.Direct:
             case InstallType.DirectSkipRoot:
