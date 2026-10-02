@@ -36,6 +36,16 @@ public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstalle
 
     public List<string> GetLaunchArguments(LazyModList modList)
     {
-        throw new NotImplementedException();
+        var isLinuxApp = modList.IsLinuxNative();
+        var gamePath = modList.GetGamePathOrThrow();
+        string gameExecutable = IModInstallers.GetGameExecutableOrThrow(isLinuxApp, gamePath);
+
+        List<string> args = [];
+
+        args.Add(gameExecutable);
+        args.Add("--mod-dir");
+        args.Add(Path.Combine(modList.ProfileFilesDirectory, "mods"));
+
+        return args;
     }
 }
