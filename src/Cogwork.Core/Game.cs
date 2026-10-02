@@ -156,7 +156,7 @@ public sealed class Game
         };
 
     public static Game Balatro { get; } =
-        new("Balatro", "balatro", new LovelyInstaller())
+        new("Balatro", "balatro", LovelyInstallers.Default)
         {
             Platforms = new() { Steam = new() { Id = 2379780 } },
         };
@@ -167,6 +167,7 @@ public sealed class Game
         LethalCompany,
         Repo,
         Ror2,
+        Balatro,
 #if DEBUG
         // Test,
 #endif

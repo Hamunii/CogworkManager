@@ -10,6 +10,7 @@ public enum InstallType
     DirectSkipRoot,
     Namespaced,
     NamespacedFlattened,
+    File,
 }
 
 public readonly record struct SourceToDestination(
@@ -25,6 +26,9 @@ public readonly record struct SourceToDestination(
         string[]? DefaultExtensions = null
     )
         : this(Source, Destination, InstallType.NamespacedFlattened, DefaultExtensions) { }
+
+    public static SourceToDestination FileMapping(string filePath) =>
+        new(filePath, filePath, InstallType.File);
 }
 
 public readonly record struct Mapping(string Destination, InstallType Type);
@@ -59,23 +63,84 @@ public record PackageInstaller
         ProtectedDirsFromRemoval = new(protectedDirs, StringComparer.OrdinalIgnoreCase);
     }
 
-    public static PackageInstaller SimpleDirectSkipRootInstaller { get; } =
+    public static PackageInstaller GenericDirectSkipRootInstaller { get; } =
         new(
             [new(string.Empty, string.Empty, InstallType.DirectSkipRoot)],
             protectedDirs: [Path.Combine("BepInEx", "config")]
         );
 
+    public static PackageInstaller GenericExactFileInstaller { get; } =
+        new(
+            [
+                SourceToDestination.FileMapping("winhttp.dll"),
+                SourceToDestination.FileMapping("version.dll"),
+                SourceToDestination.FileMapping("winmm.dll"),
+            ],
+            protectedDirs: []
+        );
+
     public Mapping GetDefaultMapping() => DirToDir.First().Value;
 
-    public string[] Map(
-        PackageVersionReference packageVersion,
-        string directoryPath,
-        string outputPath
-    )
+    public string[] Map(PackageVersionReference package, string directoryPath, string outputPath)
     {
         HashSet<string> mapped = [];
-        MapRecursive(packageVersion, directoryPath, outputPath, mapped);
-        Fs.Directory.Delete(directoryPath, recursive: true);
+        MapRecursive(package, directoryPath, outputPath, mapped);
+
+        var defaultMapping = GetDefaultMapping();
+        switch (defaultMapping.Type)
+        {
+            case InstallType.Direct:
+                MoveOrMergeOverwrite(
+                    directoryPath,
+                    Path.Combine(outputPath, defaultMapping.Destination),
+                    mapped
+                );
+                break;
+
+            case InstallType.DirectSkipRoot:
+                var first = Fs.Directory.EnumerateDirectories(directoryPath).FirstOrDefault();
+                if (first is null)
+                    break;
+
+                MoveOrMergeOverwrite(
+                    first,
+                    Path.Combine(outputPath, defaultMapping.Destination),
+                    mapped
+                );
+                break;
+
+            case InstallType.Namespaced:
+                MoveOrMergeOverwrite(
+                    directoryPath,
+                    Path.Combine(outputPath, defaultMapping.Destination, package.FullName),
+                    mapped
+                );
+                break;
+
+            case InstallType.NamespacedFlattened:
+            case InstallType.File:
+                break;
+
+            default:
+                throw new NotImplementedException("Install type is not implemented.");
+        }
+
+        foreach (var (filePath, mapping) in DirToDir)
+        {
+            if (mapping.Type is not InstallType.File)
+                continue;
+
+            var sourcePath = Path.Combine(directoryPath, filePath);
+            if (!Fs.File.Exists(sourcePath))
+                continue;
+
+            MoveFile(mapped, sourcePath, Path.Combine(outputPath, mapping.Destination));
+        }
+
+        if (Fs.Directory.Exists(directoryPath))
+        {
+            Fs.Directory.Delete(directoryPath, recursive: true);
+        }
         return [.. mapped];
     }
 
@@ -118,32 +183,10 @@ public record PackageInstaller
         var defaultMapping = GetDefaultMapping();
         switch (defaultMapping.Type)
         {
+            case InstallType.File:
             case InstallType.Direct:
-                MoveOrMergeOverwrite(
-                    directoryPath,
-                    Path.Combine(outputPath, defaultMapping.Destination),
-                    mappedFiles
-                );
-                break;
-
             case InstallType.DirectSkipRoot:
-                var first = Fs.Directory.EnumerateDirectories(directoryPath).FirstOrDefault();
-                if (first is null)
-                    break;
-
-                MoveOrMergeOverwrite(
-                    first,
-                    Path.Combine(outputPath, defaultMapping.Destination),
-                    mappedFiles
-                );
-                break;
-
             case InstallType.Namespaced:
-                MoveOrMergeOverwrite(
-                    directoryPath,
-                    Path.Combine(outputPath, defaultMapping.Destination, package.FullName),
-                    mappedFiles
-                );
                 break;
 
             case InstallType.NamespacedFlattened:

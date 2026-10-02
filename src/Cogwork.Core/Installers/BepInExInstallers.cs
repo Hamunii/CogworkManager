@@ -19,7 +19,7 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
                 ],
                 protectedDirs: [Path.Combine("BepInEx", "config")]
             ),
-            PackageInstaller.SimpleDirectSkipRootInstaller
+            PackageInstaller.GenericDirectSkipRootInstaller
         );
 
     public PackageInstaller GetInstaller(PackageVersionReference packageVersion)

@@ -13,7 +13,7 @@ public interface ISaveWithJson;
     GenerationMode = JsonSourceGenerationMode.Metadata,
     WriteIndented = true
 )]
-[JsonSerializable(typeof(Game.GameConfig))]
+[JsonSerializable(typeof(Game.GameConfigData))]
 [JsonSerializable(typeof(GlobalConfigData))]
 [JsonSerializable(typeof(PackageSource.PackageSourceCache))]
 [JsonSerializable(typeof(ModListData))]
