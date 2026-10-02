@@ -698,7 +698,8 @@ public sealed class ModList
 
             var PackageVersionReference = (PackageVersionReference)packageVersion;
             _ = _lazy
-                .Game.InstallRules.UninstallPackageAsync(
+                .Game.InstallRules.GetInstaller(PackageVersionReference)
+                .UninstallPackageAsync(
                     this,
                     PackageVersionReference,
                     _lazy.ProfileFilesDirectory,
@@ -853,12 +854,14 @@ public sealed class ModList
                     Cog.Debug($"Installing package: '{PackageVersionReference}'");
                     return (
                         PackageVersionReference,
-                        await installRules.InstallPackageAsync(
-                            this,
-                            PackageVersionReference,
-                            files,
-                            cancellationToken
-                        )
+                        await installRules
+                            .GetInstaller(PackageVersionReference)
+                            .InstallPackageAsync(
+                                this,
+                                PackageVersionReference,
+                                files,
+                                cancellationToken
+                            )
                     );
                 }
 
@@ -867,24 +870,28 @@ public sealed class ModList
                     Cog.Debug(
                         $"Uninstalling old package version: '{installedPackageVersionReference}'"
                     );
-                    var uninstallFiles = await installRules.UninstallPackageAsync(
-                        this,
-                        installedPackageVersionReference,
-                        files,
-                        installMap,
-                        cancellationToken
-                    );
+                    var uninstallFiles = await installRules
+                        .GetInstaller(installedPackageVersionReference)
+                        .UninstallPackageAsync(
+                            this,
+                            installedPackageVersionReference,
+                            files,
+                            installMap,
+                            cancellationToken
+                        );
                     Debug.Assert(uninstallFiles is null);
 
                     Cog.Debug($"Installing new package version: '{PackageVersionReference}'");
                     return (
                         PackageVersionReference,
-                        await installRules.InstallPackageAsync(
-                            this,
-                            PackageVersionReference,
-                            files,
-                            cancellationToken
-                        )
+                        await installRules
+                            .GetInstaller(PackageVersionReference)
+                            .InstallPackageAsync(
+                                this,
+                                PackageVersionReference,
+                                files,
+                                cancellationToken
+                            )
                     );
                 }
                 else

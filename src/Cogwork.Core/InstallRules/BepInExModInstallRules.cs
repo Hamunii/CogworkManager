@@ -1,5 +1,3 @@
-using System.IO.Abstractions;
-using System.IO.Abstractions.TestingHelpers;
 using System.Runtime.InteropServices;
 using ZLinq;
 
@@ -7,16 +5,44 @@ namespace Cogwork.Core.InstallRules;
 
 public readonly record struct BepInExModInstallRules : IModInstallRules
 {
-    readonly static FileSystem Fs = IModInstallRules.RealFileSystem;
+    readonly PackageInstaller packageInstaller;
+    readonly PackageInstaller bepInExInstaller;
 
     // https://github.com/ebkr/r2modmanPlus/wiki/Structuring-your-Thunderstore-package
-    readonly HashSet<string> DirToDir;
-    readonly HashSet<string> DirToDirNamespaced;
-    const string defaultDir = "plugins";
-    public static string InstallRootDirectory { get; } = "BepInEx";
+    public static BepInExModInstallRules Default { get; } =
+        new(
+            new(
+                [
+                    new("core", Path.Combine("BepInEx", "core")),
+                    new("patchers", Path.Combine("BepInEx", "patchers")),
+                    new("plugins", Path.Combine("BepInEx", "plugins")),
+                    new("monomod", Path.Combine("BepInEx", "monomod"), [".mm.dll"]),
+                    new("config", Path.Combine("BepInEx", "config"), InstallType.Direct),
+                ],
+                protectedDirs: [Path.Combine("BepInEx", "config")]
+            ),
+            PackageInstaller.SimpleDirectSkipRootInstaller
+        );
+
+    public BepInExModInstallRules(
+        PackageInstaller packageInstaller,
+        PackageInstaller bepInExInstaller
+    )
+    {
+        this.packageInstaller = packageInstaller;
+        this.bepInExInstaller = bepInExInstaller;
+    }
+
+    public PackageInstaller GetInstaller(PackageVersionReference packageVersion)
+    {
+        if (IsBepInExPackage(packageVersion))
+            return bepInExInstaller;
+
+        return packageInstaller;
+    }
 
     // TODO: Use proper detection of BepInEx package for a Thunderstore community.
-    static bool IsBepInExPackage(ModList modList, PackageVersionReference package)
+    static bool IsBepInExPackage(PackageVersionReference package)
     {
         if (!package.FullName.StartsWith("BepInExPack", StringComparison.OrdinalIgnoreCase))
             return false;
@@ -31,365 +57,12 @@ public readonly record struct BepInExModInstallRules : IModInstallRules
         };
     }
 
-    public static BepInExModInstallRules Default { get; } =
-        new(["config"], ["core", "patchers", "plugins", "monomod"]);
-
-    public BepInExModInstallRules(
-        IEnumerable<string> dirToDir,
-        IEnumerable<string> dirToDirNamespaced
-    )
-    {
-        DirToDir = new(dirToDir, StringComparer.OrdinalIgnoreCase);
-        DirToDirNamespaced = new(dirToDirNamespaced, StringComparer.OrdinalIgnoreCase);
-    }
-
     public void CopyModLoaderFilesToGame(string modLoaderFilesPath, string gameRootPath)
     {
-        foreach (var fileDir in Fs.Directory.GetFiles(modLoaderFilesPath).AsValueEnumerable())
+        foreach (var fileDir in Directory.GetFiles(modLoaderFilesPath))
         {
             var fileName = Path.GetFileName(fileDir);
-            Fs.File.Copy(fileDir, Path.Combine(gameRootPath, fileName), true);
-        }
-    }
-
-    public string[] Map(
-        ModList modList,
-        PackageVersionReference packageVersion,
-        string directoryPath,
-        string outputPath
-    )
-    {
-        HashSet<string> mapped = [];
-
-        if (IsBepInExPackage(modList, packageVersion))
-        {
-            IgnoreUntilTargetThenMap(
-                "winhttp.dll",
-                directoryPath,
-                outputPath,
-                foundTargetFile: false,
-                mapped
-            );
-            Fs.Directory.Delete(directoryPath, recursive: true);
-            return [.. mapped];
-        }
-
-        MapRecursive(packageVersion, directoryPath, outputPath, mapped);
-        Fs.Directory.Delete(directoryPath, recursive: true);
-        return [.. mapped];
-    }
-
-    private static void IgnoreUntilTargetThenMap(
-        string targetFileName,
-        string directoryPath,
-        string outputPath,
-        bool foundTargetFile,
-        HashSet<string> mappedFiles
-    )
-    {
-        Fs.Directory.CreateDirectory(outputPath);
-
-        if (!foundTargetFile)
-        {
-            foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
-            {
-                if (Path.GetFileName(fileDir) == targetFileName)
-                {
-                    foundTargetFile = true;
-                    break;
-                }
-            }
-        }
-
-        if (foundTargetFile)
-        {
-            foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
-            {
-                var fileName = Path.GetFileName(fileDir);
-                var dest = Path.Combine(outputPath, fileName);
-                if (Fs.File.Exists(dest))
-                {
-                    Fs.File.Delete(dest);
-                }
-                MoveFile(mappedFiles, fileDir, dest);
-            }
-        }
-
-        foreach (var dir in Fs.Directory.EnumerateDirectories(directoryPath).AsValueEnumerable())
-        {
-            if (foundTargetFile)
-            {
-                var dirName = Path.GetFileName(dir);
-
-                IgnoreUntilTargetThenMap(
-                    targetFileName,
-                    dir,
-                    Path.Combine(outputPath, dirName),
-                    foundTargetFile,
-                    mappedFiles
-                );
-            }
-            else
-                IgnoreUntilTargetThenMap(
-                    targetFileName,
-                    dir,
-                    outputPath,
-                    foundTargetFile,
-                    mappedFiles
-                );
-        }
-    }
-
-    private void MapRecursive(
-        PackageVersionReference package,
-        string directoryPath,
-        string outputPath,
-        HashSet<string> mappedFiles
-    )
-    {
-        foreach (
-            var dirPath in Fs.Directory.EnumerateDirectories(directoryPath).AsValueEnumerable()
-        )
-        {
-            var dirName = Path.GetFileName(dirPath).ToLowerInvariant();
-
-            if (DirToDirNamespaced.Contains(dirName))
-            {
-                var mapped = Path.Combine(outputPath, dirName);
-                var mapped2 = Path.Combine(mapped, package.FullName);
-                Fs.Directory.CreateDirectory(mapped);
-                MoveOrMergeOverwrite(dirPath, mapped2, mappedFiles);
-                continue;
-            }
-
-            if (DirToDir.Contains(dirName))
-            {
-                var mapped = Path.Combine(outputPath, dirName);
-                MoveOrMergeOverwrite(dirPath, mapped, mappedFiles);
-                continue;
-            }
-
-            MapRecursive(package, dirPath, outputPath, mappedFiles);
-        }
-
-        string defaultFlattenDir = Path.Combine(outputPath, defaultDir, package.FullName);
-        if (!Fs.Directory.Exists(defaultFlattenDir))
-        {
-            Fs.Directory.CreateDirectory(defaultFlattenDir);
-        }
-
-        // Flatten the rest.
-        foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath).AsValueEnumerable())
-        {
-            var fileName = Path.GetFileName(fileDir);
-
-            string dest;
-            // Special cases
-            if (fileName.EndsWith(".mm.dll", StringComparison.OrdinalIgnoreCase))
-            {
-                dest = Path.Combine(outputPath, "monomod", package.FullName, fileName);
-                Fs.Directory.CreateDirectory(dest);
-            }
-            else
-                dest = Path.Combine(defaultFlattenDir, fileName);
-
-            if (Fs.File.Exists(dest))
-            {
-                Fs.File.Delete(dest);
-            }
-            MoveFile(mappedFiles, fileDir, dest);
-        }
-    }
-
-    static void MoveOrMergeOverwrite(string sourceDirName, string destDirName, HashSet<string> mappedFiles)
-    {
-        if (!Fs.Directory.Exists(destDirName))
-        {
-            Fs.Directory.CreateDirectory(destDirName);
-        }
-
-        foreach (var file in Fs.Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
-        {
-            var fileName = Path.GetFileName(file);
-            var dest = Path.Combine(destDirName, fileName);
-            if (Fs.File.Exists(dest))
-            {
-                Fs.File.Delete(dest);
-            }
-            MoveFile(mappedFiles, file, dest);
-        }
-
-        foreach (var dir in Fs.Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
-        {
-            var dirName = Path.GetFileName(dir);
-            MoveOrMergeOverwrite(dir, Path.Combine(destDirName, dirName), mappedFiles);
-        }
-
-        Fs.Directory.Delete(sourceDirName);
-    }
-
-    private static void MoveFile(HashSet<string> mappedFiles, string file, string dest)
-    {
-        if (mappedFiles.Contains(dest))
-        {
-            Cog.Information(
-                $"Conflict in mapping package files to profile: '{dest}' already mapped; not overwriting it."
-            );
-            return;
-        }
-        Fs.File.Move(file, dest);
-        mappedFiles.Add(dest);
-    }
-
-    public async Task<FileInstalls?> InstallPackageAsync(
-        ModList modList,
-        PackageVersionReference packageVersion,
-        string profileFilesDirectory,
-        CancellationToken cancellationToken = default
-    )
-    {
-        if (ShouldIgnorePackage(modList, packageVersion))
-        {
-            return new FileInstalls([], []);
-        }
-
-        var path = await packageVersion.Source.ExtractAsync(packageVersion, cancellationToken);
-        if (path is null)
-        {
-            Cog.Error($"Cannot install package which is not downloaded: '{packageVersion}'");
-            return null;
-        }
-
-        string installRoot = GetInstallRoot(modList, packageVersion, profileFilesDirectory);
-        Directory.CreateDirectory(installRoot);
-        var pathCopy = path + ".temp";
-
-        Fs.Directory.CreateDirectory(pathCopy);
-        CopyDirectory(path, pathCopy);
-        var mapped = Map(modList, packageVersion, pathCopy, installRoot);
-
-        return new FileInstalls(mapped, []);
-    }
-
-    private static bool ShouldIgnorePackage(
-        ModList modList,
-        PackageVersionReference packageVersion
-    ) =>
-        modList.Game == Game.Silksong // Silksong has a replacement package, and these are incompatible.
-        && packageVersion.FullName.Equals("BepInEx-BepInExPack_Silksong", StringComparison.Ordinal);
-
-    private static string GetInstallRoot(
-        ModList modList,
-        PackageVersionReference packageVersion,
-        string profileFilesDirectory
-    )
-    {
-        if (IsBepInExPackage(modList, packageVersion))
-        {
-            return profileFilesDirectory;
-        }
-
-        return Path.Combine(profileFilesDirectory, "BepInEx");
-    }
-
-    public async Task<FileInstalls?> UninstallPackageAsync(
-        ModList modList,
-        PackageVersionReference packageVersion,
-        string profileFilesDirectory,
-        Dictionary<PackageVersionReference, FileInstalls?>? installMap,
-        CancellationToken cancellationToken = default
-    )
-    {
-        if (
-            installMap is null
-            || !installMap.TryGetValue(packageVersion, out var fileInstallsOrNull)
-            || fileInstallsOrNull is not { } fileInstalls
-        )
-        {
-            // Was not installed
-            return null;
-        }
-
-        var fakeFs = new MockFileSystem(
-            fileInstalls.Installed.ToDictionary(
-                keySelector: x =>
-                {
-                    if (!x.StartsWith(profileFilesDirectory, StringComparison.Ordinal))
-                    {
-                        throw new InvalidOperationException(
-                            $"Corrupt installed file data; file to delete ('{x}') is not within '{profileFilesDirectory}'"
-                        );
-                    }
-                    return x;
-                },
-                elementSelector: x => new MockFileData(string.Empty)
-            )
-        );
-
-        // We don't want users' config files to be deleted if a package ships
-        // config files and the package is uninstalled. It's possible the user
-        // might want to install the package again and we'd like to keep its configs
-        // like any other package which doesn't ship its config file.
-        var configDir = Path.Combine(profileFilesDirectory, "BepInEx", "config");
-        if (fakeFs.Directory.Exists(configDir))
-        {
-            fakeFs.Directory.Delete(configDir, recursive: true);
-        }
-
-        // Then we just delete the fake mapped files from our real filesystem.
-        string installRoot = GetInstallRoot(modList, packageVersion, profileFilesDirectory);
-        if (fakeFs.Directory.Exists(installRoot))
-        {
-            DeleteDirectoryContentsBasedOnSource(fakeFs, installRoot);
-        }
-
-        return null;
-    }
-
-    static void CopyDirectory(string sourceDirName, string destDirName)
-    {
-        foreach (var file in Fs.Directory.EnumerateFiles(sourceDirName).AsValueEnumerable())
-        {
-            var fileName = Path.GetFileName(file);
-            // TODO: Do not overwrite without confirmation.
-            // This will overwrite config files if packages ship them.
-            Fs.File.Copy(file, Path.Combine(destDirName, fileName), overwrite: true);
-        }
-
-        foreach (var dir in Fs.Directory.EnumerateDirectories(sourceDirName).AsValueEnumerable())
-        {
-            var dirName = Path.GetFileName(dir);
-            var newDir = Path.Combine(destDirName, dirName);
-            Fs.Directory.CreateDirectory(newDir);
-            CopyDirectory(dir, newDir);
-        }
-    }
-
-    static void DeleteDirectoryContentsBasedOnSource(IFileSystem sourceFs, string dir)
-    {
-        foreach (var file in sourceFs.Directory.EnumerateFiles(dir).AsValueEnumerable())
-        {
-            if (File.Exists(file))
-            {
-                // TODO: Do not delete config files without confirmation.
-                File.Delete(file);
-            }
-        }
-
-        foreach (var subDir in sourceFs.Directory.EnumerateDirectories(dir).AsValueEnumerable())
-        {
-            if (Directory.Exists(subDir))
-            {
-                DeleteDirectoryContentsBasedOnSource(sourceFs, subDir);
-            }
-        }
-
-        if (Directory.GetFileSystemEntries(dir).Length == 0)
-        {
-            if (Directory.Exists(dir))
-            {
-                Directory.Delete(dir);
-            }
+            File.Copy(fileDir, Path.Combine(gameRootPath, fileName), true);
         }
     }
 
@@ -401,7 +74,6 @@ public readonly record struct BepInExModInstallRules : IModInstallRules
         var gamePath = modList.GetGamePathOrThrow();
         var executables = Directory
             .GetFiles(gamePath)
-            .AsValueEnumerable()
             .Where(x =>
             {
                 var ext = Path.GetExtension(x);
