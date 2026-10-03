@@ -282,6 +282,7 @@ public class ConfigureProfileViewController : IDisposable
         entryRow.SetText(
             _lazyProfile.OverrideGamePath ?? _lazyProfile.Game.Config.PreferredPath ?? ""
         );
+        Helpers.AddGamePathValidationSuffixIcon(entryRow);
         expanderRow.AddRow(entryRow);
         prefGroup.Add(expanderRow);
 

@@ -1,7 +1,10 @@
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Abstractions;
 using System.Text.Json.Serialization;
 using Cogwork.Core.Installers;
 using Cogwork.Core.Sources;
+using Gameloop.Vdf;
+using Gameloop.Vdf.Linq;
 using ZLinq;
 
 namespace Cogwork.Core;
@@ -68,6 +71,50 @@ public sealed class Game
         {
             GameConfigData data = new(ActiveProfile?.Id, PreferredPath);
             data.Save(Game.GameConfigLocation);
+        }
+
+        public string? PopulateGamePathIfNotValidOrReturnErr()
+        {
+            var gamePath = PreferredPath;
+            if (gamePath is not null && Directory.Exists(gamePath))
+            {
+                return null;
+            }
+
+            if (Game.Platforms.Steam is not { } steam)
+            {
+                return $"Game '{Game.Name}' is not on steam.";
+            }
+
+            var userDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var steamapps = Path.Combine(userDir, ".steam", "root", "steamapps");
+            if (!Directory.Exists(steamapps))
+            {
+                return $"Directory doesn't exist: '{steamapps}'";
+            }
+
+            var gameInfoAcf = Path.Combine(steamapps, $"appmanifest_{steam.Id}.acf");
+            if (!File.Exists(gameInfoAcf))
+            {
+                return $"File doesn't exist: '{gameInfoAcf}'";
+            }
+
+            var appmanifest = VdfConvert.Deserialize(File.ReadAllText(gameInfoAcf));
+            var installDir = appmanifest.Value["installdir"]?.Value<string>();
+            if (installDir is null)
+            {
+                return $"Steam install directory not found for: '{Game.Name}'";
+            }
+
+            gamePath = Path.Combine(steamapps, "common", installDir);
+            if (!Directory.Exists(gamePath))
+            {
+                return $"Steam directory does not exist: '{gamePath}'";
+            }
+
+            PreferredPath = gamePath;
+            Save();
+            return null;
         }
     }
 
@@ -216,5 +263,17 @@ public sealed class Game
                 yield return profile;
             }
         }
+    }
+
+    public static bool IsGamePathValid(string gamePath, [NotNullWhen(false)] out string? err)
+    {
+        if (!Directory.Exists(gamePath))
+        {
+            err = $"Directory not found";
+            return false;
+        }
+
+        err = null;
+        return true;
     }
 }

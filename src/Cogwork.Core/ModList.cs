@@ -286,46 +286,32 @@ public sealed class LazyModList
     /// <returns>Null if success, otherwise error message.</returns>
     public string? PrepareModLoader(Game game)
     {
-        string? gamePath = GamePath;
-        if (gamePath is null || !Directory.Exists(gamePath))
+        var err = GetValidGamePathAndMaybePopulateOrReturnErr(game, out string? gamePath);
+        if (err is { })
         {
-            var userDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (game.Platforms.Steam is not { } steam)
-            {
-                return $"Game '{game.Name}' is not on steam.";
-            }
-            var steamapps = Path.Combine(userDir, ".steam", "root", "steamapps");
-            if (!Directory.Exists(steamapps))
-            {
-                return $"Directory doesn't exist: '{steamapps}'";
-            }
-
-            var gameInfoAcf = Path.Combine(steamapps, $"appmanifest_{steam.Id}.acf");
-            if (!File.Exists(gameInfoAcf))
-            {
-                return $"File doesn't exist: '{gameInfoAcf}'";
-            }
-
-            var appmanifest = VdfConvert.Deserialize(File.ReadAllText(gameInfoAcf));
-            var installDir = appmanifest.Value["installdir"]?.Value<string>();
-            if (installDir is null)
-            {
-                return $"Steam install directory not found for: '{game.Name}'";
-            }
-
-            gamePath = Path.Combine(steamapps, "common", installDir);
-            if (!Directory.Exists(gamePath))
-            {
-                return $"Steam directory does not exist: '{gamePath}'";
-            }
-
-            game.Config.PreferredPath = gamePath;
-            game.Config.Save();
+            return err;
         }
 
         Cog.Debug($"Copying modloader files to: '{gamePath}'");
-        game.InstallRules.CopyModLoaderFilesToGame(ProfileFilesDirectory, gamePath);
+        game.InstallRules.CopyModLoaderFilesToGame(ProfileFilesDirectory, gamePath!);
         return null;
+    }
+
+    public string? GetValidGamePathAndMaybePopulateOrReturnErr(Game game, out string? gamePath)
+    {
+        gamePath = GamePath;
+        if (Directory.Exists(gamePath))
+        {
+            return null;
+        }
+        else if (IsOverrideGamePathEnabled)
+        {
+            return $"Override game path does not exist: '{gamePath}'";
+        }
+
+        var err = game.Config.PopulateGamePathIfNotValidOrReturnErr();
+        gamePath = GamePath;
+        return err;
     }
 
     public bool IsLinuxNative() => RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsProton();

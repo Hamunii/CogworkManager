@@ -67,6 +67,10 @@ public class ProfilesViewController
     {
         _selectedGame = selectedGame ?? throw new ArgumentNullException(nameof(selectedGame));
 
+        // Ensure the game path is attempted to be set early as it appears for example
+        // in the settings pages.
+        _ = selectedGame.Config.PopulateGamePathIfNotValidOrReturnErr();
+
         _windowTitle.SetTitle(_selectedGame.Name);
         _windowTitle.SetSubtitle("Select mod profile");
 
@@ -201,6 +205,8 @@ public class ProfilesViewController
         var gamePath = EntryRow.New();
         gamePath.SetTitle("Path to game root directory");
         gamePath.SetText(selectedGame.Config.PreferredPath ?? "");
+        Helpers.AddGamePathValidationSuffixIcon(gamePath);
+
         configGroup.Add(gamePath);
 
         var browseButton = Button.NewFromIconName("folder-open-symbolic");
