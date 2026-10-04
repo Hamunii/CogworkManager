@@ -102,7 +102,7 @@ public class ProfilesViewController
             launchButton.SetTooltipText($"Launch with {profile.DisplayName}");
             launchButton.OnClicked += (s, e) =>
             {
-                _ = Cli.Program.Main([
+                _ = Cli.Core.Program.Main([
                     "launch",
                     "--game",
                     profile.Game.Slug,

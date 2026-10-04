@@ -1,18 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RuntimeIdentifiers>any</RuntimeIdentifiers>
     <TargetFramework>$(CogworkTargetFramework)</TargetFramework>
-    <AssemblyName>Cogwork.Gui</AssemblyName>
+    <AssemblyName>Cogwork.Cli.Core</AssemblyName>
     <VersionPrefix>$(CogworkVersionPrefix)</VersionPrefix>
     <VersionSuffix>$(CogworkVersionSuffix)</VersionSuffix>
-    <OutputType>Exe</OutputType>
-    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
-    <Authors>Hamunii</Authors>
-    <Description>A GUI mod package manager for a few games on Thunderstore.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- <StartArguments>update</StartArguments> -->
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,14 +18,12 @@
   <ItemGroup>
     <ProjectReference Include="$(SolutionRoot)src/Cogwork.Core/Cogwork.Core.csproj" />
     <Using Include="Cogwork.Core" />
-    <ProjectReference Include="$(SolutionRoot)src/Cogwork.Cli.Core/Cogwork.Cli.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="GirCore.Adw-1" Version="0.8.1" />
-    <PackageReference Include="GirCore.WebKit-6.0" Version="0.8.1" />
-    <PackageReference Include="GirCore.JavaScriptCore-6.0" Version="0.8.1" />
-    <PackageReference Include="Markdig" Version="1.3.2" />
+    <PackageReference Include="System.CommandLine" Version="2.0.1" />
+    <PackageReference Include="Spectre.Console" Version="0.54.0" />
+    <PackageReference Include="PublishAotCrossXWin" Version="1.2.0" />
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
     <PackageReference Include="Tmds.DBus.Generator" Version="0.94.2" />
     <PackageReference Include="Tmds.LibC" Version="0.5.0" />
