@@ -64,13 +64,11 @@ if [ -n "$container" ]; then
         --source "/usr/lib/sdk/dotnet10/nuget/packages" \
         "../../src/$PROJECT/$PROJECT.csproj" \
         --runtime $RUNTIME \
-        --no-self-contained \
         -p:PublishReadyToRun=true
 else
     dotnet publish -c Release \
         "../../src/$PROJECT/$PROJECT.csproj" \
         --runtime $RUNTIME \
-        --no-self-contained \
         -p:PublishReadyToRun=true
 fi
 PUBLISH_DIR="../../artifacts/publish/$PROJECT/release_$RUNTIME"

@@ -18,8 +18,9 @@
         "--device=dri",
         "--share=ipc",
         "--share=network",
-        "--filesystem=~/.local/share/Hamunii.Cogwork:ro",
-        "--filesystem=~/.cache/Hamunii.Cogwork:ro"
+        "--filesystem=xdg-data/Hamunii.Cogwork:create",
+        "--filesystem=xdg-cache/Hamunii.Cogwork:create",
+        "--filesystem=~/.steam/root/steamapps:rw"
     ],
     "cleanup": [
         "/include",

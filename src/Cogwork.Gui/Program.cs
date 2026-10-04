@@ -13,7 +13,7 @@ class Program
         SetFatalLoggers();
         SetNativeLibraryResolvers();
 
-        var app = Adw.Application.New("io.github.hamunii.cogwork", Gio.ApplicationFlags.FlagsNone);
+        var app = Adw.Application.New("io.github.hamunii.Cogwork", Gio.ApplicationFlags.FlagsNone);
 
         app.OnActivate += (sender, e) =>
         {

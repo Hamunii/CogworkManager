@@ -12,6 +12,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishTrimmed>true</PublishTrimmed>
     <!-- <StartArguments>update</StartArguments> -->
   </PropertyGroup>
 
