@@ -5,8 +5,11 @@
 *csproj.user
 bin/
 obj/
+/flatpak/nuget-sources.json
 
 # Add source files
+!/flatpak/
+!/resources/
 !/src/
 !/tests/
 !/packaging/

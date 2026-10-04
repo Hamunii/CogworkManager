@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.hamunii.Cogwork</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Cogwork</name>
+  <project_group>Hamunii</project_group>
+  <developer id="io.github.hamunii">
+    <name>Hamunii</name>
+  </developer>
+  <summary>Install and manage mods</summary>
+  <description>
+    <ul>
+      <li>Install, add, remove, and manage mods</li>
+      <li>Organize mod lists with mod profiles</li>
+      <li>Supports modding a subset of games on <a href="https://thunderstore.io/">Thunderstore</a> and Thunderstore-compatible remotes</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.hamunii.Cogwork.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Light mode</caption>
+      <image>https://raw.githubusercontent.com/Hamunii/Cogwork/main/resources/screenshots/light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Dark mode</caption>
+      <image>https://raw.githubusercontent.com/Hamunii/Cogwork/main/resources/screenshots/dark.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/Hamunii/Cogwork</url>
+  <url type="bugtracker">https://github.com/Hamunii/Cogwork/issues</url>
+  <url type="contribute"
+    >https://github.com/Hamunii/Cogwork/blob/main/CONTRIBUTING.md</url>
+  <url type="vcs-browser">https://github.com/Hamunii/Cogwork</url>
+  <provides>
+    <binary>io.github.hamunii.Cogwork</binary>
+  </provides>
+  <content_rating type="oars-1.1" />
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <releases>
+    <release version="2026.4.0-next" date="2026-04-01">
+      <description translate="no">
+        <p>- Initial Release (not actually, replace when actual release happens)</p>
+      </description>
+    </release>
+  </releases>
+</component>
