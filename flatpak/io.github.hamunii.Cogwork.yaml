@@ -1,0 +1,48 @@
+app-id: io.github.hamunii.Cogwork
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.dotnet10
+build-options:
+  append-path: /usr/lib/sdk/dotnet10/bin
+  append-ld-library-path: /usr/lib/sdk/dotnet10/lib
+  prepend-pkg-config-path: /usr/lib/sdk/dotnet10/lib/pkgconfig
+command: io.github.hamunii.Cogwork
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=ipc
+  - --share=network
+  - --filesystem=xdg-data/Hamunii.Cogwork:create
+  - --filesystem=xdg-cache/Hamunii.Cogwork:create
+  - --filesystem=~/.steam/root/steamapps:rw
+cleanup:
+  - /include
+  - /lib/debug
+  - /lib/pkgconfig
+  - /man
+  - '*.a'
+modules:
+  - name: io.github.hamunii.Cogwork
+    buildsystem: simple
+    build-options:
+      env:
+        DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+        container: flatpak
+      arch:
+        aarch64:
+          env:
+            RUNTIME: linux-arm64
+        x86_64:
+          env:
+            RUNTIME: linux-x64
+    build-commands:
+      - chmod +x ./resources/linux/publish-and-install.sh
+      - ./resources/linux/publish-and-install.sh ${FLATPAK_DEST} $RUNTIME
+    sources:
+      - type: dir
+        path: ..
+      - nuget-sources.json
