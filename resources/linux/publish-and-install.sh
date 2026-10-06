@@ -63,13 +63,11 @@ if [ -n "$container" ]; then
         --source "$CURRENT_PWD/nuget-sources" \
         --source "/usr/lib/sdk/dotnet10/nuget/packages" \
         "../../src/$PROJECT/$PROJECT.csproj" \
-        --runtime $RUNTIME \
-        -p:PublishReadyToRun=true
+        --runtime $RUNTIME
 else
     dotnet publish -c Release \
         "../../src/$PROJECT/$PROJECT.csproj" \
-        --runtime $RUNTIME \
-        -p:PublishReadyToRun=true
+        --runtime $RUNTIME
 fi
 PUBLISH_DIR="../../artifacts/publish/$PROJECT/release_$RUNTIME"
 cp -a "$PUBLISH_DIR/." "$LIB_DIR"

@@ -13,6 +13,7 @@
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishTrimmed>true</PublishTrimmed>
+    <PublishAot>true</PublishAot>
     <!-- <StartArguments>update</StartArguments> -->
   </PropertyGroup>
 
