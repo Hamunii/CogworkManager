@@ -3,4 +3,4 @@ Name=Cogwork
 Exec=@LIB_DIR@/@OUTPUT_NAME@
 Icon=@APP_ID@
 Type=Application
-Categories=Network;PackageManager;GameTool;GNOME;
+Categories=Game;PackageManager;GNOME;GTK;
