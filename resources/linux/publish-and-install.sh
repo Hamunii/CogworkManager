@@ -104,9 +104,12 @@ success "Copied metadata file to $METADATA_FILE."
 # Copy icons
 info "Copying icons..."
 SCALABLE_ICON_DIR="$DATA_DIR/icons/hicolor/scalable/apps"
+SYMBOLIC_ICON_DIR="$DATA_DIR/icons/hicolor/symbolic/apps"
 mkdir -p "$SCALABLE_ICON_DIR"
+mkdir -p "$SYMBOLIC_ICON_DIR"
 cp "../$APP_ID.svg" "$SCALABLE_ICON_DIR/$APP_ID.svg"
-cp "../$APP_ID-devel.svg" "$SCALABLE_ICON_DIR/$APP_ID-devel.svg"
+cp "../$APP_ID.Devel.svg" "$SCALABLE_ICON_DIR/$APP_ID.Devel.svg"
+cp "../$APP_ID-symbolic.svg" "$SYMBOLIC_ICON_DIR/$APP_ID-symbolic.svg"
 success "Copied icons."
 
 # Update gtk icon cache
