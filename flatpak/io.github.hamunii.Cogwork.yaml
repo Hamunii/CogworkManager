@@ -12,12 +12,34 @@ command: io.github.hamunii.Cogwork
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
-  - --device=dri
+  - --socket=pulseaudio
   - --share=ipc
   - --share=network
-  - --filesystem=xdg-data/Hamunii.Cogwork:create
-  - --filesystem=xdg-cache/Hamunii.Cogwork:create
-  - --filesystem=~/.steam/root/steamapps:rw
+  # As a game launcher, Cogwork may need all devices.
+  - --device=all
+  # I'm not actually sure if this is relevant, but maybe it is? Heroic Games Launcher (HGL) has it.
+  - --allow=per-app-dev-shm
+  # Some games may store files wherever
+  - --persist=.
+  #  From HGL: Wine uses UDisks2 to enumerate disk drives
+  - --system-talk-name=org.freedesktop.UDisks2
+  - --system-talk-name=org.freedesktop.UPower # from HGL
+  - --talk-name=org.gnome.SettingsDaemon.MediaKeys # from HGL
+  - --talk-name=org.freedesktop.PowerManagement # from HGL
+  - --talk-name=org.freedesktop.Notifications # from HGL
+  # From HGL: should fix discord rich presence
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+  # Cogwork automatically finds Steam games which may be anywhere and
+  # it must be able to write to game directories to inject mods into games.
+  - --filesystem=~/.steam
+  - --filesystem=xdg-data/Steam
+  - --filesystem=~/.var/app/com.valvesoftware.Steam
+  - --filesystem=~/Games
+  - --filesystem=/run/media
+  - --filesystem=/mnt
+  - --filesystem=/media
+  - --filesystem=xdg-desktop
+  - --filesystem=xdg-documents
 cleanup:
   - /include
   - /lib/debug
