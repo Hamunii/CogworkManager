@@ -4,3 +4,4 @@ Exec=@LIB_DIR@/@OUTPUT_NAME@
 Icon=@APP_ID@
 Type=Application
 Categories=Game;PackageManager;GNOME;GTK;
+Keywords=game;launcher;mod;manager;package;thunderstore;
