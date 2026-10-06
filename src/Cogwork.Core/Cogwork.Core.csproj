@@ -12,4 +12,17 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Cogwork.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
+    <PackageReference Include="Tmds.DBus.Generator" Version="0.94.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles
+      Include="$(SolutionRoot)src/dbus-xml/org.freedesktop.portal.OpenURI.xml"
+      Namespace="DBusGenerated.Freedesktop.Portal"
+      DBusGeneratorMode="Proxy"
+    />
+  </ItemGroup>
 </Project>

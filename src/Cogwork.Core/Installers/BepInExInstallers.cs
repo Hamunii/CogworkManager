@@ -52,40 +52,42 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
         Utils.CopyDirectory(modLoaderFilesPath, gameRootPath, recursive: false);
     }
 
-    public List<string> GetLaunchArguments(LazyModList modList)
+    public string[] GetProxyFiles() => ["winhttp"];
+
+    public string[] GetLaunchArgs(LazyModList modList)
+    {
+        return
+        [
+            "--doorstop-enabled",
+            "true",
+            "--doorstop-target-assembly",
+            Path.Combine(modList.ProfileFilesDirectory, "BepInEx", "core", "BepInEx.Preloader.dll"),
+        ];
+    }
+
+    public string[] GetDirectLaunchArgs(LazyModList modList)
     {
         var isLinuxApp = modList.IsLinuxNative();
-
-        var profileFiles = modList.ProfileFilesDirectory;
         var gamePath = modList.GetGamePathOrThrow();
         string gameExecutable = IModInstallers.GetGameExecutableOrThrow(isLinuxApp, gamePath);
 
-        List<string> args = [];
-
-        if (isLinuxApp)
+        if (!isLinuxApp)
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                // This is bad error handling, but I'd assume this should never happen.
-                throw new InvalidOperationException(
-                    "This game is not supported on Windows (as far as Cogwork Manager is aware)."
-                );
-            }
-
-            var runBepInExPath = Path.Combine(profileFiles, "run_bepinex.sh");
-            args.Add(runBepInExPath);
-
-            UnixFileMode currentMode = File.GetUnixFileMode(runBepInExPath);
-            File.SetUnixFileMode(runBepInExPath, currentMode | UnixFileMode.UserExecute);
+            return [gameExecutable];
         }
 
-        // <path to game> [doorstop arguments]
-        args.Add(gameExecutable);
-        args.Add("--doorstop-enabled");
-        args.Add("true");
-        args.Add("--doorstop-target-assembly");
-        args.Add(Path.Combine(profileFiles, "BepInEx", "core", "BepInEx.Preloader.dll"));
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // This is bad error handling, but I'd assume this should never happen.
+            throw new InvalidOperationException(
+                "This game is not supported on Windows (as far as Cogwork Manager is aware)."
+            );
+        }
 
-        return args;
+        var runBepInExPath = Path.Combine(modList.ProfileFilesDirectory, "run_bepinex.sh");
+        UnixFileMode currentMode = File.GetUnixFileMode(runBepInExPath);
+        File.SetUnixFileMode(runBepInExPath, currentMode | UnixFileMode.UserExecute);
+
+        return [runBepInExPath, gameExecutable];
     }
 }

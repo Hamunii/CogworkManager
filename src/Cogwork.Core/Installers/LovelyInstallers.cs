@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Cogwork.Core.Installers;
 
 public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstaller lovelyInstaller)
@@ -21,11 +23,6 @@ public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstalle
             DefaultLovelyInstaller
         );
 
-    public void CopyModLoaderFilesToGame(string modLoaderFilesPath, string gameRootPath)
-    {
-        Utils.CopyDirectory(modLoaderFilesPath, gameRootPath, recursive: false);
-    }
-
     public PackageInstaller GetInstaller(PackageVersionReference packageVersion)
     {
         if (packageVersion.FullName == "Thunderstore-lovely")
@@ -34,18 +31,24 @@ public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstalle
         return packageInstaller;
     }
 
-    public List<string> GetLaunchArguments(LazyModList modList)
+    public void CopyModLoaderFilesToGame(string modLoaderFilesPath, string gameRootPath)
+    {
+        Utils.CopyDirectory(modLoaderFilesPath, gameRootPath, recursive: false);
+    }
+
+    public string[] GetProxyFiles() => [];
+
+    public string[] GetLaunchArgs(LazyModList modList)
+    {
+        return ["--mod-dir", Path.Combine(modList.ProfileFilesDirectory, "mods")];
+    }
+
+    public string[] GetDirectLaunchArgs(LazyModList modList)
     {
         var isLinuxApp = modList.IsLinuxNative();
         var gamePath = modList.GetGamePathOrThrow();
         string gameExecutable = IModInstallers.GetGameExecutableOrThrow(isLinuxApp, gamePath);
 
-        List<string> args = [];
-
-        args.Add(gameExecutable);
-        args.Add("--mod-dir");
-        args.Add(Path.Combine(modList.ProfileFilesDirectory, "mods"));
-
-        return args;
+        return [gameExecutable];
     }
 }

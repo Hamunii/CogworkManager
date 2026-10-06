@@ -283,6 +283,23 @@ public sealed class LazyModList
         return gamePath;
     }
 
+    public (string?, CogError?) GetGamePath()
+    {
+        string? gamePath = GamePath;
+        if (gamePath is null || !Directory.Exists(gamePath))
+        {
+            return (
+                null,
+                new(
+                    $"Game path does not exist",
+                    $"Game path does not exist: '{gamePath}'",
+                    "Configure game path in settings."
+                )
+            );
+        }
+        return (gamePath, null);
+    }
+
     /// <returns>Null if success, otherwise error message.</returns>
     public string? PrepareModLoader(Game game)
     {

@@ -96,4 +96,21 @@ public static class Utils
             }
         }
     }
+
+    public static string? GetExecutablePath(string exeName)
+    {
+        var paths = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator) ?? [];
+
+        foreach (var path in paths)
+        {
+            var fullPath = Path.Combine(path, exeName);
+
+            if (!File.Exists(fullPath))
+                continue;
+
+            return fullPath;
+        }
+
+        return null;
+    }
 }

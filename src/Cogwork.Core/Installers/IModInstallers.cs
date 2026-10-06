@@ -7,10 +7,10 @@ public interface IModInstallers
     public static FileSystem RealFileSystem { get; } = new FileSystem();
 
     PackageInstaller GetInstaller(PackageVersionReference packageVersion);
-
     public void CopyModLoaderFilesToGame(string modLoaderFilesPath, string gameRootPath);
-
-    public List<string> GetLaunchArguments(LazyModList modList);
+    public string[] GetProxyFiles();
+    public string[] GetLaunchArgs(LazyModList modList);
+    public string[] GetDirectLaunchArgs(LazyModList modList);
 
     public static string GetGameExecutableOrThrow(bool isLinuxApp, string gamePath)
     {

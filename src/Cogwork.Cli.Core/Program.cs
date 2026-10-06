@@ -820,13 +820,6 @@ public static class Program
                     _ = SyncProfilePackages(result).Result;
                 }
 
-                var error = lazyProfile.PrepareModLoader(game);
-                if (error is { })
-                {
-                    result.AddError(error);
-                    return;
-                }
-
                 if (result.GetValue(optionAttachedLaunch) && !result.GetValue(optionDirectLaunch))
                 {
                     result.AddError(
@@ -839,154 +832,20 @@ public static class Program
             launch.SetAction(
                 async Task<int> (result, ct) =>
                 {
-                    var game = lazyProfile.Game;
-
-                    var steamExePath = GetExecutablePath("steam");
-                    if (steamExePath is not { } s)
-                    {
-                        AnsiConsole.WriteLine("Steam not found");
-                        return 1;
-                    }
-                    if (game.Platforms.Steam is not { } steam)
-                    {
-                        AnsiConsole.WriteLine($"Game '{game.Name}' is not on steam.");
-                        return 1;
-                    }
+                    var launch = result.GetValue(optionDirectLaunch)
+                        ? Game.Launch.Direct
+                        : Game.Launch.Platform;
 
                     AnsiConsole.MarkupLine("[green]Launching game[/]");
 
-                    var args = game.InstallRules.GetLaunchArguments(lazyProfile);
-                    bool waitForProcess = false;
-
-                    ProcessStartInfo startInfo;
-                    if (result.GetValue(optionDirectLaunch))
-                    {
-                        var isProton = lazyProfile.IsProton();
-                        string? umuPath = null;
-                        if (isProton)
-                        {
-                            umuPath = GetExecutablePath("umu-run");
-                            if (umuPath is null)
-                            {
-                                AnsiConsole.MarkupLine(
-                                    """
-                                    [red]umu-launcher must be installed to launch Windows games![/]
-                                    [yellow bold]TO FIX:[/]
-                                    [white]1. Download [/][blue]https://github.com/Open-Wine-Components/umu-launcher[/]
-                                    [white]2. Extract it and add 'umu-run' to your PATH[/]
-                                    """
-                                );
-                                return 1;
-                            }
-                        }
-
-                        var attached = result.GetValue(optionAttachedLaunch);
-                        if (isProton && !attached)
-                        {
-                            attached = true;
-                            AnsiConsole.MarkupLine(
-                                "[yellow]Force-attaching (--attached) process because umu-run is used[/]"
-                            );
-                        }
-                        if (attached)
-                        {
-                            waitForProcess = true;
-
-                            if (isProton)
-                                startInfo = new(umuPath!, args);
-                            else
-                                startInfo = new(args[0], args.Skip(1));
-
-                            startInfo.WorkingDirectory = lazyProfile.GetGamePathOrThrow();
-                        }
-                        else
-                        {
-                            var setsid = GetExecutablePath("setsid");
-                            if (setsid is null)
-                            {
-                                AnsiConsole.WriteLine("setsid not found");
-                                return 1;
-                            }
-
-                            startInfo = new(setsid, args)
-                            {
-                                WorkingDirectory = lazyProfile.GetGamePathOrThrow(),
-                                RedirectStandardInput = true,
-                                RedirectStandardOutput = true,
-                                RedirectStandardError = true,
-                            };
-                        }
-                    }
-                    else
-                    {
-                        var setsid = GetExecutablePath("setsid");
-                        if (setsid is null)
-                        {
-                            AnsiConsole.WriteLine("setsid not found");
-                            return 1;
-                        }
-
-                        AnsiConsole.MarkupLineInterpolated(
-                            CultureInfo.InvariantCulture,
-                            $"[green]Note: Steam may take a moment to start[/]"
-                        );
-
-                        startInfo = new(setsid, [steamExePath])
-                        {
-                            WorkingDirectory = lazyProfile.GetGamePathOrThrow(),
-                            RedirectStandardInput = true,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                        };
-                        startInfo.ArgumentList.Add("-applaunch");
-                        startInfo.ArgumentList.Add(steam.Id.ToString(CultureInfo.InvariantCulture));
-
-                        foreach (var arg in args)
-                        {
-                            startInfo.ArgumentList.Add(arg);
-                        }
-                    }
-
-                    if (lazyProfile.IsProton())
-                    {
-                        var kvp = ("WINEDLLOVERRIDES", "winhttp=n,b");
-                        startInfo.EnvironmentVariables.Add(kvp.Item1, kvp.Item2);
-                        AnsiConsole.MarkupLineInterpolated(
-                            CultureInfo.InvariantCulture,
-                            $"[blue]Set environment variable:[/] {kvp.Item1}=\"{kvp.Item2}\""
-                        );
-                    }
-
-                    foreach (var arg in passthroughArgs)
-                    {
-                        startInfo.ArgumentList.Add(arg);
-                    }
-
-                    AnsiConsole.MarkupLineInterpolated(
-                        CultureInfo.InvariantCulture,
-                        $"[blue]Launch arguments:[/] \"{startInfo.FileName}\" \"{string.Join("\" \"", startInfo.ArgumentList)}\""
+                    var error = await lazyProfile.Game.LaunchGame(
+                        lazyProfile,
+                        new(Game.Platform.Steam, launch)
                     );
-
-                    if (result.GetValue(optionDry))
+                    if (error is { } err)
                     {
-                        WriteDryRunMessage();
-                        return 0;
-                    }
-
-                    var process = System.Diagnostics.Process.Start(startInfo);
-                    if (process is null)
-                    {
-                        AnsiConsole.WriteLine("Game process could not be started.");
+                        AnsiConsole.WriteLine(err.ToString());
                         return 1;
-                    }
-                    if (waitForProcess)
-                    {
-                        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-                        {
-                            process.Kill();
-                        };
-
-                        await process.WaitForExitAsync(ct);
                     }
 
                     return 0;
