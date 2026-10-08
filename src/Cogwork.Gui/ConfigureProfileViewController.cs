@@ -10,6 +10,7 @@ namespace Cogwork.Gui;
 
 public record QuickActions(
     Button LaunchButton,
+    Label LaunchLabel,
     DropDown Platform,
     DropDown LaunchType,
     Button OpenModLog,
@@ -422,7 +423,7 @@ public class ConfigureProfileViewController : IDisposable
                 (
                     _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count
                 )?.ToString(CultureInfo.InvariantCulture) ?? "<?>";
-            launchButton.SetLabel($"Launch with {modsCount} mods");
+            _quickActions.LaunchLabel.SetLabel($"Launch with {modsCount} mods");
         }
 
         UpdateLabels();
@@ -847,10 +848,10 @@ public class ConfigureProfileViewController : IDisposable
         out Section secRecent
     )
     {
-        var box = Box.New(Orientation.Vertical, 0);
+        var boxContainer = Box.New(Orientation.Vertical, 0);
         var scroll = ScrolledWindow.New();
         scroll.SetVexpand(true);
-        box.Append(scroll);
+        boxContainer.Append(scroll);
         var clamp = Clamp.New();
         clamp.SetMaximumSize(800);
         scroll.SetChild(clamp);
@@ -867,10 +868,21 @@ public class ConfigureProfileViewController : IDisposable
         quickActionsBox.Append(launchBox);
 
         var launchButton = Button.New();
-        launchButton.SetValign(Align.Center);
-        launchButton.SetHexpand(true);
-        launchButton.SetCssClasses(["suggested-action", "pill"]);
-        launchBox.Append(launchButton);
+        var launchLabel = Label.New("placeholder");
+        {
+            launchButton.SetValign(Align.Center);
+            launchButton.SetHexpand(true);
+            launchButton.SetCssClasses(["suggested-action", "pill"]);
+
+            var box = Box.New(Orientation.Horizontal, 8);
+            box.SetHalign(Align.Center);
+            var icon = Image.NewFromIconName("media-playback-start-symbolic");
+            box.Append(launchLabel);
+            box.Append(icon);
+
+            launchButton.SetChild(box);
+            launchBox.Append(launchButton);
+        }
 
         var platform = DropDown.New(null, null);
         launchBox.Append(platform);
@@ -882,24 +894,52 @@ public class ConfigureProfileViewController : IDisposable
         quickActionsBox.Append(debugBox);
 
         var openModLog = Button.New();
-        openModLog.SetValign(Align.Center);
-        openModLog.SetHexpand(true);
-        openModLog.SetLabel("Open Logs");
-        debugBox.Append(openModLog);
+        {
+            openModLog.SetValign(Align.Center);
+            openModLog.SetHexpand(true);
+            openModLog.SetLabel("Open Logs");
+
+            var box = Box.New(Orientation.Horizontal, 8);
+            box.SetHalign(Align.Center);
+            var icon = Image.NewFromIconName("folder-documents-symbolic");
+            var label = Label.New("Open Logs");
+            box.Append(icon);
+            box.Append(label);
+
+            openModLog.SetChild(box);
+            debugBox.Append(openModLog);
+        }
 
         var copyDebugInfo = Button.New();
-        copyDebugInfo.SetValign(Align.Center);
-        copyDebugInfo.SetHexpand(true);
-        copyDebugInfo.SetLabel("Copy Debug Info");
-        debugBox.Append(copyDebugInfo);
+        {
+            copyDebugInfo.SetValign(Align.Center);
+            copyDebugInfo.SetHexpand(true);
+
+            var box = Box.New(Orientation.Horizontal, 8);
+            box.SetHalign(Align.Center);
+            var icon = Image.NewFromIconName("edit-copy-symbolic");
+            var label = Label.New("Copy Debug Info");
+            box.Append(icon);
+            box.Append(label);
+
+            copyDebugInfo.SetChild(box);
+            debugBox.Append(copyDebugInfo);
+        }
 
         content.Append(quickActionsBox);
-        quickActions = new(launchButton, platform, launchType, openModLog, copyDebugInfo);
+        quickActions = new(
+            launchButton,
+            launchLabel,
+            platform,
+            launchType,
+            openModLog,
+            copyDebugInfo
+        );
 
         secAdded = new Section(content, "Added", "No added mods. Type to search mods.");
         secDeps = new Section(content, "Dependencies");
         secRecent = new Section(content, "Recently Removed");
-        return box;
+        return boxContainer;
     }
 
     static Box CreateInstallTab(out Section searchSection)
