@@ -5,10 +5,11 @@ record class Section
     public Gtk.ListBox Content { get; }
     readonly Gtk.Label heading;
     readonly Gtk.Label? headingEmpty;
+    readonly Gtk.Box container;
 
     public Section(Gtk.Box parent, string heading)
     {
-        Content = CreateSection(parent, heading, out var labelHeading);
+        Content = CreateSection(parent, heading, out var labelHeading, out container);
         this.heading = labelHeading;
     }
 
@@ -19,7 +20,8 @@ record class Section
             heading,
             headingEmpty,
             out var labelHeading,
-            out var labelEmpty
+            out var labelEmpty,
+            out container
         );
         this.heading = labelHeading;
         this.headingEmpty = labelEmpty;
@@ -30,16 +32,17 @@ record class Section
         if (headingEmpty is { })
             ToggleSectionVisibility(heading, headingEmpty, Content, visible);
         else
-            ToggleSectionVisibility(heading, Content, visible);
+            ToggleSectionVisibility(container, visible);
     }
 
     private static Gtk.ListBox CreateSection(
         Gtk.Box parent,
         string headingText,
-        out Gtk.Label labelWidget
+        out Gtk.Label labelWidget,
+        out Gtk.Box box
     )
     {
-        var box = Gtk.Box.New(Gtk.Orientation.Vertical, 12);
+        box = Gtk.Box.New(Gtk.Orientation.Vertical, 12);
         labelWidget = Gtk.Label.New(headingText);
         labelWidget.SetHalign(Gtk.Align.Start);
         labelWidget.AddCssClass("heading");
@@ -59,10 +62,11 @@ record class Section
         string headingText,
         string emptyText,
         out Gtk.Label labelWidget,
-        out Gtk.Label emptyLabelWidget
+        out Gtk.Label emptyLabelWidget,
+        out Gtk.Box box
     )
     {
-        var box = Gtk.Box.New(Gtk.Orientation.Vertical, 12);
+        box = Gtk.Box.New(Gtk.Orientation.Vertical, 12);
         labelWidget = Gtk.Label.New(headingText);
         labelWidget.SetHalign(Gtk.Align.Start);
         labelWidget.AddCssClass("heading");
@@ -83,17 +87,15 @@ record class Section
         return listBox;
     }
 
-    private static void ToggleSectionVisibility(Gtk.Label label, Gtk.ListBox list, bool visible)
+    private static void ToggleSectionVisibility(Gtk.Box box, bool visible)
     {
         if (visible)
         {
-            label.Show();
-            list.Show();
+            box.Show();
         }
         else
         {
-            label.Hide();
-            list.Hide();
+            box.Hide();
         }
     }
 
