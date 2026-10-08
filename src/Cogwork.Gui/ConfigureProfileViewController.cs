@@ -539,21 +539,21 @@ public class ConfigureProfileViewController : IDisposable
                 $"""
                 Quick Info
                 ```
-                Game: {_lazyProfile.Game.Name} ({launchConfig.Platform}) (launch type: {launchConfig.Launch})
-                Profile: {_lazyProfile.DisplayName}
                 OS: {RuntimeInformation.RuntimeIdentifier}
-                App: {appName} {appVersion}
+                Game: {_lazyProfile.Game.Name} ({launchConfig.Platform}) (launch type: {launchConfig.Launch})
                 Log File: {(
                     path is { }
                         ? (configExists ? "✅ exists" : "❌ not generated")
                         : "not supported by modloader"
                 )}
+                Profile: {_lazyProfile.DisplayName}
                 Mod Count: {modsCount}
                 Mods:
                 {mods}
                 Game Dir: {gameDir}
                 Game Dir Root Files:
                 {gameDirRootFiles}
+                Mod Manager: {appName} {appVersion}
                 ```
                 """
             );
