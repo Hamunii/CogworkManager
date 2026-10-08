@@ -56,13 +56,15 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
 
     public string[] GetLaunchArgs(LazyModList modList)
     {
-        return
-        [
-            "--doorstop-enabled",
-            "true",
-            "--doorstop-target-assembly",
-            Path.Combine(modList.ProfileFilesDirectory, "BepInEx", "core", "BepInEx.Preloader.dll"),
-        ];
+        var preloader = Path.Combine(
+            modList.ProfileFilesDirectory,
+            "BepInEx",
+            "core",
+            "BepInEx.Preloader.dll"
+        );
+        modList.FormatIfProton(ref preloader);
+
+        return ["--doorstop-enabled", "true", "--doorstop-target-assembly", preloader];
     }
 
     public string[] GetDirectLaunchArgs(LazyModList modList)

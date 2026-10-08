@@ -36,11 +36,14 @@ public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstalle
         Utils.CopyDirectory(modLoaderFilesPath, gameRootPath, recursive: false);
     }
 
-    public string[] GetProxyFiles() => [];
+    public string[] GetProxyFiles() => ["winmm.dll"];
 
     public string[] GetLaunchArgs(LazyModList modList)
     {
-        return ["--mod-dir", Path.Combine(modList.ProfileFilesDirectory, "mods")];
+        var mods = Path.Combine(modList.ProfileFilesDirectory, "mods");
+        modList.FormatIfProton(ref mods);
+
+        return ["--mod-dir", mods];
     }
 
     public string[] GetDirectLaunchArgs(LazyModList modList)

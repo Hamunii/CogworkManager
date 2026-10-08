@@ -54,3 +54,14 @@ public interface IModInstallers
         return gameExecutable;
     }
 }
+
+public static class ModListPathExtensions
+{
+    public static void FormatIfProton(this LazyModList modList, ref string path)
+    {
+        if (!modList.IsProton())
+            return;
+
+        path = $"Z:{path.Replace('/', '\\')}";
+    }
+}
