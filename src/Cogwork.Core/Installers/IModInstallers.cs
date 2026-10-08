@@ -11,6 +11,7 @@ public interface IModInstallers
     public string[] GetProxyFiles();
     public string[] GetLaunchArgs(LazyModList modList);
     public string[] GetDirectLaunchArgs(LazyModList modList);
+    public string? GetLogPath(LazyModList modList);
 
     public static string GetGameExecutableOrThrow(bool isLinuxApp, string gamePath)
     {

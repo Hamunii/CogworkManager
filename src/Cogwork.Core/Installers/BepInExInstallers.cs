@@ -90,4 +90,7 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
 
         return [runBepInExPath, gameExecutable];
     }
+
+    public string? GetLogPath(LazyModList modList) =>
+        Path.Combine(modList.ProfileFilesDirectory, "BepInEx", "LogOutput.log");
 }

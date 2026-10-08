@@ -51,4 +51,6 @@ public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstalle
 
         return [gameExecutable];
     }
+
+    public string? GetLogPath(LazyModList modList) => null;
 }
