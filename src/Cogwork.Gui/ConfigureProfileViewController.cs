@@ -410,32 +410,8 @@ public class ConfigureProfileViewController : IDisposable
             );
             _lazyProfile.Game.Config.Save();
 
-            UpdateLabels();
+            UpdateLaunchButton();
         }
-        void UpdateLabels()
-        {
-            var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
-            var platform = launchConfig.Platform;
-
-            var count =
-                _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count ?? 0;
-            string modsCount = count.ToString(CultureInfo.InvariantCulture);
-            _quickActions.LaunchLabel.SetLabel(
-                $"Launch with {modsCount} {(count == 1 ? "mod" : "mods")}"
-            );
-            if (count is 0)
-            {
-                _quickActions.LaunchButton.SetSensitive(false);
-                _quickActions.LaunchButton.SetTooltipText("You must install mods first");
-            }
-            else
-            {
-                _quickActions.LaunchButton.SetSensitive(true);
-                _quickActions.LaunchButton.SetTooltipText(string.Empty);
-            }
-        }
-
-        UpdateLabels();
 
         _quickActions.Platform.SetModel(StringList.New(platforms));
         _quickActions.Platform.SetSelected((uint)platforms.IndexOf(platformSnapshot.ToString()));
@@ -620,6 +596,29 @@ public class ConfigureProfileViewController : IDisposable
         RebuildDependencies();
     }
 
+    void UpdateLaunchButton()
+    {
+        var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
+        var platform = launchConfig.Platform;
+
+        var count =
+            _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count ?? 0;
+        string modsCount = count.ToString(CultureInfo.InvariantCulture);
+        _quickActions.LaunchLabel.SetLabel(
+            $"Launch with {modsCount} {(count == 1 ? "mod" : "mods")}"
+        );
+        if (count is 0)
+        {
+            _quickActions.LaunchButton.SetSensitive(false);
+            _quickActions.LaunchButton.SetTooltipText("You must install mods first");
+        }
+        else
+        {
+            _quickActions.LaunchButton.SetSensitive(true);
+            _quickActions.LaunchButton.SetTooltipText(string.Empty);
+        }
+    }
+
     private void AddPackageRowToAdded(PackageVersionReference mod)
     {
         if (_currentProfile == null)
@@ -636,6 +635,8 @@ public class ConfigureProfileViewController : IDisposable
     {
         if (_currentProfile == null)
             return;
+
+        UpdateLaunchButton();
 
         // --- Process Dependencies Section ---
         ClearList(_sectionDeps.Content);
