@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Xdg.Directories;
 
 namespace Cogwork.Core;
@@ -8,6 +9,25 @@ public static class CogworkPaths
 
     public static string CacheDirectory => CombineAndCreate(BaseDirectory.CacheHome, AppId);
     public static string DataDirectory => CombineAndCreate(BaseDirectory.DataHome, AppId);
+    public static string HostDataDirectory
+    {
+        get
+        {
+            if (field is { })
+                return field;
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var hostDataDir = Environment.GetEnvironmentVariable("HOST_XDG_DATA_HOME");
+                if (hostDataDir is { })
+                    return field = Path.Combine(hostDataDir, AppId);
+
+                var hostUser = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                return field = Path.Combine(hostUser, ".local", "share", AppId);
+            }
+            return field = Path.Combine(BaseDirectory.DataHome, AppId);
+        }
+    }
 
     public static string GetCacheSubDirectory(string subDirectory) =>
         CombineAndCreate(CacheDirectory, subDirectory);
@@ -32,6 +52,9 @@ public static class CogworkPaths
 
     public static string GetProfilesDirectory(Game game) =>
         CombineAndCreate(DataDirectory, "games", game.Slug, "profiles");
+
+    public static string GetHostProfilesDirectory(Game game) =>
+        CombineAndCreate(HostDataDirectory, "games", game.Slug, "profiles");
 
     public static string GetProfilesSubDirectoryNoCreate(Game game, string subDirectory) =>
         Path.Combine(GetProfilesDirectory(game), subDirectory);

@@ -40,7 +40,7 @@ public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstalle
 
     public string[] GetLaunchArgs(LazyModList modList)
     {
-        var mods = Path.Combine(modList.ProfileFilesDirectory, "mods");
+        var mods = Path.Combine(modList.HostProfileFilesDirectory, "mods");
         modList.FormatIfProton(ref mods);
 
         return ["--mod-dir", mods];

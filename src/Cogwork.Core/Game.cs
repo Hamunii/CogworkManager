@@ -591,11 +591,10 @@ public sealed class Game
             return (existingSteamDir, null);
         }
 
-        string homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
+        string homeDir = BaseDirectory.DataHome;
         string[] dirs =
         [
-            Path.Combine(BaseDirectory.DataHome, "Steam"),
+            Path.Combine(homeDir, "Steam"),
             Path.Combine(homeDir, ".steam", "steam"),
             Path.Combine(homeDir, ".steam", "root"),
             Path.Combine(homeDir, ".steam"),

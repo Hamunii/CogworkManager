@@ -138,6 +138,9 @@ public sealed class LazyModList
             "files"
         );
 
+    public string HostProfileFilesDirectory =>
+        field ??= Path.Combine(CogworkPaths.GetHostProfilesDirectory(Game), Id, "files");
+
     ModList? _modList;
     bool _isResolvedAddedDirty;
     bool _isResolvedDependenciesDirty;

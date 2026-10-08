@@ -57,7 +57,7 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
     public string[] GetLaunchArgs(LazyModList modList)
     {
         var preloader = Path.Combine(
-            modList.ProfileFilesDirectory,
+            modList.HostProfileFilesDirectory,
             "BepInEx",
             "core",
             "BepInEx.Preloader.dll"

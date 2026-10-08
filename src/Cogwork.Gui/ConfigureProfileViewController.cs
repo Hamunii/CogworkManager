@@ -512,6 +512,10 @@ public class ConfigureProfileViewController : IDisposable
 
             var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
             var path = _lazyProfile.Game.InstallRules.GetLogPath(_lazyProfile);
+
+            var launchArgs =
+                $"'{string.Join("' '", _lazyProfile.Game.InstallRules.GetLaunchArgs(_lazyProfile))}'";
+
             var configExists = File.Exists(path);
             var modsCount =
                 _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count;
@@ -519,19 +523,25 @@ public class ConfigureProfileViewController : IDisposable
             var mods =
                 "- " + string.Join("\n- ", _lazyProfile.GetResolved().Select(x => x.ToString()));
 
+            string? gameDirRootFiles;
             var gameDir = _lazyProfile.GamePath;
-            var gameDirRootFiles =
-                "- "
-                + string.Join(
-                    "\n- ",
-                    Directory
-                        .GetFileSystemEntries(gameDir!)
-                        .Select(x =>
-                            Directory.Exists(x) ? $"{Path.GetFileName(x)}/" : Path.GetFileName(x)
-                        )
-                        .OrderByDescending(x => x.EndsWith('/'))
-                        .ThenBy(x => x)
-                );
+            if (!Directory.Exists(gameDir))
+                gameDirRootFiles = $"(directory not found: '{gameDir}')";
+            else
+                gameDirRootFiles =
+                    "- "
+                    + string.Join(
+                        "\n- ",
+                        Directory
+                            .GetFileSystemEntries(gameDir!)
+                            .Select(x =>
+                                Directory.Exists(x)
+                                    ? $"{Path.GetFileName(x)}/"
+                                    : Path.GetFileName(x)
+                            )
+                            .OrderByDescending(x => x.EndsWith('/'))
+                            .ThenBy(x => x)
+                    );
 
             StringBuilder sb = new();
             sb.AppendLine(
@@ -546,6 +556,7 @@ public class ConfigureProfileViewController : IDisposable
                         ? (configExists ? "✅ exists" : "❌ not generated")
                         : "not supported by modloader"
                 )}
+                Launch Args: {launchArgs}
                 Profile: {_lazyProfile.DisplayName}
                 Mod Count: {modsCount}
                 Mods:
