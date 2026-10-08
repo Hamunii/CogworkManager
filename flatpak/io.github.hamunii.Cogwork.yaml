@@ -29,6 +29,9 @@ finish-args:
   - --talk-name=org.freedesktop.Notifications # from HGL
   # From HGL: should fix discord rich presence
   - --filesystem=xdg-run/app/com.discordapp.Discord:create
+  # Directories of the Cogwork.Core library, used by Cogwork (the GUI) and cogman (the CLI).
+  - --filesystem=xdg-data/Hamunii.Cogwork:create # Profile save data & package install cache
+  - --filesystem=xdg-cache/Hamunii.Cogwork:create # External package source index caches & logs
   # Cogwork automatically finds Steam games which may be anywhere and
   # it must be able to write to game directories to inject mods into games.
   - --filesystem=~/.steam
@@ -52,7 +55,7 @@ modules:
     build-options:
       env:
         DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-        DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+        DOTNET_NOLOGO: '1'
         container: flatpak
       arch:
         aarch64:
