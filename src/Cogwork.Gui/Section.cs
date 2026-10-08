@@ -39,6 +39,7 @@ record class Section
         out Gtk.Label labelWidget
     )
     {
+        var box = Gtk.Box.New(Gtk.Orientation.Vertical, 12);
         labelWidget = Gtk.Label.New(headingText);
         labelWidget.SetHalign(Gtk.Align.Start);
         labelWidget.AddCssClass("heading");
@@ -47,8 +48,9 @@ record class Section
         listBox.AddCssClass("boxed-list");
         listBox.SetSelectionMode(Gtk.SelectionMode.None);
 
-        parent.Append(labelWidget);
-        parent.Append(listBox);
+        box.Append(labelWidget);
+        box.Append(listBox);
+        parent.Append(box);
         return listBox;
     }
 
@@ -60,6 +62,7 @@ record class Section
         out Gtk.Label emptyLabelWidget
     )
     {
+        var box = Gtk.Box.New(Gtk.Orientation.Vertical, 12);
         labelWidget = Gtk.Label.New(headingText);
         labelWidget.SetHalign(Gtk.Align.Start);
         labelWidget.AddCssClass("heading");
@@ -73,9 +76,10 @@ record class Section
         listBox.AddCssClass("boxed-list");
         listBox.SetSelectionMode(Gtk.SelectionMode.None);
 
-        parent.Append(labelWidget);
-        parent.Append(emptyLabelWidget);
-        parent.Append(listBox);
+        box.Append(labelWidget);
+        box.Append(emptyLabelWidget);
+        box.Append(listBox);
+        parent.Append(box);
         return listBox;
     }
 
