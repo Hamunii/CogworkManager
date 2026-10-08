@@ -891,9 +891,11 @@ public class ConfigureProfileViewController : IDisposable
         }
 
         var platform = DropDown.New(null, null);
+        platform.SetTooltipText("The platform to launch the game on");
         launchBox.Append(platform);
 
         var launchType = DropDown.New(null, null);
+        launchType.SetTooltipText("Method for launching game");
         launchBox.Append(launchType);
 
         var debugBox = Box.New(Orientation.Horizontal, 8);
