@@ -417,11 +417,22 @@ public class ConfigureProfileViewController : IDisposable
             var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
             var platform = launchConfig.Platform;
 
-            string modsCount =
-                (
-                    _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count
-                )?.ToString(CultureInfo.InvariantCulture) ?? "<?>";
-            _quickActions.LaunchLabel.SetLabel($"Launch with {modsCount} mods");
+            var count =
+                _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count ?? 0;
+            string modsCount = count.ToString(CultureInfo.InvariantCulture);
+            _quickActions.LaunchLabel.SetLabel(
+                $"Launch with {modsCount} {(count == 1 ? "mod" : "mods")}"
+            );
+            if (count is 0)
+            {
+                _quickActions.LaunchButton.SetSensitive(false);
+                _quickActions.LaunchButton.SetTooltipText("You must install mods first");
+            }
+            else
+            {
+                _quickActions.LaunchButton.SetSensitive(true);
+                _quickActions.LaunchButton.SetTooltipText(string.Empty);
+            }
         }
 
         UpdateLabels();
