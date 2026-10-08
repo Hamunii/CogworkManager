@@ -10,6 +10,7 @@ using DBusGenerated.Freedesktop.Portal;
 using Gameloop.Vdf;
 using Gameloop.Vdf.Linq;
 using Tmds.DBus.Protocol;
+using Xdg.Directories;
 using ZLinq;
 
 namespace Cogwork.Core;
@@ -513,7 +514,7 @@ public sealed class Game
 
         string[] dirs =
         [
-            Path.Combine(homeDir, ".local", "share", "Steam"),
+            Path.Combine(BaseDirectory.DataHome, "Steam"),
             Path.Combine(homeDir, ".steam", "steam"),
             Path.Combine(homeDir, ".steam", "root"),
             Path.Combine(homeDir, ".steam"),
