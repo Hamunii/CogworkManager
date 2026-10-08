@@ -20,6 +20,7 @@ class Program
             var games = Game.SupportedGames;
 
             var window = Adw.ApplicationWindow.New(app);
+            window.SetTitle("Cogwork");
             window.SetDefaultSize(1000, 700);
 
             var navView = Adw.NavigationView.New();
