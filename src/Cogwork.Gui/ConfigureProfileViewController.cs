@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using Adw;
@@ -416,9 +417,6 @@ public class ConfigureProfileViewController : IDisposable
             var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
             var platform = launchConfig.Platform;
 
-            var directLaunchOrNull =
-                launchConfig.Launch is Game.LaunchType.Direct ? " (direct)" : null;
-
             string modsCount =
                 (
                     _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count
@@ -465,7 +463,7 @@ public class ConfigureProfileViewController : IDisposable
         {
             _quickActions.OpenModLog.SetSensitive(false);
             _quickActions.OpenModLog.SetTooltipText(
-                "The mod loader for this game doesn't provide a log file."
+                "The mod loader for this game doesn't provide a log file"
             );
         }
         else
@@ -480,7 +478,7 @@ public class ConfigureProfileViewController : IDisposable
             if (!File.Exists(path))
             {
                 var toast = Toast.New(
-                    "Log file not found. This means the game has not launched modded yet for this profile."
+                    "Log file not found; game has not launched with this profile yet"
                 );
                 _toastOverlay.AddToast(toast);
                 return;
@@ -505,6 +503,13 @@ public class ConfigureProfileViewController : IDisposable
         _quickActions.CopyDebugInfo.OnClicked += OnCopyDebugInfo;
         async void OnCopyDebugInfo(Button sender, EventArgs args)
         {
+            var assembly = typeof(CogworkCoreLogger).Assembly;
+
+            var appName = (Page.GetRoot() as Gtk.Window)!.Title;
+            var appVersion = assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+                .InformationalVersion;
+
             var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
             var path = _lazyProfile.Game.InstallRules.GetLogPath(_lazyProfile);
             var configExists = File.Exists(path);
@@ -537,6 +542,7 @@ public class ConfigureProfileViewController : IDisposable
                 Game: {_lazyProfile.Game.Name} ({launchConfig.Platform}) (launch type: {launchConfig.Launch})
                 Profile: {_lazyProfile.DisplayName}
                 OS: {RuntimeInformation.RuntimeIdentifier}
+                App: {appName} {appVersion}
                 Log File: {(
                     path is { }
                         ? (configExists ? "✅ exists" : "❌ not generated")
