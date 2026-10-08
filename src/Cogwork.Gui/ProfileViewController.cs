@@ -69,7 +69,7 @@ public class ProfilesViewController
 
         // Ensure the game path is attempted to be set early as it appears for example
         // in the settings pages.
-        _ = selectedGame.Config.PopulateGamePathIfNotValidOrReturnErr();
+        _ = selectedGame.Config.PopulateGamePathIfNotValidAsync().Result;
 
         _windowTitle.SetTitle(_selectedGame.Name);
         _windowTitle.SetSubtitle("Select mod profile");

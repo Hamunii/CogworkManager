@@ -301,9 +301,9 @@ public sealed class LazyModList
     }
 
     /// <returns>Null if success, otherwise error message.</returns>
-    public string? PrepareModLoader(Game game)
+    public Task<CogError?> PrepareModLoaderAsync(Game game)
     {
-        var err = GetValidGamePathAndMaybePopulateOrReturnErr(game, out string? gamePath);
+        var err = GetValidGamePathAndMaybePopulateAsync(game, out string? gamePath);
         if (err is { })
         {
             return err;
@@ -311,22 +311,28 @@ public sealed class LazyModList
 
         Cog.Debug($"Copying modloader files to: '{gamePath}'");
         game.InstallRules.CopyModLoaderFilesToGame(ProfileFilesDirectory, gamePath!);
-        return null;
+        return Task.FromResult<CogError?>(null);
     }
 
-    public string? GetValidGamePathAndMaybePopulateOrReturnErr(Game game, out string? gamePath)
+    public Task<CogError?> GetValidGamePathAndMaybePopulateAsync(Game game, out string? gamePath)
     {
         gamePath = GamePath;
         if (Directory.Exists(gamePath))
         {
-            return null;
+            return Task.FromResult<CogError?>(default);
         }
         else if (IsOverrideGamePathEnabled)
         {
-            return $"Override game path does not exist: '{gamePath}'";
+            return Task.FromResult<CogError?>(
+                new(
+                    "Override game path does not exist",
+                    $"Override game path does not exist: '{gamePath}'",
+                    null
+                )
+            );
         }
 
-        var err = game.Config.PopulateGamePathIfNotValidOrReturnErr();
+        var err = game.Config.PopulateGamePathIfNotValidAsync();
         gamePath = GamePath;
         return err;
     }

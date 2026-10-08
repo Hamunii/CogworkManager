@@ -82,7 +82,7 @@ public sealed class Game
             data.Save(Game.GameConfigLocation);
         }
 
-        public string? PopulateGamePathIfNotValidOrReturnErr()
+        public async Task<CogError?> PopulateGamePathIfNotValidAsync()
         {
             var gamePath = PreferredPath;
             if (gamePath is not null && Directory.Exists(gamePath))
@@ -90,35 +90,36 @@ public sealed class Game
                 return null;
             }
 
-            if (Game.Platforms.Steam is not { } steam)
-            {
-                return $"Game '{Game.Name}' is not on steam.";
-            }
+            var (steamPath, steamError) = GetSteamDirectory();
+            if (steamError is { })
+                return steamError;
 
-            var userDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var steamapps = Path.Combine(userDir, ".steam", "root", "steamapps");
-            if (!Directory.Exists(steamapps))
-            {
-                return $"Directory doesn't exist: '{steamapps}'";
-            }
+            var ((manifestPath, manifestFileName), manifestError) =
+                await FindAppManifestLocationAsync(steamPath!, Game);
+            if (manifestError is { })
+                return manifestError;
 
-            var gameInfoAcf = Path.Combine(steamapps, $"appmanifest_{steam.Id}.acf");
-            if (!File.Exists(gameInfoAcf))
-            {
-                return $"File doesn't exist: '{gameInfoAcf}'";
-            }
-
+            var gameInfoAcf = Path.Combine(manifestPath!, manifestFileName!);
             var appmanifest = VdfConvert.Deserialize(File.ReadAllText(gameInfoAcf));
             var installDir = appmanifest.Value["installdir"]?.Value<string>();
             if (installDir is null)
             {
-                return $"Steam install directory not found for: '{Game.Name}'";
+                return new(
+                    "Unable to find game install",
+                    $"Steam install directory not found for: '{Game.Name}'",
+                    "Please define the game root path in Cogwork settings."
+                );
             }
 
-            gamePath = Path.Combine(steamapps, "common", installDir);
+            gamePath = Path.Combine(gameInfoAcf, "common", installDir);
             if (!Directory.Exists(gamePath))
             {
-                return $"Steam directory does not exist: '{gamePath}'";
+                return new(
+                    "Game install not found",
+                    $"Steam directory does not exist: '{gamePath}'",
+                    "Try verifying integrity of game files in Steam"
+                        + " or define the game root path in Cogwork settings."
+                );
             }
 
             PreferredPath = gamePath;
@@ -317,9 +318,9 @@ public sealed class Game
             "/org/freedesktop/portal/desktop"
         );
 
-        var prepareError = modList.PrepareModLoader(this);
+        var prepareError = await modList.PrepareModLoaderAsync(this);
         if (prepareError is { })
-            return new(prepareError);
+            return prepareError;
 
         var isLinuxApp = modList.IsLinuxNative();
 
@@ -500,7 +501,7 @@ public sealed class Game
         return string.Join('\n', split);
     }
 
-    public static (string? Result, CogError? Error) GetSteamDirectoryAsync()
+    public static (string? Result, CogError? Error) GetSteamDirectory()
     {
         var existingSteamDir = GlobalConfig.Instance.SteamDirectory;
 
@@ -564,11 +565,11 @@ public sealed class Game
         Game game
     )
     {
-        var (steamPath, steamError) = GetSteamDirectoryAsync();
+        var (steamPath, steamError) = GetSteamDirectory();
         if (steamError is { })
             return (null, steamError);
 
-        var (manifestLocation, manifestError) = await FindAppManifestLocationAsync(
+        var ((manifestLocation, _), manifestError) = await FindAppManifestLocationAsync(
             steamPath!,
             game
         );
@@ -593,10 +594,10 @@ public sealed class Game
         return (null, fileNotFoundError);
     }
 
-    static async Task<(string? Result, CogError? Error)> FindAppManifestLocationAsync(
-        string steamPath,
-        Game game
-    )
+    static async Task<(
+        (string? path, string? fileName),
+        CogError? Error
+    )> FindAppManifestLocationAsync(string steamPath, Game game)
     {
         string[] probableSteamAppsLocations =
         [
@@ -618,7 +619,7 @@ public sealed class Game
         if (steamapps is null)
         {
             return (
-                null,
+                (null, null),
                 new CogError(
                     "An error occurred whilst searching Steam library locations",
                     "Cannot define the root steamapps location",
@@ -641,7 +642,7 @@ public sealed class Game
             }
             catch (Exception ex)
             {
-                return (null, new("Unable to parse libraryfolders.vdf", ex.Message, null));
+                return ((null, null), new("Unable to parse libraryfolders.vdf", ex.Message, null));
             }
 
             if (root?.Value is VObject libraryFolders)
@@ -693,7 +694,7 @@ public sealed class Game
         {
             string searchedPathsString = string.Join(", ", locations);
             return (
-                null,
+                (null, null),
                 new CogError(
                     $"Unable to locate {game.Name} Installation Folder",
                     $"Searched locations: {searchedPathsString}",
@@ -702,7 +703,7 @@ public sealed class Game
             );
         }
 
-        return (manifestLocation, null);
+        return ((manifestLocation, targetManifestFilename), null);
     }
 }
 
