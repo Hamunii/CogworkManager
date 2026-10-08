@@ -833,18 +833,23 @@ public static class Program
                 async Task<int> (result, ct) =>
                 {
                     var launch = result.GetValue(optionDirectLaunch)
-                        ? Game.Launch.Direct
-                        : Game.Launch.Platform;
+                        ? Game.LaunchType.Direct
+                        : Game.LaunchType.Platform;
 
                     AnsiConsole.MarkupLine("[green]Launching game[/]");
 
-                    var error = await lazyProfile.Game.LaunchGame(
-                        lazyProfile,
-                        new(Game.Platform.Steam, launch)
-                    );
-                    if (error is { } err)
+                    var (request, reqError) =
+                        lazyProfile.Game.Config.LaunchConfig.CreateLaunchRequest(lazyProfile.Game);
+                    if (reqError is { } reqErr)
                     {
-                        AnsiConsole.WriteLine(err.ToString());
+                        AnsiConsole.WriteLine(reqErr.ToString());
+                        return 1;
+                    }
+
+                    var launchError = await Game.LaunchGame(lazyProfile, request);
+                    if (launchError is { } launchErr)
+                    {
+                        AnsiConsole.WriteLine(launchErr.ToString());
                         return 1;
                     }
 

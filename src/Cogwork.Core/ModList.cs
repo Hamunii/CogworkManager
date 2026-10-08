@@ -300,6 +300,9 @@ public sealed class LazyModList
         return (gamePath, null);
     }
 
+    public (Game.GameLaunchRequest, CogError?) GetGameLaunchRequest() =>
+        Game.Config.LaunchConfig.CreateLaunchRequest(Game);
+
     /// <returns>Null if success, otherwise error message.</returns>
     public Task<CogError?> PrepareModLoaderAsync(Game game)
     {

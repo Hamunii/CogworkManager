@@ -25,6 +25,12 @@ public sealed class Platforms
 {
     [JsonPropertyName("steam")]
     public SteamId? Steam { get; init; }
+
+    public IEnumerable<Game.Platform> GetAvailablePlatforms()
+    {
+        if (Steam is { })
+            yield return Game.Platform.Steam;
+    }
 }
 
 public readonly record struct GlobalConfigData(string? ActiveGameSlug, string? SteamDirectory)
@@ -65,20 +71,57 @@ public sealed class GlobalConfig
     }
 }
 
+public static class LaunchConfigExtensions
+{
+    public static (Game.GameLaunchRequest, CogError?) CreateLaunchRequest(
+        this Game.LaunchConfig? self,
+        Game game
+    )
+    {
+        if (self is not { } config)
+            return (Game.GameLaunchRequest.CreateDefault(game), null);
+
+        if (
+            !Game.GameLaunchRequest.TryCreate(
+                game,
+                config.Platform,
+                config.LaunchType,
+                out var request
+            )
+        )
+            return (
+                default,
+                new(
+                    $"Failed to launch game",
+                    $"{game.Name} is not available on {config.Platform}.",
+                    "Try setting another launch platform."
+                )
+            );
+
+        return (request, null);
+    }
+}
+
 public sealed class Game
 {
-    public readonly record struct GameConfigData(string? ActiveProfileId, string? PreferredPath)
-        : ISaveWithJson;
+    public readonly record struct LaunchConfig(Platform Platform, LaunchType LaunchType);
+
+    public readonly record struct GameConfigData(
+        string? ActiveProfileId,
+        string? PreferredPath,
+        LaunchConfig? LaunchConfig
+    ) : ISaveWithJson;
 
     public sealed class GameConfig
     {
         public required Game Game { private get; init; }
         public required LazyModList? ActiveProfile { get; set; }
         public required string? PreferredPath { get; set; }
+        public required LaunchConfig? LaunchConfig { get; set; }
 
         public void Save()
         {
-            GameConfigData data = new(ActiveProfile?.Id, PreferredPath);
+            GameConfigData data = new(ActiveProfile?.Id, PreferredPath, LaunchConfig);
             data.Save(Game.GameConfigLocation);
         }
 
@@ -146,6 +189,7 @@ public sealed class Game
                         ? modList
                         : null,
                 PreferredPath = data.PreferredPath,
+                LaunchConfig = data.LaunchConfig,
             };
         }
     }
@@ -292,16 +336,62 @@ public sealed class Game
         Steam,
     }
 
-    public enum Launch
+    public enum LaunchType
     {
-        Direct,
         Platform,
+        Direct,
     }
 
-    public readonly record struct GameLaunchConfig(Platform Platform, Launch Launch);
-
-    public async Task<CogError?> LaunchGame(LazyModList modList, GameLaunchConfig config)
+    public readonly record struct GameLaunchRequest
     {
+        public readonly Game Game { get; private init; }
+        public readonly Platform Platform { get; private init; }
+        public readonly LaunchType Launch { get; private init; }
+        public readonly string PlatformGameId { get; private init; }
+
+        public static GameLaunchRequest CreateDefault(Game game)
+        {
+            var launchType = LaunchType.Platform;
+            if (TryCreate(game, Platform.Steam, launchType, out var request))
+                return request;
+
+            throw new UnreachableException(
+                "There should always be at least one available platform for a game."
+            );
+        }
+
+        public static bool TryCreate(
+            Game game,
+            Platform platform,
+            LaunchType launch,
+            out GameLaunchRequest request
+        )
+        {
+            var id = platform switch
+            {
+                Platform.Steam => game.Platforms.Steam?.Id.ToString(CultureInfo.InvariantCulture),
+                _ => null,
+            };
+            if (id is null)
+            {
+                request = default;
+                return false;
+            }
+
+            request = new()
+            {
+                Game = game,
+                Platform = platform,
+                Launch = launch,
+                PlatformGameId = id,
+            };
+            return true;
+        }
+    }
+
+    public static async Task<CogError?> LaunchGame(LazyModList modList, GameLaunchRequest request)
+    {
+        var game = request.Game;
         if (DBusAddress.Session is null)
             return new(
                 "No D-Bus session found",
@@ -318,19 +408,16 @@ public sealed class Game
             "/org/freedesktop/portal/desktop"
         );
 
-        var prepareError = await modList.PrepareModLoaderAsync(this);
+        var prepareError = await modList.PrepareModLoaderAsync(game);
         if (prepareError is { })
             return prepareError;
 
         var isLinuxApp = modList.IsLinuxNative();
 
-        if (
-            config.Launch is Launch.Direct
-            || isLinuxApp // temporary for testing, remember to remove
-        )
+        if (request.Launch is LaunchType.Direct)
         {
-            var directArgs = InstallRules.GetDirectLaunchArgs(modList);
-            var args = InstallRules.GetLaunchArgs(modList);
+            var directArgs = game.InstallRules.GetDirectLaunchArgs(modList);
+            var args = game.InstallRules.GetLaunchArgs(modList);
 
             var (gamePath, err) = modList.GetGamePath();
             if (err is { })
@@ -375,28 +462,21 @@ public sealed class Game
             return null;
         }
 
-        switch (config.Platform)
+        switch (request.Platform)
         {
             case Platform.Steam:
-                if (Platforms.Steam is not { } steam)
-                    return new(
-                        $"Game is not on Steam",
-                        $"Cogwork is not aware of the game '{Name}' being available on Steam.",
-                        null
-                    );
-
                 var error = await EnsureWineWillLoadDllOverrideAsync(
-                    this,
-                    InstallRules.GetProxyFiles()
+                    game,
+                    game.InstallRules.GetProxyFiles()
                 );
                 if (error is { })
                     return error;
 
-                var args = InstallRules.GetLaunchArgs(modList);
+                var args = game.InstallRules.GetLaunchArgs(modList);
                 var argString = $"\"{string.Join("\" \"", args)}\"";
                 var argEncoded = WebUtility.UrlEncode(argString);
                 var argEncodedFixed = argEncoded.Replace("+", "%20");
-                var launchUri = $"steam://run/{steam.Id}//{argEncodedFixed}/";
+                var launchUri = $"steam://run/{request.PlatformGameId}//{argEncodedFixed}/";
 
                 Cog.Information($"Attempting to launch: '{launchUri}'");
                 try

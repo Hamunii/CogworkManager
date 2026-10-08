@@ -1,8 +1,11 @@
+using System.Globalization;
 using Adw;
 using GLib;
 using Gtk;
 
 namespace Cogwork.Gui;
+
+public record QuickActions(Button LaunchButton, DropDown Platform, DropDown LaunchType);
 
 public class ConfigureProfileViewController : IDisposable
 {
@@ -23,6 +26,7 @@ public class ConfigureProfileViewController : IDisposable
     private readonly ViewStack _internalTabsStack;
 
     // --- Component Visibility & Layout Handles (Section Toggles) ---
+    private readonly QuickActions _quickActions;
     private readonly Section _sectionAdded;
     private readonly Section _sectionDeps;
     private readonly Section _sectionRecent;
@@ -91,7 +95,12 @@ public class ConfigureProfileViewController : IDisposable
         layoutBox.Append(_internalTabsStack);
 
         // --- Build Manage Tab Layout ---
-        var manageTabBox = CreateManageTab(out _sectionAdded, out _sectionDeps, out _sectionRecent);
+        var manageTabBox = CreateManageTab(
+            out _quickActions,
+            out _sectionAdded,
+            out _sectionDeps,
+            out _sectionRecent
+        );
         var managePage = _internalTabsStack.AddNamed(manageTabBox, "manage_tab");
         managePage.SetTitle("Manage");
         managePage.SetIconName("emblem-system-symbolic");
@@ -367,6 +376,75 @@ public class ConfigureProfileViewController : IDisposable
         if (!_currentProfile.ConsumeIsDirty())
             return;
 
+        string[] platforms =
+        [
+            .. lazyProfile.Game.Platforms.GetAvailablePlatforms().Select(x => x.ToString()),
+        ];
+        var launchButton = _quickActions.LaunchButton;
+        var (launchConfigSnapshot, _) = lazyProfile.GetGameLaunchRequest();
+        var platformSnapshot = launchConfigSnapshot.Platform;
+
+        void OnNotify(GObject.Object sender, GObject.Object.NotifySignalArgs args)
+        {
+            if (args.Pspec.GetName() != "selected")
+                return;
+
+            _lazyProfile.Game.Config.LaunchConfig = new(
+                (Game.Platform)_quickActions.Platform.GetSelected(),
+                (Game.LaunchType)_quickActions.LaunchType.GetSelected()
+            );
+            _lazyProfile.Game.Config.Save();
+
+            UpdateLabels();
+        }
+        void UpdateLabels()
+        {
+            var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
+            var platform = launchConfig.Platform;
+
+            var directLaunchOrNull =
+                launchConfig.Launch is Game.LaunchType.Direct ? " (direct)" : null;
+
+            string modsCount =
+                (
+                    _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count
+                )?.ToString(CultureInfo.InvariantCulture) ?? "<?>";
+            launchButton.SetLabel($"Launch with {modsCount} mods");
+        }
+
+        UpdateLabels();
+
+        _quickActions.Platform.SetModel(StringList.New(platforms));
+        _quickActions.Platform.SetSelected((uint)platforms.IndexOf(platformSnapshot.ToString()));
+        _quickActions.Platform.OnNotify -= OnNotify;
+        _quickActions.Platform.OnNotify += OnNotify;
+
+        _quickActions.LaunchType.SetModel(StringList.New([.. Enum.GetNames<Game.LaunchType>()]));
+        _quickActions.LaunchType.SetSelected((uint)launchConfigSnapshot.Launch);
+        _quickActions.LaunchType.OnNotify -= OnNotify;
+        _quickActions.LaunchType.OnNotify += OnNotify;
+
+        void Launch(Button s, EventArgs e)
+        {
+            List<string> args =
+            [
+                "launch",
+                "--game",
+                _lazyProfile.Game.Slug,
+                "--profile",
+                _lazyProfile.Id,
+            ];
+
+            var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
+            if (launchConfig.Launch is Game.LaunchType.Direct)
+            {
+                args.Add("--direct");
+            }
+            _ = Cli.Core.Program.Main([.. args]);
+        }
+        launchButton.OnClicked -= Launch;
+        launchButton.OnClicked += Launch;
+
         ClearList(_sectionAdded.Content);
 
         if (_currentProfile.Added.Count > 0)
@@ -631,7 +709,12 @@ public class ConfigureProfileViewController : IDisposable
         }
     }
 
-    static Box CreateManageTab(out Section secAdded, out Section secDeps, out Section secRecent)
+    static Box CreateManageTab(
+        out QuickActions quickActions,
+        out Section secAdded,
+        out Section secDeps,
+        out Section secRecent
+    )
     {
         var box = Box.New(Orientation.Vertical, 0);
         var scroll = ScrolledWindow.New();
@@ -646,6 +729,29 @@ public class ConfigureProfileViewController : IDisposable
         content.SetMarginStart(24);
         content.SetMarginEnd(24);
         clamp.SetChild(content);
+
+        Box quickActionsBox = Box.New(Orientation.Vertical, 24);
+
+        var launchBox = Box.New(Orientation.Horizontal, 8);
+        quickActionsBox.Append(launchBox);
+
+        var launchButton = Button.New();
+        launchButton.SetValign(Align.Center);
+        launchButton.SetHexpand(true);
+        launchButton.SetCssClasses(["suggested-action", "pill"]);
+        launchBox.Append(launchButton);
+
+        var platform = DropDown.New(null, null);
+        launchBox.Append(platform);
+
+        var launchType = DropDown.New(null, null);
+        launchBox.Append(launchType);
+
+        // ListBox quickActionsList = ListBox.New();
+        // quickActionsBox.Append(quickActionsList);
+        content.Append(quickActionsBox);
+        quickActions = new(launchButton, platform, launchType);
+
         secAdded = new Section(content, "Added", "No added mods. Type to search mods.");
         secDeps = new Section(content, "Dependencies");
         secRecent = new Section(content, "Recently Removed");

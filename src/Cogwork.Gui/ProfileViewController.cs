@@ -96,22 +96,6 @@ public class ProfilesViewController
                 _navView.Push(_configPage);
             };
 
-            // Left Launch Button Action
-            var launchButton = Button.NewFromIconName("media-playback-start-symbolic");
-            launchButton.SetValign(Align.Center);
-            launchButton.SetTooltipText($"Launch with {profile.DisplayName}");
-            launchButton.OnClicked += (s, e) =>
-            {
-                _ = Cli.Core.Program.Main([
-                    "launch",
-                    "--game",
-                    profile.Game.Slug,
-                    "--profile",
-                    profile.Id,
-                ]);
-            };
-            row.AddSuffix(launchButton);
-
             // --- FIXED: Added the Multi-Option Context Action Dropdown Menu ---
 
             // Localized row-safe prefix action tagging namespace
