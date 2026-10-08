@@ -8,10 +8,10 @@ A WIP generic mod package manager built for mod developers.
 > \*Currently, this project only supports Linux and a few games on Thunderstore.  
 > Launching games modded only works in specific scenarios, here's how to make it work for now:
 >
-> - Proton from Steam: Manually set `WINEDLLOVERRIDES="winhttp.dll=n,b" %command%`
-> - Proton from direct: Manually download `https://github.com/Open-Wine-Components/umu-launcher` and add `umu-run` to your PATH
+> - Proton from Steam: ✅ Works out of the box
+> - Proton from direct: Manually download `https://github.com/Open-Wine-Components/umu-launcher` and add `umu-run` to your PATH (note: if using the Flatpak, you are currently fucked)
 > - Native from Steam: Manually set `./run_bepinex.sh %command%`
-> - Native from direct: Should work out of the box, assuming the game runs without Steam's Linux runtime
+> - Native from direct: ✅ Should work out of the box, assuming the game runs without Steam's Linux runtime
 >
 > Note that for now "direct" launch is only possible from the cli, via argument `--direct` for `cogman launch`.  
 > See [TODO.md](./TODO.md) for more info on what's missing.
