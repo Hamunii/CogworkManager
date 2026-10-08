@@ -8,13 +8,13 @@
   - [x] Gui
 - Launching game as direct
   - [x] Cli
-  - [ ] Gui
+  - [x] Gui
 - Launch game fixes
-  - [ ] Launch modded proton game from Steam
+  - [x] Launch modded proton game from Steam
   - [ ] Launch modded native game from Steam
 - Debugging stuff like viewing BepInEx logs
   - [ ] Cli
-  - [ ] Gui
+  - [x] Gui
 - BepInEx config helper stuff
   - [ ] Cli
   - [ ] Gui
