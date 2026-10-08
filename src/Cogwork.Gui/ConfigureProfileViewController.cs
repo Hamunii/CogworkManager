@@ -1366,7 +1366,7 @@ public class ConfigureProfileViewController : IDisposable
         {
             btn.SetIconName("list-add-symbolic");
             btn.SetCssClasses(["flat"]);
-            btn.SetTooltipText($"Remove {package.FullName}");
+            btn.SetTooltipText($"Add {package.FullName}");
             return true;
         }
     }
