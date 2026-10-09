@@ -9,13 +9,6 @@ using Gtk;
 
 namespace Cogwork.Gui;
 
-public record QuickActions(
-    Button LaunchButton,
-    Label LaunchLabel,
-    DropDown Platform,
-    DropDown LaunchType
-);
-
 public class ConfigureProfileViewController : IDisposable
 {
     // --- State & Context Data Layer ---
@@ -37,7 +30,6 @@ public class ConfigureProfileViewController : IDisposable
     private readonly ToastOverlay _toastOverlay;
 
     // --- Component Visibility & Layout Handles (Section Toggles) ---
-    private readonly QuickActions _quickActions;
     private readonly Section _sectionAdded;
     private readonly Section _sectionDeps;
     private readonly Section _sectionRecent;
@@ -51,6 +43,15 @@ public class ConfigureProfileViewController : IDisposable
     private readonly Label _modDescriptionLabel;
     private readonly Label _modSourceLabel;
     private readonly MarkdownPreviewer _markdownPreviewer;
+
+    // quick actions
+
+    private readonly Button _launchButton;
+    private readonly Label _launchLabel;
+    private readonly DropDown _platform;
+    private readonly DropDown _launchType;
+    private readonly Image _iconPlatform;
+    private readonly Image _iconDirect;
 
     // other stuff
     readonly string[] sourceColors =
@@ -111,10 +112,15 @@ public class ConfigureProfileViewController : IDisposable
         // --- Build Manage Tab Layout ---
         var manageTabBox = CreateManageTab(
             header,
-            out _quickActions,
             out _sectionAdded,
             out _sectionDeps,
-            out _sectionRecent
+            out _sectionRecent,
+            out _launchButton,
+            out _launchLabel,
+            out _platform,
+            out _launchType,
+            out _iconPlatform,
+            out _iconDirect
         );
         var managePage = _internalTabsStack.AddNamed(manageTabBox, "manage_tab");
         managePage.SetTitle("Manage");
@@ -395,36 +401,7 @@ public class ConfigureProfileViewController : IDisposable
         if (!_currentProfile.ConsumeIsDirty())
             return;
 
-        string[] platforms =
-        [
-            .. lazyProfile.Game.Platforms.GetAvailablePlatforms().Select(x => x.ToString()),
-        ];
-        var (launchConfigSnapshot, _) = lazyProfile.GetGameLaunchRequest();
-        var platformSnapshot = launchConfigSnapshot.Platform;
-
-        void OnNotify(GObject.Object sender, GObject.Object.NotifySignalArgs args)
-        {
-            if (args.Pspec.GetName() != "selected")
-                return;
-
-            _lazyProfile.Game.Config.LaunchConfig = new(
-                (Game.Platform)_quickActions.Platform.GetSelected(),
-                (Game.LaunchType)_quickActions.LaunchType.GetSelected()
-            );
-            _lazyProfile.Game.Config.Save();
-
-            UpdateLaunchButton();
-        }
-
-        _quickActions.Platform.SetModel(StringList.New(platforms));
-        _quickActions.Platform.SetSelected((uint)platforms.IndexOf(platformSnapshot.ToString()));
-        _quickActions.Platform.OnNotify -= OnNotify;
-        _quickActions.Platform.OnNotify += OnNotify;
-
-        _quickActions.LaunchType.SetModel(StringList.New([.. Enum.GetNames<Game.LaunchType>()]));
-        _quickActions.LaunchType.SetSelected((uint)launchConfigSnapshot.Launch);
-        _quickActions.LaunchType.OnNotify -= OnNotify;
-        _quickActions.LaunchType.OnNotify += OnNotify;
+        UpdateLaunchMethodSettings();
 
         ClearList(_sectionAdded.Content);
 
@@ -441,23 +418,56 @@ public class ConfigureProfileViewController : IDisposable
         RebuildDependencies();
     }
 
+    void UpdateLaunchMethodSettings()
+    {
+        string[] platforms =
+        [
+            .. _lazyProfile.Game.Platforms.GetAvailablePlatforms().Select(x => x.ToString()),
+        ];
+
+        var (launchConfigSnapshot, _) = _lazyProfile.GetGameLaunchRequest();
+        var platformSnapshot = launchConfigSnapshot.Platform;
+
+        _platform.SetModel(StringList.New(platforms));
+        _platform.SetSelected((uint)platforms.IndexOf(platformSnapshot.ToString()));
+        _platform.OnNotify -= OnNotify;
+        _platform.OnNotify += OnNotify;
+
+        _launchType.SetModel(StringList.New([.. Enum.GetNames<Game.LaunchType>()]));
+        _launchType.SetSelected((uint)launchConfigSnapshot.Launch);
+        _launchType.OnNotify -= OnNotify;
+        _launchType.OnNotify += OnNotify;
+
+        void OnNotify(GObject.Object sender, GObject.Object.NotifySignalArgs args)
+        {
+            if (args.Pspec.GetName() != "selected")
+                return;
+
+            _lazyProfile.Game.Config.LaunchConfig = new(
+                (Game.Platform)_platform.GetSelected(),
+                (Game.LaunchType)_launchType.GetSelected()
+            );
+            _lazyProfile.Game.Config.Save();
+
+            UpdateLaunchButton();
+        }
+    }
+
     void UpdateLaunchButton()
     {
         var count =
             _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count ?? 0;
         string modsCount = count.ToString(CultureInfo.InvariantCulture);
-        _quickActions.LaunchLabel.SetLabel(
-            $"Launch with {modsCount} {(count == 1 ? "mod" : "mods")}"
-        );
+        _launchLabel.SetLabel($"Launch with {modsCount} {(count == 1 ? "mod" : "mods")}");
         if (count is 0)
         {
-            _quickActions.LaunchButton.SetSensitive(false);
-            _quickActions.LaunchButton.SetTooltipText("You must install mods first");
+            _launchButton.SetSensitive(false);
+            _launchButton.SetTooltipText("You must install mods first");
         }
         else
         {
-            _quickActions.LaunchButton.SetSensitive(true);
-            _quickActions.LaunchButton.SetTooltipText(string.Empty);
+            _launchButton.SetSensitive(true);
+            _launchButton.SetTooltipText(string.Empty);
         }
     }
 
@@ -712,12 +722,38 @@ public class ConfigureProfileViewController : IDisposable
         }
     }
 
+    void UpdateMenuButtonIcons()
+    {
+        var platformSelected = (Game.Platform)_platform.Selected;
+        var launchTypeSelected = (Game.LaunchType)_launchType.Selected;
+
+        var platformIconName = platformSelected switch
+        {
+            Game.Platform.Steam => "weather-fog-symbolic",
+            _ => throw new UnreachableException($"Invalid value '{platformSelected}'"),
+        };
+
+        // Set the first icon
+        _iconPlatform.SetFromIconName(platformIconName);
+
+        // Conditional logic: Only show the second icon if a specific value rule matches
+        if (launchTypeSelected is Game.LaunchType.Direct)
+            _iconDirect.SetVisible(true);
+        else
+            _iconDirect.SetVisible(false);
+    }
+
     Box CreateManageTab(
         Adw.HeaderBar header,
-        out QuickActions quickActions,
         out Section secAdded,
         out Section secDeps,
-        out Section secRecent
+        out Section secRecent,
+        out Button launchButton,
+        out Label launchLabel,
+        out DropDown platform,
+        out DropDown launchType,
+        out Image iconPlatform,
+        out Image iconDirect
     )
     {
         var boxContainer = Box.New(Orientation.Vertical, 0);
@@ -736,23 +772,23 @@ public class ConfigureProfileViewController : IDisposable
 
         var launchBox = Box.New(Orientation.Horizontal, 8);
 
-        var launchButton = Button.New();
-        var launchLabel = Label.New("placeholder");
+        launchButton = Button.New();
+        launchLabel = Label.New("placeholder");
         {
-            launchButton.SetValign(Align.Center);
-            launchButton.SetHexpand(true);
-            launchButton.SetCssClasses(["suggested-action", "pill"]);
+            _launchButton.SetValign(Align.Center);
+            _launchButton.SetHexpand(true);
+            _launchButton.SetCssClasses(["suggested-action", "pill"]);
 
             var box = Box.New(Orientation.Horizontal, 8);
             box.SetHalign(Align.Center);
             var icon = Image.NewFromIconName("media-playback-start-symbolic");
-            box.Append(launchLabel);
+            box.Append(_launchLabel);
             box.Append(icon);
 
-            launchButton.SetChild(box);
-            launchBox.Append(launchButton);
+            _launchButton.SetChild(box);
+            launchBox.Append(_launchButton);
 
-            launchButton.OnClicked += (_, _) =>
+            _launchButton.OnClicked += (_, _) =>
             {
                 List<string> args =
                 [
@@ -772,13 +808,54 @@ public class ConfigureProfileViewController : IDisposable
             };
         }
 
-        var platform = DropDown.New(null, null);
-        platform.SetTooltipText("The platform to launch the game on");
-        launchBox.Append(platform);
+        var popoverContentBox = Box.New(Orientation.Vertical, 8);
+        popoverContentBox.SetMarginTop(8);
+        popoverContentBox.SetMarginBottom(8);
+        popoverContentBox.SetMarginStart(8);
+        popoverContentBox.SetMarginEnd(8);
 
-        var launchType = DropDown.New(null, null);
+        platform = DropDown.New(null, null);
+        platform.SetTooltipText("The platform to launch the game on");
+        popoverContentBox.Append(platform);
+
+        launchType = DropDown.New(null, null);
         launchType.SetTooltipText("Method for launching game");
-        launchBox.Append(launchType);
+        popoverContentBox.Append(launchType);
+
+        var popover = Popover.New();
+        popover.SetChild(popoverContentBox);
+
+        var launchMethodButton = MenuButton.New();
+        launchMethodButton.SetPopover(popover);
+        launchMethodButton.AddCssClass("flat");
+
+        var buttonIconBox = Box.New(Orientation.Horizontal, 4);
+        iconPlatform = Image.New();
+        iconDirect = Image.NewFromIconName("system-log-out-symbolic");
+        buttonIconBox.Append(iconPlatform);
+        buttonIconBox.Append(iconDirect);
+
+        launchMethodButton.SetChild(buttonIconBox);
+
+        platform.OnNotify += (s, e) =>
+        {
+            if (e.Pspec.GetName() == "selected")
+            {
+                UpdateMenuButtonIcons();
+            }
+            popover.Popdown();
+        };
+
+        launchType.OnNotify += (s, e) =>
+        {
+            if (e.Pspec.GetName() == "selected")
+            {
+                UpdateMenuButtonIcons();
+            }
+            popover.Popdown();
+        };
+
+        launchBox.Append(launchMethodButton);
 
         var menuModel = Gio.Menu.New();
 
@@ -936,7 +1013,6 @@ public class ConfigureProfileViewController : IDisposable
         _window.InsertActionGroup("profile", actionGroup);
         header.PackEnd(menuButton);
 
-        quickActions = new(launchButton, launchLabel, platform, launchType);
         secAdded = new Section(content, "Added", "No added mods. Type to search mods.");
         secDeps = new Section(content, "Dependencies");
         secRecent = new Section(content, "Recently Removed");
