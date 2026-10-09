@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using ZLinq;
@@ -72,6 +73,12 @@ public class PackageInstaller
             protectedDirs: [Path.Combine("BepInEx", "config")]
         );
 
+    /// <remarks>
+    /// The default mapping is always implicitly the first entry,
+    /// and it's always expected that there is at least one entry.
+    /// Use <see cref="SourceToDestination.None"/> to effectively
+    /// set a no-op default mapping.
+    /// </remarks>
     public Mapping GetDefaultMapping() => DirToDir.First().Value;
 
     public string[] Map(PackageVersionReference package, string directoryPath, string outputPath)
@@ -140,6 +147,12 @@ public class PackageInstaller
         return [.. mapped];
     }
 
+    /// <summary>
+    /// Recursively go through every directory until we come across
+    /// a special directory which performs a mapping on the directory
+    /// and then escapes the recursive loop, then the default mapping is
+    /// performed on the provided root before returning from this method.
+    /// </summary>
     private void MapRecursive(
         PackageVersionReference package,
         string directoryPath,
@@ -150,32 +163,34 @@ public class PackageInstaller
         foreach (var dirPath in Fs.Directory.EnumerateDirectories(directoryPath))
         {
             var dirName = Path.GetFileName(dirPath);
-            if (DirToDir.TryGetValue(dirName, out var mapping))
+            if (!DirToDir.TryGetValue(dirName, out var mapping))
             {
-                var mapped = Path.Combine(outputPath, mapping.Destination);
-                switch (mapping.Type)
-                {
-                    case InstallType.None:
-                    case InstallType.File:
-                        continue;
-
-                    case InstallType.Direct:
-                    case InstallType.DirectSkipRoot:
-                        MoveOrMergeOverwrite(dirPath, mapped, mappedFiles);
-                        continue;
-
-                    case InstallType.Namespaced:
-                    case InstallType.NamespacedFlattened:
-                        var namespaced = Path.Combine(mapped, package.FullName);
-                        MoveOrMergeOverwrite(dirPath, namespaced, mappedFiles);
-                        continue;
-
-                    default:
-                        throw new NotImplementedException("Install type is not implemented.");
-                }
+                MapRecursive(package, dirPath, outputPath, mappedFiles);
+                break;
             }
 
-            MapRecursive(package, dirPath, outputPath, mappedFiles);
+            var mapped = Path.Combine(outputPath, mapping.Destination);
+            switch (mapping.Type)
+            {
+                case InstallType.None:
+                case InstallType.File:
+                    break;
+
+                case InstallType.Direct:
+                case InstallType.DirectSkipRoot:
+                    MoveOrMergeOverwrite(dirPath, mapped, mappedFiles);
+                    break;
+
+                case InstallType.Namespaced:
+                case InstallType.NamespacedFlattened:
+                    var namespaced = Path.Combine(mapped, package.FullName);
+                    MoveOrMergeOverwrite(dirPath, namespaced, mappedFiles);
+                    break;
+
+                default:
+                    throw new NotImplementedException("Install type is not implemented.");
+            }
+            break;
         }
 
         var defaultMapping = GetDefaultMapping();
