@@ -13,14 +13,13 @@ public record QuickActions(
     Button LaunchButton,
     Label LaunchLabel,
     DropDown Platform,
-    DropDown LaunchType,
-    Button OpenModLog,
-    Button CopyDebugInfo
+    DropDown LaunchType
 );
 
 public class ConfigureProfileViewController : IDisposable
 {
     // --- State & Context Data Layer ---
+    private readonly Adw.ApplicationWindow _window;
     private readonly NavigationView _navView;
     private readonly Action _onBackNavigated;
     private LazyModList _lazyProfile = null!;
@@ -64,11 +63,16 @@ public class ConfigureProfileViewController : IDisposable
         "#1a5fb4",
     ];
 
-    public ConfigureProfileViewController(NavigationView navView, Action onBackNavigated)
+    public ConfigureProfileViewController(
+        Adw.ApplicationWindow window,
+        NavigationView navView,
+        Action onBackNavigated
+    )
     {
         ArgumentNullException.ThrowIfNull(navView);
         ArgumentNullException.ThrowIfNull(onBackNavigated);
 
+        _window = window;
         _navView = navView;
         _onBackNavigated = onBackNavigated;
 
@@ -83,8 +87,6 @@ public class ConfigureProfileViewController : IDisposable
         _searchToggleButton.SetIconName("edit-find-symbolic");
         header.PackStart(_searchToggleButton);
         layoutBox.Append(header);
-
-        AddHeaderSettingsButton(header);
 
         // 2. Search Box Setup
         _searchBar = SearchBar.New();
@@ -108,6 +110,7 @@ public class ConfigureProfileViewController : IDisposable
 
         // --- Build Manage Tab Layout ---
         var manageTabBox = CreateManageTab(
+            header,
             out _quickActions,
             out _sectionAdded,
             out _sectionDeps,
@@ -142,6 +145,7 @@ public class ConfigureProfileViewController : IDisposable
         _modPage.OnHiding += (s, e) => FireConfigRefresh();
         _modPage.OnHidden += OnModPageHidden;
 
+        AddHeaderSettingsButton(header);
         SetupKeyboardShortcuts(installTabBox);
 
         _toastOverlay = ToastOverlay.New();
@@ -395,7 +399,6 @@ public class ConfigureProfileViewController : IDisposable
         [
             .. lazyProfile.Game.Platforms.GetAvailablePlatforms().Select(x => x.ToString()),
         ];
-        var launchButton = _quickActions.LaunchButton;
         var (launchConfigSnapshot, _) = lazyProfile.GetGameLaunchRequest();
         var platformSnapshot = launchConfigSnapshot.Platform;
 
@@ -423,164 +426,6 @@ public class ConfigureProfileViewController : IDisposable
         _quickActions.LaunchType.OnNotify -= OnNotify;
         _quickActions.LaunchType.OnNotify += OnNotify;
 
-        void Launch(Button s, EventArgs e)
-        {
-            List<string> args =
-            [
-                "launch",
-                "--game",
-                _lazyProfile.Game.Slug,
-                "--profile",
-                _lazyProfile.Id,
-            ];
-
-            var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
-            if (launchConfig.Launch is Game.LaunchType.Direct)
-            {
-                args.Add("--direct");
-            }
-            _ = Cli.Core.Program.Main([.. args]);
-        }
-        launchButton.OnClicked -= Launch;
-        launchButton.OnClicked += Launch;
-
-        _quickActions.OpenModLog.OnClicked -= OnOpenModLog;
-        _quickActions.OpenModLog.OnClicked += OnOpenModLog;
-        if (_lazyProfile.Game.InstallRules.GetLogPath(_lazyProfile) is null)
-        {
-            _quickActions.OpenModLog.SetSensitive(false);
-            _quickActions.OpenModLog.SetTooltipText(
-                "The mod loader for this game doesn't provide a log file"
-            );
-        }
-        else
-        {
-            _quickActions.OpenModLog.SetSensitive(true);
-            _quickActions.OpenModLog.SetTooltipText(string.Empty);
-        }
-
-        async void OnOpenModLog(Button sender, EventArgs args)
-        {
-            var path = _lazyProfile.Game.InstallRules.GetLogPath(_lazyProfile);
-            if (!File.Exists(path))
-            {
-                var toast = Toast.New(
-                    "Log file not found; game has not launched with this profile yet"
-                );
-                _toastOverlay.AddToast(toast);
-                return;
-            }
-            if (Page.GetRoot() is not Gtk.Window rootWindow)
-                throw new UnreachableException();
-
-            var fileToOpen = Gio.FileHelper.NewForPath(path);
-            FileLauncher launcher = FileLauncher.New(fileToOpen);
-
-            try
-            {
-                await launcher.LaunchAsync(rootWindow);
-            }
-            catch (GException)
-            {
-                // The portal dialog was dismissed by the user or something like that
-            }
-        }
-
-        _quickActions.CopyDebugInfo.OnClicked -= OnCopyDebugInfo;
-        _quickActions.CopyDebugInfo.OnClicked += OnCopyDebugInfo;
-        async void OnCopyDebugInfo(Button sender, EventArgs args)
-        {
-            var assembly = typeof(CogworkCoreLogger).Assembly;
-
-            var appName = (Page.GetRoot() as Gtk.Window)!.Title;
-            var appVersion = assembly
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
-                .InformationalVersion;
-
-            var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
-            var path = _lazyProfile.Game.InstallRules.GetLogPath(_lazyProfile);
-
-            var launchArgs =
-                $"'{string.Join("' '", _lazyProfile.Game.InstallRules.GetLaunchArgs(_lazyProfile))}'";
-
-            var configExists = File.Exists(path);
-            var modsCount =
-                _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count;
-
-            var mods =
-                "- " + string.Join("\n- ", _lazyProfile.GetResolved().Select(x => x.ToString()));
-
-            string? gameDirRootFiles;
-            var gameDir = _lazyProfile.GamePath;
-            if (!Directory.Exists(gameDir))
-                gameDirRootFiles = $"(directory not found: '{gameDir}')";
-            else
-                gameDirRootFiles =
-                    "- "
-                    + string.Join(
-                        "\n- ",
-                        Directory
-                            .GetFileSystemEntries(gameDir!)
-                            .Select(x =>
-                                Directory.Exists(x)
-                                    ? $"{Path.GetFileName(x)}/"
-                                    : Path.GetFileName(x)
-                            )
-                            .OrderByDescending(x => x.EndsWith('/'))
-                            .ThenBy(x => x)
-                    );
-
-            StringBuilder sb = new();
-            sb.AppendLine(
-                CultureInfo.InvariantCulture,
-                $"""
-                Quick Info
-                ```
-                OS: {RuntimeInformation.RuntimeIdentifier}
-                Game: {_lazyProfile.Game.Name} ({launchConfig.Platform}) (launch type: {launchConfig.Launch})
-                Log File: {(
-                    path is { }
-                        ? (configExists ? "✅ exists" : "❌ not generated")
-                        : "not supported by modloader"
-                )}
-                Launch Args: {launchArgs}
-                Profile: {_lazyProfile.DisplayName}
-                Mod Count: {modsCount}
-                Mods:
-                {mods}
-                Game Dir: {gameDir}
-                Game Dir Root Files:
-                {gameDirRootFiles}
-                Mod Manager: {appName} {appVersion}
-                ```
-                """
-            );
-
-            if (configExists)
-            {
-                var logs = await File.ReadAllTextAsync(path!);
-
-                sb.AppendLine(
-                    CultureInfo.InvariantCulture,
-                    $"""
-                    Logs
-                    ```
-                    {logs}
-                    ```
-                    """
-                );
-            }
-
-            var display = Page.GetDisplay();
-            var clipboard = display.GetClipboard();
-
-            var debugInfo = sb.ToString();
-            clipboard.SetText(debugInfo);
-
-            var toast = Toast.New("Copied debug info to clipboard");
-            _toastOverlay.AddToast(toast);
-        }
-
         ClearList(_sectionAdded.Content);
 
         if (_currentProfile.Added.Count > 0)
@@ -598,9 +443,6 @@ public class ConfigureProfileViewController : IDisposable
 
     void UpdateLaunchButton()
     {
-        var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
-        var platform = launchConfig.Platform;
-
         var count =
             _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count ?? 0;
         string modsCount = count.ToString(CultureInfo.InvariantCulture);
@@ -870,7 +712,8 @@ public class ConfigureProfileViewController : IDisposable
         }
     }
 
-    static Box CreateManageTab(
+    Box CreateManageTab(
+        Adw.HeaderBar header,
         out QuickActions quickActions,
         out Section secAdded,
         out Section secDeps,
@@ -891,10 +734,7 @@ public class ConfigureProfileViewController : IDisposable
         content.SetMarginEnd(24);
         clamp.SetChild(content);
 
-        Box quickActionsBox = Box.New(Orientation.Vertical, 8);
-
         var launchBox = Box.New(Orientation.Horizontal, 8);
-        quickActionsBox.Append(launchBox);
 
         var launchButton = Button.New();
         var launchLabel = Label.New("placeholder");
@@ -911,6 +751,25 @@ public class ConfigureProfileViewController : IDisposable
 
             launchButton.SetChild(box);
             launchBox.Append(launchButton);
+
+            launchButton.OnClicked += (_, _) =>
+            {
+                List<string> args =
+                [
+                    "launch",
+                    "--game",
+                    _lazyProfile.Game.Slug,
+                    "--profile",
+                    _lazyProfile.Id,
+                ];
+
+                var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
+                if (launchConfig.Launch is Game.LaunchType.Direct)
+                {
+                    args.Add("--direct");
+                }
+                _ = Cli.Core.Program.Main([.. args]);
+            };
         }
 
         var platform = DropDown.New(null, null);
@@ -921,52 +780,163 @@ public class ConfigureProfileViewController : IDisposable
         launchType.SetTooltipText("Method for launching game");
         launchBox.Append(launchType);
 
-        var debugBox = Box.New(Orientation.Horizontal, 8);
-        quickActionsBox.Append(debugBox);
+        var menuModel = Gio.Menu.New();
 
-        var openModLog = Button.New();
+        var section = Gio.Menu.New();
+        menuModel.AppendSection(null, section);
+
+        var menuOpenLogs = Gio.MenuItem.New("Open Log File", "profile.open-logs");
+        section.AppendItem(menuOpenLogs);
+
+        var menuCopyDebugInfo = Gio.MenuItem.New("Copy Debug Info", "profile.copy-debug-info");
+        section.AppendItem(menuCopyDebugInfo);
+
+        var menuButton = MenuButton.New();
+        menuButton.SetIconName("open-menu-symbolic");
+        menuButton.SetValign(Align.Center);
+        menuButton.AddCssClass("flat");
+        menuButton.SetMenuModel(menuModel);
+
+        content.Append(launchBox);
+
+        var openLogs = Gio.SimpleAction.New("open-logs", null);
+        var copyDebugInfo = Gio.SimpleAction.New("copy-debug-info", null);
+        copyDebugInfo.SetEnabled(true);
+
+        openLogs.OnActivate += async (_, _) =>
         {
-            openModLog.SetValign(Align.Center);
-            openModLog.SetHexpand(true);
-            openModLog.SetLabel("Open Logs");
+            var path = _lazyProfile.Game.InstallRules.GetLogPath(_lazyProfile);
+            if (_lazyProfile.Game.InstallRules.GetLogPath(_lazyProfile) is null)
+            {
+                var toast = Toast.New("The modloader for this game doesn't provide a log file");
+                _toastOverlay.AddToast(toast);
+                return;
+            }
+            if (!File.Exists(path))
+            {
+                var toast = Toast.New(
+                    "Log file not found; game has not launched with this profile yet"
+                );
+                _toastOverlay.AddToast(toast);
+                return;
+            }
+            if (Page.GetRoot() is not Gtk.Window rootWindow)
+                throw new UnreachableException();
 
-            var box = Box.New(Orientation.Horizontal, 8);
-            box.SetHalign(Align.Center);
-            var icon = Image.NewFromIconName("folder-documents-symbolic");
-            var label = Label.New("Open Logs");
-            box.Append(icon);
-            box.Append(label);
+            var fileToOpen = Gio.FileHelper.NewForPath(path);
+            FileLauncher launcher = FileLauncher.New(fileToOpen);
 
-            openModLog.SetChild(box);
-            debugBox.Append(openModLog);
-        }
+            try
+            {
+                await launcher.LaunchAsync(rootWindow);
+            }
+            catch (GException)
+            {
+                // The portal dialog was dismissed by the user or something like that
+            }
+        };
 
-        var copyDebugInfo = Button.New();
+        copyDebugInfo.OnActivate += async (_, _) =>
         {
-            copyDebugInfo.SetValign(Align.Center);
-            copyDebugInfo.SetHexpand(true);
+            var assembly = typeof(CogworkCoreLogger).Assembly;
 
-            var box = Box.New(Orientation.Horizontal, 8);
-            box.SetHalign(Align.Center);
-            var icon = Image.NewFromIconName("edit-copy-symbolic");
-            var label = Label.New("Copy Debug Info");
-            box.Append(icon);
-            box.Append(label);
+            var appName = (Page.GetRoot() as Gtk.Window)!.Title;
+            var appVersion = assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+                .InformationalVersion;
 
-            copyDebugInfo.SetChild(box);
-            debugBox.Append(copyDebugInfo);
-        }
+            var (launchConfig, _) = _lazyProfile.GetGameLaunchRequest();
+            var path = _lazyProfile.Game.InstallRules.GetLogPath(_lazyProfile);
 
-        content.Append(quickActionsBox);
-        quickActions = new(
-            launchButton,
-            launchLabel,
-            platform,
-            launchType,
-            openModLog,
-            copyDebugInfo
-        );
+            var launchArgs =
+                $"'{string.Join("' '", _lazyProfile.Game.InstallRules.GetLaunchArgs(_lazyProfile))}'";
 
+            var configExists = File.Exists(path);
+            var modsCount =
+                _lazyProfile.ResolvedAdded?.Count + _lazyProfile.ResolvedDependencies?.Count;
+
+            var mods =
+                "- " + string.Join("\n- ", _lazyProfile.GetResolved().Select(x => x.ToString()));
+
+            string? gameDirRootFiles;
+            var gameDir = _lazyProfile.GamePath;
+            if (!Directory.Exists(gameDir))
+                gameDirRootFiles = $"(directory not found: '{gameDir}')";
+            else
+                gameDirRootFiles =
+                    "- "
+                    + string.Join(
+                        "\n- ",
+                        Directory
+                            .GetFileSystemEntries(gameDir!)
+                            .Select(x =>
+                                Directory.Exists(x)
+                                    ? $"{Path.GetFileName(x)}/"
+                                    : Path.GetFileName(x)
+                            )
+                            .OrderByDescending(x => x.EndsWith('/'))
+                            .ThenBy(x => x)
+                    );
+
+            StringBuilder sb = new();
+            sb.AppendLine(
+                CultureInfo.InvariantCulture,
+                $"""
+                Quick Info
+                ```
+                OS: {RuntimeInformation.RuntimeIdentifier}
+                Game: {_lazyProfile.Game.Name} ({launchConfig.Platform}) (launch type: {launchConfig.Launch})
+                Log File: {(
+                    path is { }
+                        ? (configExists ? "✅ exists" : "❌ not generated")
+                        : "not supported by modloader"
+                )}
+                Launch Args: {launchArgs}
+                Profile: {_lazyProfile.DisplayName}
+                Mod Count: {modsCount}
+                Mods:
+                {mods}
+                Game Dir: {gameDir}
+                Game Dir Root Files:
+                {gameDirRootFiles}
+                Mod Manager: {appName} {appVersion}
+                ```
+                """
+            );
+
+            if (configExists)
+            {
+                var logs = await File.ReadAllTextAsync(path!);
+
+                sb.AppendLine(
+                    CultureInfo.InvariantCulture,
+                    $"""
+                    Logs
+                    ```
+                    {logs}
+                    ```
+                    """
+                );
+            }
+
+            var display = Page.GetDisplay();
+            var clipboard = display.GetClipboard();
+
+            var debugInfo = sb.ToString();
+            clipboard.SetText(debugInfo);
+
+            var toast = Toast.New("Copied debug info to clipboard");
+            _toastOverlay.AddToast(toast);
+        };
+
+        var actionGroup = Gio.SimpleActionGroup.New();
+        actionGroup.AddAction(openLogs);
+        actionGroup.AddAction(copyDebugInfo);
+
+        _window.InsertActionGroup("profile", actionGroup);
+        header.PackEnd(menuButton);
+
+        quickActions = new(launchButton, launchLabel, platform, launchType);
         secAdded = new Section(content, "Added", "No added mods. Type to search mods.");
         secDeps = new Section(content, "Dependencies");
         secRecent = new Section(content, "Recently Removed");

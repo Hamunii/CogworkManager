@@ -38,7 +38,11 @@ class Program
                 }
             }
 
-            configController = new ConfigureProfileViewController(navView, RefreshProfilesCallback);
+            configController = new ConfigureProfileViewController(
+                window,
+                navView,
+                RefreshProfilesCallback
+            );
 
             profilesController = new ProfilesViewController(
                 navView,
