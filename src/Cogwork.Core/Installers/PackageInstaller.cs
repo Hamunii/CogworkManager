@@ -166,9 +166,7 @@ public class PackageInstaller
 
                     case InstallType.Namespaced:
                     case InstallType.NamespacedFlattened:
-                        mapped = Path.Combine(outputPath, mapping.Destination);
                         var namespaced = Path.Combine(mapped, package.FullName);
-                        Fs.Directory.CreateDirectory(mapped);
                         MoveOrMergeOverwrite(dirPath, namespaced, mappedFiles);
                         continue;
 
