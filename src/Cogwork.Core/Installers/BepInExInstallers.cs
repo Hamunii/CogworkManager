@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using ZLinq;
 
 namespace Cogwork.Core.Installers;
 
@@ -7,20 +6,20 @@ public class BepInExInstallers(PackageInstaller packageInstaller, PackageInstall
     : IModInstallers
 {
     // https://github.com/ebkr/r2modmanPlus/wiki/Structuring-your-Thunderstore-package
-    public static BepInExInstallers Default { get; } =
+    public static PackageInstaller DefaultPackageInstaller { get; } =
         new(
-            new(
-                [
-                    new("plugins", Path.Combine("BepInEx", "plugins")),
-                    new("core", Path.Combine("BepInEx", "core")),
-                    new("patchers", Path.Combine("BepInEx", "patchers")),
-                    new("monomod", Path.Combine("BepInEx", "monomod"), [".mm.dll"]),
-                    new("config", Path.Combine("BepInEx", "config"), InstallType.Direct),
-                ],
-                protectedDirs: [Path.Combine("BepInEx", "config")]
-            ),
-            PackageInstaller.GenericDirectSkipRootInstaller
+            [
+                Mapping.NamespacedFlattened("plugins", "BepInEx/plugins"),
+                Mapping.NamespacedFlattened("core", "BepInEx/core"),
+                Mapping.NamespacedFlattened("patchers", "BepInEx/patchers"),
+                Mapping.NamespacedFlattened("monomod", "BepInEx/monomod", [".mm.dll"]),
+                Mapping.Direct("config", "BepInEx/config"),
+            ],
+            protectedDirs: ["BepInEx/config"]
         );
+
+    public static BepInExInstallers Default { get; } =
+        new(DefaultPackageInstaller, PackageInstaller.GenericDirectSkipRootInstaller);
 
     public PackageInstaller GetInstaller(PackageVersionReference packageVersion)
     {

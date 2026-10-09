@@ -15,39 +15,59 @@ public enum InstallType
     File,
 }
 
-public readonly record struct SourceToDestination(
-    string Source,
-    string Destination,
-    InstallType Type,
-    string[]? DefaultExtensions = null
-)
+public readonly record struct Mapping
 {
-    public SourceToDestination(
+    public readonly string Source { get; }
+    public readonly string Destination { get; }
+    public readonly InstallType Type { get; }
+    public readonly string[]? DefaultExtensions { get; }
+
+    Mapping(string source, string destination, InstallType type, string[]? defaultExtensions = null)
+    {
+        Source = source;
+        Debug.Assert(destination.Contains('\\') is false);
+        Destination = destination.Replace('/', Path.PathSeparator);
+        Type = type;
+        DefaultExtensions = defaultExtensions;
+    }
+
+    public static Mapping None() => new(string.Empty, string.Empty, InstallType.None);
+
+    public static Mapping Direct(string source, string destination) =>
+        new(source, destination, InstallType.Direct);
+
+    public static Mapping DirectSkipRoot(string source, string destination) =>
+        new(source, destination, InstallType.DirectSkipRoot);
+
+    public static Mapping Namespaced(string source, string destination) =>
+        new(source, destination, InstallType.Namespaced);
+
+    public static Mapping NamespacedFlattened(
         string Source,
         string Destination,
         string[]? DefaultExtensions = null
-    )
-        : this(Source, Destination, InstallType.NamespacedFlattened, DefaultExtensions) { }
+    ) => new(Source, Destination, InstallType.NamespacedFlattened, DefaultExtensions);
 
-    public static SourceToDestination FileMapping(string filePath) =>
-        new(filePath, filePath, InstallType.File);
+    public static Mapping File(string fileSourceToDestination) =>
+        new(fileSourceToDestination, fileSourceToDestination, InstallType.File);
 
-    public static SourceToDestination None() => new(string.Empty, string.Empty, InstallType.None);
+    public static Mapping File(string fileSource, string fileDestination) =>
+        new(fileSource, fileDestination, InstallType.File);
 }
 
-public readonly record struct Mapping(string Destination, InstallType Type);
+public readonly record struct MappingInfo(string Destination, InstallType Type);
 
 public class PackageInstaller
 {
     static readonly FileSystem Fs = IModInstallers.RealFileSystem;
-    readonly Dictionary<string, Mapping> DirToDir;
-    readonly Dictionary<string, Mapping> ExtensionToDir;
+    readonly Dictionary<string, MappingInfo> DirToDir;
+    readonly Dictionary<string, MappingInfo> ExtensionToDir;
     readonly HashSet<string> ProtectedDirsFromRemoval;
 
-    public PackageInstaller(SourceToDestination[] dirToDir, string[] protectedDirs)
+    public PackageInstaller(Mapping[] dirToDir, string[] protectedDirs)
     {
         DirToDir = new(
-            dirToDir.Select(x => new KeyValuePair<string, Mapping>(
+            dirToDir.Select(x => new KeyValuePair<string, MappingInfo>(
                 x.Source,
                 new(x.Destination, x.Type)
             )),
@@ -57,29 +77,33 @@ public class PackageInstaller
             dirToDir
                 .Where(x => x.DefaultExtensions is { })
                 .SelectMany(x =>
-                    x.DefaultExtensions!.Select(extension => new KeyValuePair<string, Mapping>(
+                    x.DefaultExtensions!.Select(extension => new KeyValuePair<string, MappingInfo>(
                         extension,
                         new(x.Destination, x.Type)
                     ))
                 ),
             StringComparer.OrdinalIgnoreCase
         );
-        ProtectedDirsFromRemoval = new(protectedDirs, StringComparer.OrdinalIgnoreCase);
+
+        Debug.Assert(protectedDirs.All(x => x.Contains('\\') is false));
+        ProtectedDirsFromRemoval = new(
+            protectedDirs.Select(x => x.Replace('/', Path.PathSeparator)),
+            StringComparer.OrdinalIgnoreCase
+        );
     }
 
     public static PackageInstaller GenericDirectSkipRootInstaller { get; } =
         new(
-            [new(string.Empty, string.Empty, InstallType.DirectSkipRoot)],
+            [Mapping.DirectSkipRoot(string.Empty, string.Empty)],
             protectedDirs: [Path.Combine("BepInEx", "config")]
         );
 
     /// <remarks>
     /// The default mapping is always implicitly the first entry,
     /// and it's always expected that there is at least one entry.
-    /// Use <see cref="SourceToDestination.None"/> to effectively
-    /// set a no-op default mapping.
+    /// Use <see cref="Mapping.None"/> to set a no-op default mapping.
     /// </remarks>
-    public Mapping GetDefaultMapping() => DirToDir.First().Value;
+    public MappingInfo GetDefaultMapping() => DirToDir.First().Value;
 
     public string[] Map(PackageVersionReference package, string directoryPath, string outputPath)
     {

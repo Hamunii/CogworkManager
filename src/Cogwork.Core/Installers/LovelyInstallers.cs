@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace Cogwork.Core.Installers;
 
 public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstaller lovelyInstaller)
@@ -8,18 +6,18 @@ public class LovelyInstallers(PackageInstaller packageInstaller, PackageInstalle
     public static PackageInstaller DefaultLovelyInstaller { get; } =
         new(
             [
-                SourceToDestination.None(),
-                new("lovely", Path.Combine("mods", "lovely"), InstallType.Direct),
-                SourceToDestination.FileMapping("winhttp.dll"),
-                SourceToDestination.FileMapping("version.dll"),
-                SourceToDestination.FileMapping("winmm.dll"),
+                Mapping.None(),
+                Mapping.Direct("lovely", "mods/lovely"),
+                Mapping.File("winhttp.dll"),
+                Mapping.File("version.dll"),
+                Mapping.File("winmm.dll"),
             ],
             protectedDirs: []
         );
 
     public static LovelyInstallers Default { get; } =
         new(
-            new([new(string.Empty, "mods", InstallType.Namespaced)], protectedDirs: []),
+            new([Mapping.Namespaced(string.Empty, "mods")], protectedDirs: []),
             DefaultLovelyInstaller
         );
 
