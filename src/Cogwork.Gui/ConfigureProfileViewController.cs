@@ -771,12 +771,12 @@ public class ConfigureProfileViewController : IDisposable
         clamp.SetChild(content);
 
         var launchBox = Box.New(Orientation.Horizontal, 8);
+        launchBox.SetHalign(Align.Center);
 
         launchButton = Button.New();
         launchLabel = Label.New("placeholder");
         {
             _launchButton.SetValign(Align.Center);
-            _launchButton.SetHexpand(true);
             _launchButton.SetCssClasses(["suggested-action", "pill"]);
 
             var box = Box.New(Orientation.Horizontal, 8);
