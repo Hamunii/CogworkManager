@@ -157,7 +157,7 @@ public class PackageInstaller
                 {
                     case InstallType.None:
                     case InstallType.File:
-                        break;
+                        continue;
 
                     case InstallType.Direct:
                     case InstallType.DirectSkipRoot:
