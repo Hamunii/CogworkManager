@@ -19,6 +19,7 @@ public class ConfigureProfileViewController : IDisposable
     private ModList? _currentProfile;
     private CancellationTokenSource? _searchCts;
     private readonly Stack<PackageVersion> _dependants = new();
+    private readonly Adw.Spinner _spinner;
 
     // --- Critical UI Controls (Accessed Across View Cycles) ---
     public NavigationPage Page { get; }
@@ -26,6 +27,8 @@ public class ConfigureProfileViewController : IDisposable
     private readonly ToggleButton _searchToggleButton;
     private readonly SearchEntry _searchEntry;
     private readonly SearchBar _searchBar;
+    private bool _searchPending;
+    private readonly ViewStack _statusStack;
     private readonly ViewStack _internalTabsStack;
     private readonly ToastOverlay _toastOverlay;
 
@@ -103,13 +106,18 @@ public class ConfigureProfileViewController : IDisposable
         _searchEntry.SetSearchDelay(0);
         layoutBox.Append(_searchBar);
 
-        // 3. Tab Stack Manager
+        _statusStack = ViewStack.New();
+        _statusStack.SetEnableTransitions(false);
+        _statusStack.SetVexpand(true);
+        layoutBox.Append(_statusStack);
+
         _internalTabsStack = ViewStack.New();
         _internalTabsStack.SetEnableTransitions(false);
         _internalTabsStack.SetVexpand(true);
-        layoutBox.Append(_internalTabsStack);
 
-        // --- Build Manage Tab Layout ---
+        var loadedContainer = Box.New(Orientation.Vertical, 0);
+        loadedContainer.Append(_internalTabsStack);
+
         var manageTabBox = CreateManageTab(
             header,
             out _sectionAdded,
@@ -122,6 +130,18 @@ public class ConfigureProfileViewController : IDisposable
             out _iconPlatform,
             out _iconDirect
         );
+
+        var loadingPage = StatusPage.New();
+        loadingPage.SetTitle("Loading Packages");
+        loadingPage.SetDescription("Loading the package indexes of enabled sources...");
+
+        _spinner = Adw.Spinner.New();
+        _spinner.SetSizeRequest(48, 48);
+        loadingPage.SetChild(_spinner);
+
+        var loadingPageView = _statusStack.AddNamed(loadingPage, "loading");
+        var loadedPageView = _statusStack.AddNamed(loadedContainer, "loaded");
+
         var managePage = _internalTabsStack.AddNamed(manageTabBox, "manage_tab");
         managePage.SetTitle("Manage");
         managePage.SetIconName("emblem-system-symbolic");
@@ -161,6 +181,31 @@ public class ConfigureProfileViewController : IDisposable
         Page = NavigationPage.New(_toastOverlay, "configure_profile");
         Page.OnHiding += (s, e) => _onBackNavigated();
         Page.OnHidden += (s, e) => _currentProfile?.SetDirty();
+    }
+
+    public async Task LoadProfilePageAsync(LazyModList modList)
+    {
+        _statusStack.SetVisibleChildName("loading");
+
+        _lazyProfile = modList;
+        _currentProfile = await modList.LoadAsync();
+
+        GLib.Functions.TimeoutAdd(
+            0,
+            0,
+            () =>
+            {
+                _statusStack.SetVisibleChildName("loaded");
+
+                UpdateConfiguration(modList);
+
+                if (_searchPending)
+                {
+                    OnSearchChanged();
+                }
+                return false;
+            }
+        );
     }
 
     void AddHeaderSettingsButton(Adw.HeaderBar header)
@@ -390,10 +435,9 @@ public class ConfigureProfileViewController : IDisposable
         };
     }
 
-    public void UpdateConfiguration(LazyModList lazyProfile)
+    void UpdateConfiguration(LazyModList lazyProfile)
     {
-        _lazyProfile = lazyProfile;
-        _currentProfile = lazyProfile.GetModListAsync().Result;
+        Debug.Assert(_currentProfile is { });
 
         _windowTitle.SetTitle(Markup.EscapeText(lazyProfile.DisplayName));
         _windowTitle.SetSubtitle(Markup.EscapeText(lazyProfile.Game.Name));
@@ -565,10 +609,12 @@ public class ConfigureProfileViewController : IDisposable
         _searchToggleButton.SetActive(false);
     }
 
-    private void OnSearchChanged(object? sender, EventArgs e)
+    private void OnSearchChanged(object? sender, EventArgs e) => OnSearchChanged();
+
+    private void OnSearchChanged()
     {
         string currentText = _searchEntry.GetText();
-        if (!_searchEntry.HasFocus)
+        if (!_searchEntry.HasFocus && _searchEntry.Activate())
         {
             _searchEntry.GrabFocus();
         }
@@ -591,8 +637,12 @@ public class ConfigureProfileViewController : IDisposable
             }
         }
 
-        if (_currentProfile == null)
+        if (_currentProfile is null)
+        {
+            _searchPending = true;
             return;
+        }
+        _searchPending = false;
 
         string query = currentText.Trim().Replace(' ', '_');
         if (string.IsNullOrEmpty(query))

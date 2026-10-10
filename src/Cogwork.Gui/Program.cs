@@ -47,7 +47,7 @@ class Program
             profilesController = new ProfilesViewController(
                 navView,
                 configController.Page,
-                lazyProfile => configController.UpdateConfiguration(lazyProfile)
+                async lazyProfile => await configController.LoadProfilePageAsync(lazyProfile)
             );
 
             var dashboardController = new DashboardViewController(
