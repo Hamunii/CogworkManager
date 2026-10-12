@@ -50,6 +50,9 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
     protected virtual string GetPackageReadmeUrl(PackageVersion package) =>
         $"https://{id.Site}/api/experimental/package/{GetPackageVersionUrlPath(package)}/readme/";
 
+    protected virtual string GetPackageIconUrl(PackageVersion package) =>
+        $"https://gcdn.{id.Site}/live/repository/icons/{package.ToThunderstoreString()}.png";
+
     public bool IsIncompleteIndexCache() =>
         Directory
             .EnumerateFiles(PackageIndexIndexDirectory)
@@ -452,5 +455,56 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
 
         File.Move(readmeTodo, readme);
         return markdown.Markdown;
+    }
+
+    public override async Task<string?> GetIconAsync(
+        PackageVersionReference packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (TryGetIcon(packageVersion, out var iconPath))
+            return iconPath;
+
+        var downloadUrl = GetPackageIconUrl(packageVersion);
+
+        var downloader = new DownloadService(Utils.SharedDownloadConfiguration);
+
+        var failed = false;
+        downloader.DownloadFileCompleted += (_, e) =>
+        {
+            if (!e.Cancelled && e.Error is null)
+                return;
+
+            failed = true;
+            if (e.Cancelled)
+                Cog.Warning($"Cancelled downloading package icon '{packageVersion}'");
+            else if (e.Error is { } ex)
+                Cog.Error(
+                    $"Error downloading package icon '{packageVersion}' ({downloadUrl}): {ex}"
+                );
+        };
+
+        await downloader.DownloadFileTaskAsync(downloadUrl, iconPath, cancellationToken);
+
+        if (failed)
+        {
+            return null;
+        }
+
+        return iconPath;
+    }
+
+    public override bool TryGetIcon(PackageVersionReference packageVersion, out string iconPath)
+    {
+        var version = packageVersion.Version.ToString();
+        var installPathRoot = CogworkPaths.GetPackagesSubDirectory(
+            PackageInstallSubDirectory,
+            packageVersion.FullName
+        );
+
+        var directoryPath = Path.Combine(installPathRoot, version);
+        iconPath = Path.Combine(directoryPath, "icon");
+
+        return File.Exists(iconPath);
     }
 }

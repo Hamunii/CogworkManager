@@ -1294,6 +1294,32 @@ public class ConfigureProfileViewController : IDisposable
     {
         var row = ActionRow.New();
 
+        var icon = Image.New();
+        icon.SetValign(Align.Center);
+        icon.SetPixelSize(64);
+        icon.SetMarginTop(8);
+        icon.SetMarginBottom(8);
+
+        if (packageVersionReference.Source.TryGetIcon(packageVersionReference, out var iconPath))
+        {
+            icon.SetFromFile(iconPath);
+        }
+        else
+        {
+            TaskManager.IconQueue.EnqueueGtk($"get-icon/{packageVersionReference}",
+                async (ct) =>
+                {
+                    return await packageVersionReference.Source.GetIconAsync(
+                        packageVersionReference,
+                        ct
+                    );
+                },
+                icon.SetFromFile,
+                default
+            );
+        }
+        row.AddPrefix(icon);
+
         var menuButton = MenuButton.New();
         menuButton.SetIconName("mark-location-symbolic");
         menuButton.AddCssClass("flat");

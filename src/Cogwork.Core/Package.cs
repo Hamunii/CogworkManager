@@ -889,6 +889,11 @@ public sealed partial record PackageVersion
         return $"{Package.Author.Name}-{Package.Name}-{Version}/{service.Id}";
     }
 
+    public string ToThunderstoreString()
+    {
+        return $"{Package.Author.Name}-{Package.Name}-{Version}";
+    }
+
     public string ToStringWithoutVersion(string packageSourceId)
     {
         return $"{Author.Name}-{Name}/{packageSourceId}";

@@ -100,6 +100,28 @@ public sealed class LocalPackageSource : PackageSource
         return await File.ReadAllTextAsync(Path.Combine(dir, "README.md"), cancellationToken);
     }
 
+    public override async Task<string?> GetIconAsync(
+        PackageVersionReference packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var dir =
+            await ExtractAsync(packageVersion, cancellationToken)
+            ?? throw new InvalidOperationException($"Local package should always be installed");
+
+        return Path.Combine(dir, "icon.png");
+    }
+
+    public override bool TryGetIcon(PackageVersionReference packageVersion, out string iconPath)
+    {
+        var dir =
+            ExtractAsync(packageVersion).Result
+            ?? throw new InvalidOperationException($"Local package should always be installed");
+
+        iconPath = Path.Combine(dir, "icon.png");
+        return File.Exists(iconPath);
+    }
+
     internal static bool NeedsReinstall(PackageVersionReference packageVersion) =>
         IsPackageDownloaded(
             packageVersion,
