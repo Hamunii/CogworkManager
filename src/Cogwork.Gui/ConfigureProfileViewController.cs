@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using Adw;
@@ -700,6 +701,7 @@ public class ConfigureProfileViewController : IDisposable
                                 _sectionSearchResults.Content.Append(wrappedRow.Row);
                             }
 
+                            TaskManager.IconQueue.CancelAllRemovedButRunning();
                             return false;
                         }
                     );
@@ -1162,7 +1164,12 @@ public class ConfigureProfileViewController : IDisposable
     {
         while (listBox.GetFirstChild() != null)
         {
-            listBox.Remove(listBox.GetFirstChild()!);
+            var row = (ActionRow)listBox.GetFirstChild()!;
+            if (PackageVersionRow.RowToInfo.TryGetValue(row, out var info))
+            {
+                info.TerminateRequests();
+            }
+            listBox.Remove(row);
         }
     }
 
@@ -1184,8 +1191,11 @@ public class ConfigureProfileViewController : IDisposable
             ModDetailsDependency,
         }
 
+        public static ConditionalWeakTable<ActionRow, PackageVersionRow> RowToInfo { get; } = [];
         internal ActionRow Row => _row;
         private readonly ActionRow _row;
+        List<string>? _requests;
+        readonly ConfigureProfileViewController _view;
 
         public PackageVersionRow(
             ConfigureProfileViewController parent,
@@ -1195,7 +1205,9 @@ public class ConfigureProfileViewController : IDisposable
         )
         {
             onClicked ??= parent.OnModRowClicked;
-            _row = parent.CreateBaseRow(versionReference, context, onClicked);
+            _view = parent;
+            _row = CreateBaseRow(versionReference, context, onClicked);
+            RowToInfo.Add(_row, this);
 
             switch (context)
             {
@@ -1284,176 +1296,197 @@ public class ConfigureProfileViewController : IDisposable
                     break;
             }
         }
-    }
 
-    internal ActionRow CreateBaseRow(
-        PackageVersionReference packageVersionReference,
-        PackageVersionRow.Context context,
-        Action<PackageVersionReference> onClicked
-    )
-    {
-        var row = ActionRow.New();
-
-        var icon = Image.New();
-        icon.SetValign(Align.Center);
-        icon.SetPixelSize(64);
-        icon.SetMarginTop(8);
-        icon.SetMarginBottom(8);
-
-        if (packageVersionReference.Source.TryGetIcon(packageVersionReference, out var iconPath))
+        public void TerminateRequests()
         {
-            icon.SetFromFile(iconPath);
-        }
-        else
-        {
-            TaskManager.IconQueue.EnqueueGtk($"get-icon/{packageVersionReference}",
-                async (ct) =>
-                {
-                    return await packageVersionReference.Source.GetIconAsync(
-                        packageVersionReference,
-                        ct
-                    );
-                },
-                icon.SetFromFile,
-                default
-            );
-        }
-        row.AddPrefix(icon);
-
-        var menuButton = MenuButton.New();
-        menuButton.SetIconName("mark-location-symbolic");
-        menuButton.AddCssClass("flat");
-        menuButton.AddCssClass("source-indicator");
-        menuButton.SetValign(Align.Center);
-        menuButton.SetHexpand(false);
-        row.AddSuffix(menuButton);
-
-        var actionGroup = Gio.SimpleActionGroup.New();
-        row.InsertActionGroup("row-scope", actionGroup);
-
-        PackageVersionReference verRef;
-        PackageVersionReference[]? allRefs = null;
-        Gio.SimpleAction? selectSourceAction = null;
-        CssProvider? iconColorProvider = null;
-
-        SetData(packageVersionReference);
-        row.OnActivated += OnClicked;
-        row.SetActivatable(true);
-        return row;
-
-        void SetData(PackageVersionReference reference)
-        {
-            verRef = reference;
-            var allowConfig = context != PackageVersionRow.Context.Dependency;
-            allRefs = [.. reference.GetFromAllAvailableSources(_currentProfile!)];
-            var hasMultipleSources = allRefs.Length > 1;
-
-            var fullName = Markup.EscapeText(reference.FullName);
-            var version = Markup.EscapeText(reference.Version.ToString());
-            var sourceId = Markup.EscapeText(reference.Source.ToString());
-
-            row.SetTitle($"{fullName} <span alpha='60%'>{version}</span>");
-            row.SetSubtitle(Markup.EscapeText(reference.Resolve().Description));
-            menuButton.SetVisible(hasMultipleSources);
-
-            if (!hasMultipleSources)
+            if (_requests is null)
                 return;
 
-            menuButton.SetSensitive(allowConfig);
-            menuButton.SetTooltipText(reference.Source.Id);
-
-            var allSources = allRefs.Select(x => x.Source).ToArray();
-
-            int index = _lazyProfile.SourceIndex.IndexOf(reference.Source);
-            string chosenColor = sourceColors[index % sourceColors.Length];
-
-            foreach (var cls in menuButton.GetCssClasses())
+            foreach (var requestId in _requests)
             {
-                if (cls.StartsWith("src-clr-", StringComparison.Ordinal))
-                {
-                    menuButton.RemoveCssClass(cls);
-                }
+
+                TaskManager.IconQueue.Remove(requestId);
             }
-
-            string uniqueClassName = $"src-clr-{index}";
-            menuButton.AddCssClass(uniqueClassName);
-
-            var display = menuButton.GetDisplay();
-            if (iconColorProvider != null)
-            {
-                StyleContext.RemoveProviderForDisplay(display, iconColorProvider);
-            }
-
-            iconColorProvider = CssProvider.New();
-
-            string cssData = $$"""
-                .{{uniqueClassName}} image,
-                .{{uniqueClassName}} button {
-                    color: {{chosenColor}};
-                }
-                """;
-            iconColorProvider.LoadFromData(cssData, cssData.Length);
-
-            StyleContext.AddProviderForDisplay(
-                display,
-                iconColorProvider,
-                Gtk.Constants.STYLE_PROVIDER_PRIORITY_USER
-            );
-
-            var menu = Gio.Menu.New();
-
-            for (int i = 0; i < allSources.Length; i++)
-            {
-                var sourceName = allSources[i].ToString();
-                var menuItem = Gio.MenuItem.New(sourceName, $"row-scope.select-source({i})");
-                menu.AppendItem(menuItem);
-            }
-
-            menuButton.SetMenuModel(menu);
-
-            if (selectSourceAction != null)
-            {
-                actionGroup.RemoveAction("select-source");
-            }
-
-            var parameterType = VariantType.New("i");
-            var initialState = Variant.NewInt32(index);
-
-            selectSourceAction = Gio.SimpleAction.NewStateful(
-                "select-source",
-                parameterType,
-                initialState
-            );
-
-            selectSourceAction.OnActivate += (s, e) =>
-            {
-                if (e.Parameter is null)
-                    return;
-
-                int selectedIndex = e.Parameter.GetInt32();
-                var versionRef = allRefs[selectedIndex];
-                selectSourceAction.SetState(e.Parameter);
-
-                if (_currentProfile!.Added.ContainsKey((PackageReference)reference))
-                {
-                    _currentProfile.Add(
-                        versionRef.Resolve(),
-                        DependencyVersionResolution.Requested
-                    );
-                    UpdateConfiguration(_lazyProfile);
-                }
-                // We don't need to run SetData if we are on the page
-                // which updates on UpdateConfiguration since it reloads everything.
-                if (context != PackageVersionRow.Context.Added)
-                {
-                    SetData(versionRef);
-                }
-            };
-
-            actionGroup.AddAction(selectSourceAction);
         }
 
-        void OnClicked(ActionRow s, EventArgs e) => onClicked(verRef);
+        internal ActionRow CreateBaseRow(
+            PackageVersionReference packageVersionReference,
+            Context context,
+            Action<PackageVersionReference> onClicked
+        )
+        {
+            var row = ActionRow.New();
+
+            var icon = Image.New();
+            icon.SetValign(Align.Center);
+            icon.SetPixelSize(64);
+            icon.SetMarginTop(8);
+            icon.SetMarginBottom(8);
+
+            if (
+                packageVersionReference.Source.TryGetIcon(packageVersionReference, out var iconPath)
+            )
+            {
+                icon.SetFromFile(iconPath);
+            }
+            else
+            {
+                var requestId = $"get-icon/{packageVersionReference}";
+                if (_requests is null)
+                    _requests = [requestId];
+                else
+                    _requests.Add(requestId);
+
+                TaskManager.IconQueue.EnqueueGtk(
+                    requestId,
+                    async (ct) =>
+                    {
+                        return await packageVersionReference.Source.GetIconAsync(
+                            packageVersionReference,
+                            ct
+                        );
+                    },
+                    icon.SetFromFile,
+                    default
+                );
+            }
+            row.AddPrefix(icon);
+
+            var menuButton = MenuButton.New();
+            menuButton.SetIconName("mark-location-symbolic");
+            menuButton.AddCssClass("flat");
+            menuButton.AddCssClass("source-indicator");
+            menuButton.SetValign(Align.Center);
+            menuButton.SetHexpand(false);
+            row.AddSuffix(menuButton);
+
+            var actionGroup = Gio.SimpleActionGroup.New();
+            row.InsertActionGroup("row-scope", actionGroup);
+
+            PackageVersionReference verRef;
+            PackageVersionReference[]? allRefs = null;
+            Gio.SimpleAction? selectSourceAction = null;
+            CssProvider? iconColorProvider = null;
+
+            SetData(packageVersionReference);
+            row.OnActivated += OnClicked;
+            row.SetActivatable(true);
+            return row;
+
+            void SetData(PackageVersionReference reference)
+            {
+                verRef = reference;
+                var allowConfig = context != PackageVersionRow.Context.Dependency;
+                allRefs = [.. reference.GetFromAllAvailableSources(_view._currentProfile!)];
+                var hasMultipleSources = allRefs.Length > 1;
+
+                var fullName = Markup.EscapeText(reference.FullName);
+                var version = Markup.EscapeText(reference.Version.ToString());
+                var sourceId = Markup.EscapeText(reference.Source.ToString());
+
+                row.SetTitle($"{fullName} <span alpha='60%'>{version}</span>");
+                row.SetSubtitle(Markup.EscapeText(reference.Resolve().Description));
+                menuButton.SetVisible(hasMultipleSources);
+
+                if (!hasMultipleSources)
+                    return;
+
+                menuButton.SetSensitive(allowConfig);
+                menuButton.SetTooltipText(reference.Source.Id);
+
+                var allSources = allRefs.Select(x => x.Source).ToArray();
+
+                int index = _view._lazyProfile.SourceIndex.IndexOf(reference.Source);
+                string chosenColor = _view.sourceColors[index % _view.sourceColors.Length];
+
+                foreach (var cls in menuButton.GetCssClasses())
+                {
+                    if (cls.StartsWith("src-clr-", StringComparison.Ordinal))
+                    {
+                        menuButton.RemoveCssClass(cls);
+                    }
+                }
+
+                string uniqueClassName = $"src-clr-{index}";
+                menuButton.AddCssClass(uniqueClassName);
+
+                var display = menuButton.GetDisplay();
+                if (iconColorProvider != null)
+                {
+                    StyleContext.RemoveProviderForDisplay(display, iconColorProvider);
+                }
+
+                iconColorProvider = CssProvider.New();
+
+                string cssData = $$"""
+                    .{{uniqueClassName}} image,
+                    .{{uniqueClassName}} button {
+                        color: {{chosenColor}};
+                    }
+                    """;
+                iconColorProvider.LoadFromData(cssData, cssData.Length);
+
+                StyleContext.AddProviderForDisplay(
+                    display,
+                    iconColorProvider,
+                    Gtk.Constants.STYLE_PROVIDER_PRIORITY_USER
+                );
+
+                var menu = Gio.Menu.New();
+
+                for (int i = 0; i < allSources.Length; i++)
+                {
+                    var sourceName = allSources[i].ToString();
+                    var menuItem = Gio.MenuItem.New(sourceName, $"row-scope.select-source({i})");
+                    menu.AppendItem(menuItem);
+                }
+
+                menuButton.SetMenuModel(menu);
+
+                if (selectSourceAction != null)
+                {
+                    actionGroup.RemoveAction("select-source");
+                }
+
+                var parameterType = VariantType.New("i");
+                var initialState = Variant.NewInt32(index);
+
+                selectSourceAction = Gio.SimpleAction.NewStateful(
+                    "select-source",
+                    parameterType,
+                    initialState
+                );
+
+                selectSourceAction.OnActivate += (s, e) =>
+                {
+                    if (e.Parameter is null)
+                        return;
+
+                    int selectedIndex = e.Parameter.GetInt32();
+                    var versionRef = allRefs[selectedIndex];
+                    selectSourceAction.SetState(e.Parameter);
+
+                    if (_view._currentProfile!.Added.ContainsKey((PackageReference)reference))
+                    {
+                        _view._currentProfile.Add(
+                            versionRef.Resolve(),
+                            DependencyVersionResolution.Requested
+                        );
+                        _view.UpdateConfiguration(_view._lazyProfile);
+                    }
+                    // We don't need to run SetData if we are on the page
+                    // which updates on UpdateConfiguration since it reloads everything.
+                    if (context != Context.Added)
+                    {
+                        SetData(versionRef);
+                    }
+                };
+
+                actionGroup.AddAction(selectSourceAction);
+            }
+
+            void OnClicked(ActionRow s, EventArgs e) => onClicked(verRef);
+        }
     }
 
     private static Button CreateActionButton(

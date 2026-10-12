@@ -10,20 +10,27 @@ public class TaskManager
 {
     public static TaskManager IconQueue { get; } = new(20);
 
-    readonly Channel<(string id, Func<CancellationToken, Task> func, CancellationToken ct)> _queue;
+    readonly Channel<(
+        string id,
+        Func<CancellationToken, Task> func,
+        CancellationTokenSource cts
+    )> _queue;
     readonly Task[] _workers;
 
     readonly ConcurrentDictionary<
         string,
-        (Func<CancellationToken, Task> func, CancellationToken ct)
+        (Func<CancellationToken, Task> func, CancellationTokenSource cts)
     > idToLatest = [];
+    readonly ConcurrentDictionary<string, bool> idIsRemoved = [];
 
     public TaskManager(int capacity)
     {
         BoundedChannelOptions options = new(capacity) { FullMode = BoundedChannelFullMode.Wait };
-        _queue = Channel.CreateBounded<(string, Func<CancellationToken, Task>, CancellationToken)>(
-            options
-        );
+        _queue = Channel.CreateBounded<(
+            string,
+            Func<CancellationToken, Task>,
+            CancellationTokenSource
+        )>(options);
 
         _workers = new Task[capacity];
         for (int i = 0; i < capacity; i++)
@@ -38,13 +45,16 @@ public class TaskManager
         CancellationToken cancellationToken
     )
     {
-        var value = (job, cancellationToken);
+        var tokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        var value = (job, tokenSource);
+        _ = idIsRemoved.TryRemove(id, out _);
 
         idToLatest.AddOrUpdate(
             id,
             addValueFactory: (id) =>
             {
-                _ = Task.Run(() => _queue.Writer.WriteAsync((id, job, cancellationToken)));
+                _ = Task.Run(() => _queue.Writer.WriteAsync((id, job, tokenSource)));
                 Cog.Information($"Adding new with id '{id}'");
                 return value;
             },
@@ -56,19 +66,43 @@ public class TaskManager
         );
     }
 
+    public void Remove(string id)
+    {
+        idIsRemoved.TryAdd(id, true);
+        Cog.Information($"Removed id '{id}'");
+    }
+
+    public void CancelAllRemovedButRunning()
+    {
+        foreach (var removedId in idIsRemoved.Where(x => x.Value is true))
+        {
+            if (idToLatest.TryRemove(removedId.Key, out var latest))
+            {
+                latest.cts.Cancel();
+                latest.cts.Dispose();
+            }
+        }
+    }
+
     async ValueTask ConsumeQueueAsync()
     {
-        await foreach (var (id, func, ct) in _queue.Reader.ReadAllAsync())
+        await foreach (var (id, func, cts) in _queue.Reader.ReadAllAsync())
         {
-            var prev = (func, ct);
+            if (idIsRemoved.TryGetValue(id, out var isRemoved) && isRemoved)
+            {
+                idToLatest.TryRemove(id, out _);
+                continue;
+            }
+
+            var prev = (func, cts);
             try
             {
-                await func(ct);
+                await func(cts.Token);
 
                 while (idToLatest.TryRemove(id, out var latest) && !latest.Equals(prev))
                 {
-                    await latest.func(latest.ct);
-                    prev = (latest.func, latest.ct);
+                    await latest.func(latest.cts.Token);
+                    prev = (latest.func, latest.cts);
                     Cog.Information($"Updating new after old finished with id '{id}'");
                 }
 
@@ -88,13 +122,13 @@ public class TaskManager
 
     void EnqueueIfNewAvailable(
         string id,
-        (Func<CancellationToken, Task> func, CancellationToken ct) prev
+        (Func<CancellationToken, Task> func, CancellationTokenSource cts) prev
     )
     {
         idToLatest.TryRemove(id, out var latest);
         if (latest.Equals(prev))
             return;
 
-        Enqueue(id, latest.func, latest.ct);
+        Enqueue(id, latest.func, latest.cts.Token);
     }
 }
