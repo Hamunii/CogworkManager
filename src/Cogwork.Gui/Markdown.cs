@@ -17,36 +17,15 @@ partial class MarkdownPreviewer
     {
         _webView = WebView.NewWithProperties([]);
         _webView.SetHexpand(true);
+        _webView.SetVexpand(true);
+        SetHexpand(true);
+        SetVexpand(true);
         Append(_webView);
 
+        var settings = _webView.GetSettings();
+        settings.SetEnableJavascript(false);
+
         var contentManager = _webView.GetUserContentManager();
-        contentManager.RegisterScriptMessageHandler("heightNotifier", null);
-
-        contentManager.OnScriptMessageReceived += async (sender, args) =>
-        {
-            try
-            {
-                var jsResult = await _webView.EvaluateJavascriptAsync(
-                    "document.body.clientHeight;"
-                );
-
-                var rawHeightText = jsResult.ToDouble();
-                int pixelHeight = (int)Math.Ceiling(rawHeightText);
-
-                if (pixelHeight > 1000)
-                    pixelHeight = 1000;
-
-                // Resize the wrapper Gtk.Box layout container smoothly
-                SetSizeRequest(-1, pixelHeight);
-                Console.WriteLine($"Resized: {pixelHeight}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DEBUG] Asynchronous height lookup failed: {ex}");
-            }
-        };
-        // Listen for when WebKit finishes rendering the page layout structure
-        // _webView.OnNotify += async (sender, args) => { };
 
         _pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
 
@@ -99,21 +78,18 @@ partial class MarkdownPreviewer
                     }}
                 }}
 
-                /* CRITICAL: Force the browser wrapper to drop its own scrollbars */
-                /* The size code is broken, must use scrollbar
-                html, body {{
-                    margin: 0;
-                    padding: 0;
-                    overflow: hidden;
-                    height: auto;
-                }} */
-
                 body {{
-                    font-family: 'Adwaita Sans', system-ui, -apple-system, sans-serif;
+                    font-family: system-ui, -apple-system, sans-serif;
                     color: var(--text-color);
                     background-color: transparent;
                     line-height: 1.6;
                     padding: 24px;
+
+                    max-width: 1000px;
+                    margin: 0 auto;
+
+                    overflow-wrap: break-word;
+                    word-wrap: break-word;
                 }}
 
                 /* Markdown Tables Setup */
@@ -149,17 +125,6 @@ partial class MarkdownPreviewer
                 a:hover {{ text-decoration: underline; }}
                 code {{ font-family: monospace; background: var(--table-stripe); padding: 2px 6px; border-radius: 4px; }}
             </style>
-            <script>
-                function triggerCsharpResize() {{
-                    window.webkit.messageHandlers.heightNotifier.postMessage(null);
-                }}
-
-                // 1. Fire when the user drags/resizes the app window
-                window.addEventListener('resize', triggerCsharpResize);
-
-                // 2. Also fire once on load so the initial content displays at full height
-                window.addEventListener('load', triggerCsharpResize);
-            </script>
         </head>
         <body>
             {htmlBody}

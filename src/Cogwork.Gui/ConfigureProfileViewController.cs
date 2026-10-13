@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Adw;
 using GLib;
+using GObject;
 using Gtk;
 
 namespace Cogwork.Gui;
@@ -46,7 +47,8 @@ public class ConfigureProfileViewController : IDisposable
     private readonly Label _modLabel;
     private readonly Label _modDescriptionLabel;
     private readonly Label _modSourceLabel;
-    private readonly MarkdownPreviewer _markdownPreviewer;
+    private readonly MarkdownPreviewer _readmeMarkdown;
+    private readonly MarkdownPreviewer _changelogMarkdown;
 
     // quick actions
 
@@ -154,13 +156,14 @@ public class ConfigureProfileViewController : IDisposable
         installPage.SetIconName("list-add-symbolic");
 
         // --- Build Mod Sub-view Details Sheet Layout ---
-        var modBox = CreateModDetailsBox(
+        var modBox = CreateModDetailsView(
             out _sectionDependant,
             out _sectionModDeps,
             out _modLabel,
             out _modDescriptionLabel,
             out _modSourceLabel,
-            out _markdownPreviewer
+            out _readmeMarkdown,
+            out _changelogMarkdown
         );
         _modPage = NavigationPage.New(modBox, "mod_page");
 
@@ -748,7 +751,7 @@ public class ConfigureProfileViewController : IDisposable
         _modLabel.SetText(reference.FullName);
         _modDescriptionLabel.SetText(packageVersion.Description);
         _modSourceLabel.SetText($"Source: {reference.Source.Id}");
-        _markdownPreviewer.Render(packageVersion.GetReadmeAsync().Result);
+        _readmeMarkdown.Render(packageVersion.GetReadmeAsync().Result);
         ClearList(_sectionModDeps.Content);
         var targetDependencies = packageVersion.MarkedDependencies(_currentProfile!.SourceIndex);
         if (targetDependencies.Length == 0)
@@ -1090,55 +1093,172 @@ public class ConfigureProfileViewController : IDisposable
         return box;
     }
 
-    static Box CreateModDetailsBox(
+    static BreakpointBin CreateModDetailsView(
         out Section sectionDependant,
         out Section sectionModDeps,
         out Label modLabel,
         out Label modDescriptionLabel,
         out Label modSourceLabel,
-        out MarkdownPreviewer markdownPreviewer
+        out MarkdownPreviewer readmeMarkdown,
+        out MarkdownPreviewer changelogMarkdown
     )
     {
-        var box = Box.New(Orientation.Vertical, 0);
-        var header = Adw.HeaderBar.New();
-        header.SetShowTitle(false);
-        header.AddCssClass("flat");
-        box.Append(header);
-        var scroll = ScrolledWindow.New();
-        scroll.SetVexpand(true);
-        box.Append(scroll);
-        var clamp = Clamp.New();
-        clamp.SetMaximumSize(800);
-        scroll.SetChild(clamp);
-        var content = Box.New(Orientation.Vertical, 24);
-        content.SetMarginTop(24);
-        content.SetMarginBottom(24);
-        content.SetMarginStart(24);
-        content.SetMarginEnd(24);
-        clamp.SetChild(content);
-        sectionDependant = new Section(content, "Dependant");
+        // 1. Root Container Wrapper: BreakpointBin
+        var breakpointBin = BreakpointBin.New();
+
+        // Set minimum size limits on the BreakpointBin container so it doesn't log layout assertions
+        breakpointBin.SetSizeRequest(width: 360, height: 200);
+
+        var splitView = OverlaySplitView.New();
+        splitView.SetMinSidebarWidth(200);
+        splitView.SetSidebarPosition(PackType.Start);
+        breakpointBin.SetChild(splitView);
+
+        // ==========================================
+        // LEFT CONTENT PAGE (Sidebar Meta Info Only)
+        // ==========================================
+        var sidebarScroll = ScrolledWindow.New();
+        sidebarScroll.SetVexpand(true);
+        splitView.SetSidebar(sidebarScroll);
+
+        var sidebarContent = Box.New(Orientation.Vertical, 24);
+        sidebarContent.SetMarginTop(24);
+        sidebarContent.SetMarginBottom(24);
+        sidebarContent.SetMarginStart(24);
+        sidebarContent.SetMarginEnd(24);
+        sidebarScroll.SetChild(sidebarContent);
+
         modLabel = Label.New("mod_name");
         modLabel.AddCssClass("heading");
         modLabel.SetHalign(Align.Start);
         modLabel.SetWrapMode(Pango.WrapMode.Word);
         modLabel.SetWrap(true);
-        content.Append(modLabel);
+        sidebarContent.Append(modLabel);
+
         modDescriptionLabel = Label.New("mod_description");
         modDescriptionLabel.SetHalign(Align.Start);
         modDescriptionLabel.SetWrapMode(Pango.WrapMode.Word);
         modDescriptionLabel.SetWrap(true);
-        content.Append(modDescriptionLabel);
+        sidebarContent.Append(modDescriptionLabel);
+
         modSourceLabel = Label.New("mod_source");
         modSourceLabel.AddCssClass("dim-label");
         modSourceLabel.SetHalign(Align.Start);
         modSourceLabel.SetWrapMode(Pango.WrapMode.Word);
         modSourceLabel.SetWrap(true);
-        content.Append(modSourceLabel);
-        markdownPreviewer = MarkdownPreviewer.NewWithProperties([]);
-        markdownPreviewer.SetSizeRequest(-1, 100);
-        content.Append(markdownPreviewer);
-        sectionModDeps = new Section(content, "Dependencies", "None.");
-        return box;
+        sidebarContent.Append(modSourceLabel);
+
+        // ==========================================
+        // RIGHT CONTENT PAGE (Adaptive Toolbar View)
+        // ==========================================
+        var toolbarView = ToolbarView.New();
+        splitView.SetContent(toolbarView);
+
+        var viewStack = ViewStack.New();
+        toolbarView.SetContent(viewStack);
+
+        var header = Adw.HeaderBar.New();
+        header.AddCssClass("flat");
+        toolbarView.AddTopBar(header);
+
+        var sidebarToggleButton = ToggleButton.New();
+        sidebarToggleButton.SetIconName("sidebar-show-symbolic");
+        sidebarToggleButton.SetTooltipText("Toggle Sidebar");
+        sidebarToggleButton.SetVisible(false);
+        header.PackStart(sidebarToggleButton);
+
+        splitView.BindProperty(
+            "show-sidebar",
+            sidebarToggleButton,
+            "active",
+            GObject.BindingFlags.SyncCreate | GObject.BindingFlags.Bidirectional
+        );
+
+        var viewSwitcher = ViewSwitcher.New();
+        viewSwitcher.SetStack(viewStack);
+        viewSwitcher.SetPolicy(ViewSwitcherPolicy.Wide);
+        header.SetTitleWidget(viewSwitcher);
+
+        var viewSwitcherBar = ViewSwitcherBar.New();
+        viewSwitcherBar.SetStack(viewStack);
+        viewSwitcherBar.SetReveal(false);
+        toolbarView.AddBottomBar(viewSwitcherBar);
+
+        // ==========================================
+        // MOBILE BREAKPOINT IMPLEMENTATION
+        // ==========================================
+        var condition = BreakpointCondition.Parse("max-width: 800px");
+        var breakpoint = Breakpoint.New(condition);
+        breakpoint.AddSetter(splitView, "collapsed", new Value(true));
+        breakpoint.AddSetter(sidebarToggleButton, "visible", new Value(true));
+        breakpointBin.AddBreakpoint(breakpoint);
+
+        var condition2 = BreakpointCondition.Parse("max-width: 600px");
+        var breakpoint2 = Breakpoint.New(condition2);
+        breakpoint2.AddSetter(splitView, "collapsed", new Value(true));
+        breakpoint2.AddSetter(sidebarToggleButton, "visible", new Value(true));
+
+        breakpoint2.AddSetter(viewSwitcherBar, "reveal", new Value(true));
+        var title = WindowTitle.New("Details", "");
+        breakpoint2.AddSetter(header, "title-widget", new Value(title));
+        breakpointBin.AddBreakpoint(breakpoint2);
+
+        // ------------------------------------------
+        // TAB 1: Details (Markdown WebView Only)
+        // ------------------------------------------
+
+        readmeMarkdown = MarkdownPreviewer.NewWithProperties([]);
+        var pageReadme = viewStack.AddNamed(readmeMarkdown, "readme");
+        pageReadme.SetTitle("Readme");
+        pageReadme.SetIconName("folder-documents-symbolic");
+
+        // ------------------------------------------
+        // TAB 2: Dependencies (Contains both Sections)
+        // ------------------------------------------
+        var dependenciesScroll = ScrolledWindow.New();
+        dependenciesScroll.SetVexpand(true);
+
+        var dependenciesClamp = Clamp.New();
+        dependenciesClamp.SetMaximumSize(800);
+        dependenciesScroll.SetChild(dependenciesClamp);
+
+        var dependenciesContent = Box.New(Orientation.Vertical, 24);
+        dependenciesContent.SetMarginTop(24);
+        dependenciesContent.SetMarginBottom(24);
+        dependenciesContent.SetMarginStart(24);
+        dependenciesContent.SetMarginEnd(24);
+        dependenciesClamp.SetChild(dependenciesContent);
+
+        sectionDependant = new Section(dependenciesContent, "Dependant");
+        sectionModDeps = new Section(dependenciesContent, "Dependencies", "None.");
+
+        viewStack.AddNamed(dependenciesScroll, "dependencies");
+
+        var pageDeps = viewStack.GetPage(dependenciesScroll);
+        pageDeps.SetTitle("Dependencies");
+        pageDeps.SetIconName("emblem-system-symbolic");
+        pageDeps.SetVisible(true);
+
+        // ------------------------------------------
+        // TAB 3: Changelog (TODO WebView Page)
+        // ------------------------------------------
+        var changelogTabBox = Box.New(Orientation.Vertical, 0);
+        changelogTabBox.SetHexpand(true);
+        changelogTabBox.SetVexpand(true);
+
+        var changelogPlaceholder = Label.New("Changelog Webview placeholder (TODO)");
+        changelogPlaceholder.SetHalign(Align.Center);
+        changelogPlaceholder.SetValign(Align.Center);
+        changelogTabBox.Append(changelogPlaceholder);
+
+        changelogMarkdown = MarkdownPreviewer.NewWithProperties([]);
+        var pageChangelog = viewStack.AddNamed(changelogMarkdown, "changelog");
+        pageChangelog.SetTitle("Changelog");
+        pageChangelog.SetIconName("view-refresh-symbolic");
+
+        viewStack.SetVisibleChildName("readme");
+
+        return breakpointBin;
     }
 
     private void SetupKeyboardShortcuts(Widget targetControllerWidget)
@@ -1304,7 +1424,6 @@ public class ConfigureProfileViewController : IDisposable
 
             foreach (var requestId in _requests)
             {
-
                 TaskManager.IconQueue.Remove(requestId);
             }
         }
