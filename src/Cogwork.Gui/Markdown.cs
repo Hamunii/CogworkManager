@@ -1,11 +1,12 @@
 using System.Diagnostics.CodeAnalysis;
 using GObject;
+using Gtk;
 using Markdig;
 using WebKit;
 
 namespace Cogwork.Gui;
 
-[Subclass<Gtk.Box>]
+[Subclass<Box>]
 partial class MarkdownPreviewer
 {
     private WebView _webView;
@@ -24,14 +25,14 @@ partial class MarkdownPreviewer
 
         var settings = _webView.GetSettings();
         settings.SetEnableJavascript(false);
-
-        var contentManager = _webView.GetUserContentManager();
+        WebViewNativeLinkHandler.Apply(_webView);
 
         _pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
 
         var transparent = new Gdk.RGBA { Alpha = 0.0f };
         _webView.SetBackgroundColor(transparent);
     }
+
 
     /// <summary>
     /// Renders raw Markdown source text straight into the GTK component.
