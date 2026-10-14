@@ -604,6 +604,7 @@ public sealed class ModList
     {
         var isDirty = _isDirty;
         _isDirty = false;
+        Cog.Debug($"Consumed dirty: {isDirty}");
         return isDirty;
     }
 

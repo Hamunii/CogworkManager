@@ -188,7 +188,6 @@ public class ConfigureProfileViewController : IDisposable
         // 5. Package Root Assembly Wrapper
         Page = NavigationPage.New(_toastOverlay, "configure_profile");
         Page.OnHiding += (s, e) => _onBackNavigated();
-        Page.OnHidden += (s, e) => _currentProfile?.SetDirty();
     }
 
     public async Task LoadProfilePageAsync(LazyModList modList)
@@ -197,6 +196,7 @@ public class ConfigureProfileViewController : IDisposable
 
         _lazyProfile = modList;
         _currentProfile = await modList.LoadAsync();
+        _currentProfile.SetDirty();
 
         GLib.Functions.TimeoutAdd(
             0,
@@ -531,7 +531,6 @@ public class ConfigureProfileViewController : IDisposable
         var wrappedRow = CreatePackageRow(mod, PackageVersionRow.Context.Added);
 
         _sectionAdded.Content.Append(wrappedRow.Row);
-        RebuildDependencies();
         _sectionAdded.ToggleVisibility(true);
     }
 
@@ -1394,6 +1393,7 @@ public class ConfigureProfileViewController : IDisposable
                             DependencyVersionResolution.Latest
                         );
                         parent.AddPackageRowToAdded(versionReference);
+                        parent.RebuildDependencies();
 
                         if (parent._currentProfile.Dependencies.Count == 0)
                         {
