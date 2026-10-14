@@ -212,8 +212,8 @@ partial class MarkdownPreviewer
                     max-width: 100%;
                     height: auto;
                     border-radius: 8px;
-                    margin: 16px 0;
-                    display: block;
+                    margin: 0 0;
+                    display: inline-block;
                 }}
 
                 a {{ color: var(--accent-color); text-decoration: none; }}
