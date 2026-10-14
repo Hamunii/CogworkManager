@@ -68,6 +68,17 @@ partial class MarkdownPreviewer
                     --table-stripe: #f6f6f6;
                     --accent-color: #3584e4;
                     --card-bg: #ffffff;
+
+                    --alert-note-color: #0969da;
+                    --alert-note-border: #0969da;
+                    --alert-tip-color: #1a7f37;
+                    --alert-tip-border: #1a7f37;
+                    --alert-important-color: #8250df;
+                    --alert-important-border: #8250df;
+                    --alert-warning-color: #9a6700;
+                    --alert-warning-border: #9a6700;
+                    --alert-caution-color: #cf222e;
+                    --alert-caution-border: #cf222e;
                 }}
 
                 /* Match system dark preferences instantly */
@@ -77,6 +88,17 @@ partial class MarkdownPreviewer
                         --border-color: #383838;
                         --table-stripe: #2f2f2f;
                         --card-bg: #242424;
+
+                        --alert-note-color: #4493f8;
+                        --alert-note-border: #1f6feb;
+                        --alert-tip-color: #3fb950;
+                        --alert-tip-border: #238636;
+                        --alert-important-color: #a371f7;
+                        --alert-important-border: #8957e5;
+                        --alert-warning-color: #d29922;
+                        --alert-warning-border: #9e6a03;
+                        --alert-caution-color: #f85149;
+                        --alert-caution-border: #da3633;
                     }}
                 }}
 
@@ -92,6 +114,77 @@ partial class MarkdownPreviewer
 
                     overflow-wrap: break-word;
                     word-wrap: break-word;
+                }}
+
+                /* Generic Blockquote Fallback */
+                blockquote {{
+                    margin: 16px 0;
+                    padding: 0 16px;
+                    color: var(--text-color);
+                    opacity: 0.85;
+                    border-left: 4px solid var(--border-color);
+                }}
+
+                /* GitHub Flavored Markdown Alerts Base Layout */
+                .markdown-alert {{
+                    padding: 0px 16px;
+                    border-left: 4px solid transparent;
+                    border-radius: 0 6px 6px 0;
+                    background: transparent;
+                }}
+
+                .markdown-alert-title {{
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-weight: 600;
+                    margin-bottom: 4px;
+                }}
+
+                .markdown-alert-title svg {{
+                    fill: currentColor !important;
+                    stroke: currentColor !important;
+
+                    width: 16px !important;
+                    height: 16px !important;
+                    flex-shrink: 0 !important;
+                    overflow: visible !important;
+                    stroke-width: 0.25px !important;
+                }}
+
+                .markdown-alert.markdown-alert-note {{
+                    border-left-color: var(--alert-note-border);
+                }}
+                .markdown-alert.markdown-alert-note .markdown-alert-title {{
+                    color: var(--alert-note-color);
+                }}
+
+                .markdown-alert.markdown-alert-tip {{
+                    border-left-color: var(--alert-tip-border);
+                }}
+                .markdown-alert.markdown-alert-tip .markdown-alert-title {{
+                    color: var(--alert-tip-color);
+                }}
+
+                .markdown-alert.markdown-alert-important {{
+                    border-left-color: var(--alert-important-border);
+                }}
+                .markdown-alert.markdown-alert-important .markdown-alert-title {{
+                    color: var(--alert-important-color);
+                }}
+
+                .markdown-alert.markdown-alert-warning {{
+                    border-left-color: var(--alert-warning-border);
+                }}
+                .markdown-alert.markdown-alert-warning .markdown-alert-title {{
+                    color: var(--alert-warning-color);
+                }}
+
+                .markdown-alert.markdown-alert-caution {{
+                    border-left-color: var(--alert-caution-border);
+                }}
+                .markdown-alert.markdown-alert-caution .markdown-alert-title {{
+                    color: var(--alert-caution-color);
                 }}
 
                 /* Markdown Tables Setup */
@@ -118,7 +211,7 @@ partial class MarkdownPreviewer
                 img {{
                     max-width: 100%;
                     height: auto;
-                    border-radius: 8px; /* Curve styles identical to Adwaita widgets */
+                    border-radius: 8px;
                     margin: 16px 0;
                     display: block;
                 }}
@@ -139,7 +232,7 @@ partial class MarkdownPreviewer
                 pre {{
                     background: var(--card-bg);
                     border: 1px solid var(--border-color);
-                    border-radius: 8px; /* Classic Adwaita card curves */
+                    border-radius: 8px;
                     padding: 16px;
                     margin: 20px 0;
 
@@ -157,7 +250,7 @@ partial class MarkdownPreviewer
                     border-radius: 0;
                     font-size: 0.875em;
                     line-height: 1.5;
-                    white-space: pre; /* Keeps code spacing intact */
+                    white-space: pre;
                     word-break: normal;
                     overflow-wrap: normal;
                 }}
