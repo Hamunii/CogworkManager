@@ -100,6 +100,18 @@ public sealed class LocalPackageSource : PackageSource
         return await File.ReadAllTextAsync(Path.Combine(dir, "README.md"), cancellationToken);
     }
 
+    public override async Task<string?> GetChangelogAsync(
+        PackageVersionReference packageVersion,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var dir =
+            await ExtractAsync(packageVersion, cancellationToken)
+            ?? throw new InvalidOperationException($"Local package should always be installed");
+
+        return await File.ReadAllTextAsync(Path.Combine(dir, "CHANGELOG.md"), cancellationToken);
+    }
+
     public override async Task<string?> GetIconAsync(
         PackageVersionReference packageVersion,
         CancellationToken cancellationToken = default

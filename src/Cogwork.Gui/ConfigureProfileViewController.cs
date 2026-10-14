@@ -752,6 +752,12 @@ public class ConfigureProfileViewController : IDisposable
         _modDescriptionLabel.SetText(packageVersion.Description);
         _modSourceLabel.SetText($"Source: {reference.Source.Id}");
         _readmeMarkdown.Render(packageVersion.GetReadmeAsync().Result);
+
+        var changelogText = packageVersion.GetChangelogAsync().Result;
+        if (string.IsNullOrWhiteSpace(changelogText))
+            changelogText = "Changelog not provided.";
+        _changelogMarkdown.Render(changelogText);
+
         ClearList(_sectionModDeps.Content);
         var targetDependencies = packageVersion.MarkedDependencies(_currentProfile!.SourceIndex);
         if (targetDependencies.Length == 0)
@@ -1240,17 +1246,8 @@ public class ConfigureProfileViewController : IDisposable
         pageDeps.SetVisible(true);
 
         // ------------------------------------------
-        // TAB 3: Changelog (TODO WebView Page)
+        // TAB 3: Changelog
         // ------------------------------------------
-        var changelogTabBox = Box.New(Orientation.Vertical, 0);
-        changelogTabBox.SetHexpand(true);
-        changelogTabBox.SetVexpand(true);
-
-        var changelogPlaceholder = Label.New("Changelog Webview placeholder (TODO)");
-        changelogPlaceholder.SetHalign(Align.Center);
-        changelogPlaceholder.SetValign(Align.Center);
-        changelogTabBox.Append(changelogPlaceholder);
-
         changelogMarkdown = MarkdownPreviewer.NewWithProperties([]);
         var pageChangelog = viewStack.AddNamed(changelogMarkdown, "changelog");
         pageChangelog.SetTitle("Changelog");

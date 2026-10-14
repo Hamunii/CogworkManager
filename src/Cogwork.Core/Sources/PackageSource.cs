@@ -283,6 +283,11 @@ public abstract class PackageSource
         CancellationToken cancellationToken = default
     );
 
+    public abstract Task<string?> GetChangelogAsync(
+        PackageVersionReference packageVersion,
+        CancellationToken cancellationToken = default
+    );
+
     public abstract bool TryGetIcon(PackageVersionReference packageVersion, out string iconPath);
 
     public abstract Task<string?> GetIconAsync(
