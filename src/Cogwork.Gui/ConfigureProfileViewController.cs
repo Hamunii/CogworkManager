@@ -47,6 +47,7 @@ public class ConfigureProfileViewController : IDisposable
     private readonly Label _modLabel;
     private readonly Label _modDescriptionLabel;
     private readonly Label _modSourceLabel;
+    private readonly ViewStack _modPageViewStack;
     private readonly MarkdownPreviewer _readmeMarkdown;
     private readonly MarkdownPreviewer _changelogMarkdown;
 
@@ -162,6 +163,7 @@ public class ConfigureProfileViewController : IDisposable
             out _modLabel,
             out _modDescriptionLabel,
             out _modSourceLabel,
+            out _modPageViewStack,
             out _readmeMarkdown,
             out _changelogMarkdown
         );
@@ -727,6 +729,8 @@ public class ConfigureProfileViewController : IDisposable
 
     private void RenderModDetailsView(PackageVersionReference reference)
     {
+        _modPageViewStack.SetVisibleChildName("readme");
+
         ClearList(_sectionDependant.Content);
         if (_dependants.Count == 0)
         {
@@ -751,12 +755,24 @@ public class ConfigureProfileViewController : IDisposable
         _modLabel.SetText(reference.FullName);
         _modDescriptionLabel.SetText(packageVersion.Description);
         _modSourceLabel.SetText($"Source: {reference.Source.Id}");
-        _readmeMarkdown.Render(packageVersion.GetReadmeAsync().Result);
 
-        var changelogText = packageVersion.GetChangelogAsync().Result;
+        var readmeTextTask = packageVersion.GetReadmeAsync();
+        var changelogTextTask = packageVersion.GetChangelogAsync();
+        // TODO: proper async loading for the UI.
+        Task.WaitAll([readmeTextTask, changelogTextTask]);
+        _readmeMarkdown.Render(readmeTextTask.Result);
+
+        var changelogText = changelogTextTask.Result;
+        var changelogPage = _modPageViewStack.GetPage(_changelogMarkdown);
         if (string.IsNullOrWhiteSpace(changelogText))
-            changelogText = "Changelog not provided.";
-        _changelogMarkdown.Render(changelogText);
+        {
+            changelogPage.SetVisible(false);
+        }
+        else
+        {
+            changelogPage.SetVisible(true);
+            _changelogMarkdown.Render(changelogText);
+        }
 
         ClearList(_sectionModDeps.Content);
         var targetDependencies = packageVersion.MarkedDependencies(_currentProfile!.SourceIndex);
@@ -1105,6 +1121,7 @@ public class ConfigureProfileViewController : IDisposable
         out Label modLabel,
         out Label modDescriptionLabel,
         out Label modSourceLabel,
+        out ViewStack viewStack,
         out MarkdownPreviewer readmeMarkdown,
         out MarkdownPreviewer changelogMarkdown
     )
@@ -1160,7 +1177,7 @@ public class ConfigureProfileViewController : IDisposable
         var toolbarView = ToolbarView.New();
         splitView.SetContent(toolbarView);
 
-        var viewStack = ViewStack.New();
+        viewStack = ViewStack.New();
         toolbarView.SetContent(viewStack);
 
         var header = Adw.HeaderBar.New();

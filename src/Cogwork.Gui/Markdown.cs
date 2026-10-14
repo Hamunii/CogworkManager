@@ -33,7 +33,6 @@ partial class MarkdownPreviewer
         _webView.SetBackgroundColor(transparent);
     }
 
-
     /// <summary>
     /// Renders raw Markdown source text straight into the GTK component.
     /// </summary>
@@ -68,6 +67,7 @@ partial class MarkdownPreviewer
                     --border-color: #e0e0e0;
                     --table-stripe: #f6f6f6;
                     --accent-color: #3584e4;
+                    --card-bg: #ffffff;
                 }}
 
                 /* Match system dark preferences instantly */
@@ -76,6 +76,7 @@ partial class MarkdownPreviewer
                         --text-color: #ffffff;
                         --border-color: #383838;
                         --table-stripe: #2f2f2f;
+                        --card-bg: #242424;
                     }}
                 }}
 
@@ -124,7 +125,42 @@ partial class MarkdownPreviewer
 
                 a {{ color: var(--accent-color); text-decoration: none; }}
                 a:hover {{ text-decoration: underline; }}
-                code {{ font-family: monospace; background: var(--table-stripe); padding: 2px 6px; border-radius: 4px; }}
+
+                /* Inline Code Elements */
+                code {{
+                    font-family: ui-monospace, monospace;
+                    background: var(--table-stripe);
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-size: 0.9em;
+                }}
+
+                /* Code Block Container */
+                pre {{
+                    background: var(--card-bg);
+                    border: 1px solid var(--border-color);
+                    border-radius: 8px; /* Classic Adwaita card curves */
+                    padding: 16px;
+                    margin: 20px 0;
+
+                    /* Prevents the block from making the page stretch horizontally */
+                    max-width: 100%;
+                    overflow-x: auto;
+                    box-sizing: border-box;
+                }}
+
+                /* Code Elements Inside a Block Container */
+                pre code {{
+                    display: block;
+                    background: transparent;
+                    padding: 0;
+                    border-radius: 0;
+                    font-size: 0.875em;
+                    line-height: 1.5;
+                    white-space: pre; /* Keeps code spacing intact */
+                    word-break: normal;
+                    overflow-wrap: normal;
+                }}
             </style>
         </head>
         <body>
