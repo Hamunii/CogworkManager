@@ -44,6 +44,7 @@ public class ConfigureProfileViewController : IDisposable
 
     // --- Mod Profile Info Targets ---
     private readonly NavigationPage _modPage;
+    private readonly Picture _modIcon;
     private readonly Label _modLabel;
     private readonly Label _modDescriptionLabel;
     private readonly Label _modSourceLabel;
@@ -160,6 +161,7 @@ public class ConfigureProfileViewController : IDisposable
         var modBox = CreateModDetailsView(
             out _sectionDependant,
             out _sectionModDeps,
+            out _modIcon,
             out _modLabel,
             out _modDescriptionLabel,
             out _modSourceLabel,
@@ -752,7 +754,12 @@ public class ConfigureProfileViewController : IDisposable
             _sectionDependant.Content.Append(wrappedRow.Row);
         }
         var packageVersion = reference.Resolve();
-        _modLabel.SetText(reference.FullName);
+        // Icon should already be downloaded.
+        _modIcon.SetFilename(packageVersion.GetIconAsync().Result);
+
+        _modLabel.SetText(
+            $"{packageVersion.Name.Replace('_', ' ')}\nby {packageVersion.Author.Name.Replace('_', ' ')}"
+        );
         _modDescriptionLabel.SetText(packageVersion.Description);
         _modSourceLabel.SetText($"Source: {reference.Source.Id}");
 
@@ -1118,6 +1125,7 @@ public class ConfigureProfileViewController : IDisposable
     static BreakpointBin CreateModDetailsView(
         out Section sectionDependant,
         out Section sectionModDeps,
+        out Picture modIcon,
         out Label modLabel,
         out Label modDescriptionLabel,
         out Label modSourceLabel,
@@ -1151,23 +1159,28 @@ public class ConfigureProfileViewController : IDisposable
         sidebarContent.SetMarginEnd(24);
         sidebarScroll.SetChild(sidebarContent);
 
+        modIcon = Picture.New();
+        modIcon.SetHexpand(true);
+        modIcon.SetCanShrink(true);
+        sidebarContent.Append(modIcon);
+
         modLabel = Label.New("mod_name");
         modLabel.AddCssClass("heading");
         modLabel.SetHalign(Align.Start);
-        modLabel.SetWrapMode(Pango.WrapMode.Word);
+        modLabel.SetWrapMode(Pango.WrapMode.WordChar);
         modLabel.SetWrap(true);
         sidebarContent.Append(modLabel);
 
         modDescriptionLabel = Label.New("mod_description");
         modDescriptionLabel.SetHalign(Align.Start);
-        modDescriptionLabel.SetWrapMode(Pango.WrapMode.Word);
+        modDescriptionLabel.SetWrapMode(Pango.WrapMode.WordChar);
         modDescriptionLabel.SetWrap(true);
         sidebarContent.Append(modDescriptionLabel);
 
         modSourceLabel = Label.New("mod_source");
         modSourceLabel.AddCssClass("dim-label");
         modSourceLabel.SetHalign(Align.Start);
-        modSourceLabel.SetWrapMode(Pango.WrapMode.Word);
+        modSourceLabel.SetWrapMode(Pango.WrapMode.WordChar);
         modSourceLabel.SetWrap(true);
         sidebarContent.Append(modSourceLabel);
 

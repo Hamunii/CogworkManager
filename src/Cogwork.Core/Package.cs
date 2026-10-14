@@ -765,6 +765,9 @@ public sealed partial record PackageVersion
     public Task<string?> GetChangelogAsync(CancellationToken cancellationToken = default) =>
         Package.Source.Service.GetChangelogAsync((PackageVersionReference)this, cancellationToken);
 
+    public Task<string?> GetIconAsync(CancellationToken cancellationToken = default) =>
+        Package.Source.Service.GetIconAsync((PackageVersionReference)this, cancellationToken);
+
     public PackageVersion[] AllDependencies(PackageSourceIndex index)
     {
         HashSet<PackageVersion> actualDependencies = [];
