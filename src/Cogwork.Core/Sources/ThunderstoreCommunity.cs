@@ -143,10 +143,9 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
 
         Cog.Information("Fetching: " + url);
 
-        HttpClient client = Utils.SharedHttpClient;
         var config = Utils.SharedDownloadConfiguration;
 
-        if (await FetchPackageListingsAsync(url, client, cancellationToken) is not { } listings)
+        if (await FetchPackageListingsAsync(url, config, cancellationToken) is not { } listings)
         {
             return false;
         }
@@ -173,21 +172,29 @@ public class ThunderstoreCommunity(PackageSourceId id) : PackageSource
         (string url, string fileName)[] newPackageIndexUrls
     )?> FetchPackageListingsAsync(
         string url,
-        HttpClient client,
+        DownloadConfiguration downloadConfig,
         CancellationToken cancellationToken
     )
     {
-        var response = await client.GetAsync(url, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            Cog.Error("Error fetching url for package index: " + response.StatusCode);
-            return default;
-        }
+        var downloader = new DownloadService(downloadConfig);
 
-        using GZipStream zipStream = new(
-            response.Content.ReadAsStream(cancellationToken),
-            CompressionMode.Decompress
-        );
+        bool failed = false;
+        downloader.DownloadFileCompleted += (_, e) =>
+        {
+            if (!e.Cancelled && e.Error is null)
+                return;
+
+            failed = true;
+            if (e.Cancelled)
+                Cog.Warning($"Cancelled fetching url for package index '{url}'");
+            else if (e.Error is { } ex)
+                Cog.Error($"Error fetching url for package index '{url}': {ex}");
+        };
+        var stream = await downloader.DownloadFileTaskAsync(url, cancellationToken);
+        if (failed)
+            return default;
+
+        using GZipStream zipStream = new(stream, CompressionMode.Decompress);
         var strings = JsonSerializer.Deserialize(zipStream, JsonGen.Default.StringArray);
         if (strings is null)
         {

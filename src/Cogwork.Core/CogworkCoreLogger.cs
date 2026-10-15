@@ -25,10 +25,6 @@ public static class CogworkCoreLogger
     {
         var assembly = typeof(CogworkCoreLogger).Assembly;
         var name = assembly.GetName().Name;
-        var version = assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
-            .InformationalVersion;
-
         string mutexId = $@"Global\Hamunii.Cogwork.Logger";
         int numId = 0;
         bool createdNew = false;
@@ -72,10 +68,21 @@ public static class CogworkCoreLogger
             .CreateLogger();
 
         Cog.Debug($"=============================");
-        Cog.Debug($"{name} {version} initialized.");
+        Cog.Debug($"{name} {CogworkInfo.InformationalVersion} initialized.");
+        Cog.Debug($"UserAgent: {CogworkInfo.UserAgent}");
     }
 
     public static Logger Cog { get; }
     static string LogFileLocation { get; }
     static Mutex LogMutex { get; }
+}
+
+public static class CogworkInfo
+{
+    public const string AppId = CogworkPaths.AppId;
+    public static string InformationalVersion { get; } =
+        typeof(Utils)
+            .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+            .InformationalVersion;
+    public static string UserAgent { get; } = $"{AppId}/{InformationalVersion}";
 }

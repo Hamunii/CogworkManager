@@ -11,10 +11,15 @@ public readonly record struct PerformedOrNot<T>(
 
 public static class Utils
 {
-    // Apparently one should preferably keep a singleton of HttpClient.
-    internal static HttpClient SharedHttpClient { get; } = new();
     internal static DownloadConfiguration SharedDownloadConfiguration { get; } =
-        new() { EnableAutoResumeDownload = true };
+        new()
+        {
+            EnableAutoResumeDownload = true,
+            RequestConfiguration = new()
+            {
+                UserAgent = CogworkInfo.UserAgent,
+            },
+        };
 
     /// <summary>
     /// Performs a task if it's not actively being
