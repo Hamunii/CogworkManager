@@ -13,7 +13,9 @@
     <ul>
       <li>Install, add, remove, and manage mods</li>
       <li>Organize mod lists with mod profiles</li>
-      <li>Supports modding a subset of games on <a href="https://thunderstore.io/">Thunderstore</a> and Thunderstore-compatible remotes</li>
+      <li
+        >Supports modding a subset of games on <a href="https://thunderstore.io/"
+          >Thunderstore</a> and Thunderstore-compatible remotes</li>
     </ul>
   </description>
   <launchable type="desktop-id">io.github.hamunii.Cogwork.desktop</launchable>
@@ -29,8 +31,7 @@
   </screenshots>
   <url type="homepage">https://github.com/Hamunii/Cogwork</url>
   <url type="bugtracker">https://github.com/Hamunii/Cogwork/issues</url>
-  <url type="contribute"
-    >https://github.com/Hamunii/Cogwork/blob/main/CONTRIBUTING.md</url>
+  <url type="contribute">https://github.com/Hamunii/Cogwork/blob/main/CONTRIBUTING.md</url>
   <url type="vcs-browser">https://github.com/Hamunii/Cogwork</url>
   <provides>
     <binary>io.github.hamunii.Cogwork</binary>

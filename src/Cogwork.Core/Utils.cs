@@ -15,10 +15,7 @@ public static class Utils
         new()
         {
             EnableAutoResumeDownload = true,
-            RequestConfiguration = new()
-            {
-                UserAgent = CogworkInfo.UserAgent,
-            },
+            RequestConfiguration = new() { UserAgent = CogworkInfo.UserAgent },
         };
 
     /// <summary>
