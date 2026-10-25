@@ -26,7 +26,7 @@ public readonly record struct Mapping
     {
         Source = source;
         Debug.Assert(destination.Contains('\\') is false);
-        Destination = destination.Replace('/', Path.PathSeparator);
+        Destination = destination.Replace('/', Path.DirectorySeparatorChar);
         Type = type;
         DefaultExtensions = defaultExtensions;
     }
