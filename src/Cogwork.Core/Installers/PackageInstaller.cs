@@ -184,13 +184,13 @@ public class PackageInstaller
         HashSet<string> mappedFiles
     )
     {
-        foreach (var dirPath in Fs.Directory.EnumerateDirectories(directoryPath))
+        foreach (var dirPath in Fs.Directory.GetDirectories(directoryPath))
         {
             var dirName = Path.GetFileName(dirPath);
             if (!DirToDir.TryGetValue(dirName, out var mapping))
             {
                 MapRecursive(package, dirPath, outputPath, mappedFiles);
-                break;
+                continue;
             }
 
             var mapped = Path.Combine(outputPath, mapping.Destination);
@@ -214,7 +214,6 @@ public class PackageInstaller
                 default:
                     throw new NotImplementedException("Install type is not implemented.");
             }
-            break;
         }
 
         var defaultMapping = GetDefaultMapping();
@@ -235,7 +234,7 @@ public class PackageInstaller
                 );
                 Fs.Directory.CreateDirectory(defaultFlattenDir);
 
-                foreach (var fileDir in Fs.Directory.EnumerateFiles(directoryPath))
+                foreach (var fileDir in Fs.Directory.GetFiles(directoryPath))
                 {
                     var fileName = Path.GetFileName(fileDir);
 
@@ -275,7 +274,7 @@ public class PackageInstaller
             Fs.Directory.CreateDirectory(destDirName);
         }
 
-        foreach (var file in Fs.Directory.EnumerateFiles(sourceDirName))
+        foreach (var file in Fs.Directory.GetFiles(sourceDirName))
         {
             var fileName = Path.GetFileName(file);
             var dest = Path.Combine(destDirName, fileName);
@@ -286,7 +285,7 @@ public class PackageInstaller
             MoveFile(mappedFiles, file, dest);
         }
 
-        foreach (var dir in Fs.Directory.EnumerateDirectories(sourceDirName))
+        foreach (var dir in Fs.Directory.GetDirectories(sourceDirName))
         {
             var dirName = Path.GetFileName(dir);
             MoveOrMergeOverwrite(dir, Path.Combine(destDirName, dirName), mappedFiles);
@@ -405,7 +404,7 @@ public class PackageInstaller
 
     static void DeleteDirectoryContentsBasedOnSource(IFileSystem sourceFs, string dir)
     {
-        foreach (var file in sourceFs.Directory.EnumerateFiles(dir).AsValueEnumerable())
+        foreach (var file in sourceFs.Directory.GetFiles(dir))
         {
             if (File.Exists(file))
             {
@@ -414,7 +413,7 @@ public class PackageInstaller
             }
         }
 
-        foreach (var subDir in sourceFs.Directory.EnumerateDirectories(dir).AsValueEnumerable())
+        foreach (var subDir in sourceFs.Directory.GetDirectories(dir))
         {
             if (Directory.Exists(subDir))
             {
