@@ -96,15 +96,15 @@ class Program
     private static void SetNativeLibraryResolvers()
     {
         NativeLibrary.SetDllImportResolver(
-            typeof(JavaScriptCore.Context).Assembly,
+            typeof(WebKit.WebView).Assembly,
             (libraryName, assembly, searchPath) =>
             {
-                Console.WriteLine(libraryName);
-                if (libraryName.Equals("JavaScriptCore", StringComparison.OrdinalIgnoreCase))
+                Console.WriteLine($"{assembly.GetName().Name}: {libraryName}");
+                if (libraryName.Equals("WebKit", StringComparison.Ordinal))
                 {
-                    if (NativeLibrary.TryLoad("libjavascriptcoregtk-6.0.so", out var handle))
+                    if (NativeLibrary.TryLoad("libwebkitgtk-6.0.so", out var handle))
                         return handle;
-                    if (NativeLibrary.TryLoad("libjavascriptcoregtk-6.0.so.1", out handle))
+                    if (NativeLibrary.TryLoad("libwebkitgtk-6.0.so.4", out handle))
                         return handle;
                 }
                 return IntPtr.Zero;
@@ -112,11 +112,18 @@ class Program
         );
 
         NativeLibrary.SetDllImportResolver(
-            typeof(WebKit.WebView).Assembly,
+            typeof(WebViewNativeLinkHandler).Assembly,
             (libraryName, assembly, searchPath) =>
             {
-                Console.WriteLine(libraryName);
-                if (libraryName.Equals("WebKit", StringComparison.OrdinalIgnoreCase))
+                Console.WriteLine($"{assembly.GetName().Name}: {libraryName}");
+                if (libraryName.Equals("libgobject-2.0.so", StringComparison.Ordinal))
+                {
+                    if (NativeLibrary.TryLoad("libgobject-2.0.so", out var handle))
+                        return handle;
+                    if (NativeLibrary.TryLoad("libgobject-2.0.so.0", out handle))
+                        return handle;
+                }
+                else if (libraryName.Equals("libwebkitgtk-6.0.so", StringComparison.Ordinal))
                 {
                     if (NativeLibrary.TryLoad("libwebkitgtk-6.0.so", out var handle))
                         return handle;
