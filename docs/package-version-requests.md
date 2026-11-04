@@ -41,7 +41,7 @@ We will represent syntax for a version request with `<package-name>@<version-req
 
 Note that `@*` is the same as `@>=*`.
 
-```toml
+```ini
 [Added]
 Author-Foo@* # 2.0.0 (Author-Bar-3.0.0)
 [Dependencies]
@@ -50,7 +50,7 @@ Author-Bar@% # >= 3.0.0 -> 4.0.0
 
 ### Simple Example: Exact
 
-```toml
+```ini
 [Added]
 Author-Foo@=1.1.0 # 1.1.0 (Author-Bar-1.2.0)
 [Dependencies]
@@ -77,7 +77,7 @@ The following packages have the available versions and dependencies:
 
 This example demonstrates how modpacks that require exact package versions for stability are completely supported.
 
-```toml
+```ini
 [Added]
 Author-ModPackAlpha@=* # 2.0.0 (Author-Foo-2.0.0, Author-Bar-3.0.0)
 [Dependencies]
@@ -91,7 +91,7 @@ We prefer the higher version if an exact version is required multiple times.
 
 We will use `|` to show choosing between the available options.
 
-```toml
+```ini
 [Added]
 Author-ModPackBeta@=1.0.0 # (Author-Foo-1.0.0, Author-Bar-1.0.0)
 Author-ModPackAlpha@=* # 2.0.0 (Author-Foo-2.0.0, Author-Bar-3.0.0)
@@ -106,7 +106,7 @@ When evaluating between `>=` and `=`, we decide with the following logic:
 
 If `=` is in range of `>=`, use `=`. Otherwise pick minimum value of `>=`.
 
-```toml
+```ini
 [Added]
 Author-ModPackBeta@* # 2.0.0 (Author-Foo-1.1.0, Author-Bar-4.0.0)
 Author-ModPackAlpha@=* # 2.0.0 (Author-Foo-2.0.0, Author-Bar-3.0.0)
