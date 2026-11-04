@@ -48,6 +48,10 @@ The plan is that this could resolve into different types of packages even for if
 
 ## Behavior
 
+### Package Version Requests
+
+See [package-version-requests.md](./package-version-requests.md).
+
 ### Package is removed from profile
 
 Uninstall tracked files, and if new data was generated which we can detect (non-config files):
